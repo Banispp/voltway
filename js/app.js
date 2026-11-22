@@ -52,7 +52,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=3.4')
+      navigator.serviceWorker.register('./sw.js?v=3.5')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -646,25 +646,32 @@ function onRouteStateChange(routeState) {
   renderCorridorChargersList(corridorChargers, waypoints);
 }
 
-// Global helpers to set origin / destination directly from map charger clicks
+function activateTabSilently(tabTarget) {
+  const tabButtons = document.querySelectorAll('.tab-btn');
+  const tabPanes = document.querySelectorAll('.tab-pane');
+  tabButtons.forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === tabTarget));
+  tabPanes.forEach(p => p.classList.toggle('active', p.id === `pane-${tabTarget}`));
+}
+
+// Global helpers to set origin / destination directly from map charger clicks (WITHOUT popping up the bottom drawer)
 window.setPlannerOrigin = function (point) {
   originPoint = point;
   const input = document.getElementById('input-origin');
   if (input) input.value = point.name;
-  const routeTab = document.querySelector('[data-tab="route"]');
-  if (routeTab) routeTab.click();
-  const map = MapEngine.getMap();
-  if (map) map.setView([point.lat, point.lng], 14, { animate: true });
+  activateTabSilently('route');
+  if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+    window.SyncEngine.showAutoUpdateToast(`🚩 Starting Point: ${point.name}`);
+  }
 };
 
 window.setPlannerDest = function (point) {
   destinationPoint = point;
   const input = document.getElementById('input-destination');
   if (input) input.value = point.name;
-  const routeTab = document.querySelector('[data-tab="route"]');
-  if (routeTab) routeTab.click();
-  const map = MapEngine.getMap();
-  if (map) map.setView([point.lat, point.lng], 14, { animate: true });
+  activateTabSilently('route');
+  if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+    window.SyncEngine.showAutoUpdateToast(`🏁 Destination: ${point.name}`);
+  }
 };
 
 function updateRouteMetrics(route) {
@@ -976,9 +983,8 @@ function onSelectPlaceSearch(lat, lng, name) {
   const dropdown = document.getElementById('search-dropdown');
   if (dropdown) dropdown.style.display = 'none';
 
-  // Switch to Route tab
-  const routeTab = document.querySelector('[data-tab="route"]');
-  if (routeTab) routeTab.click();
+  // Switch to Route tab silently without popping up bottom drawer
+  activateTabSilently('route');
 }
 
 // Make search handlers global

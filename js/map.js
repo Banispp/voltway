@@ -339,9 +339,10 @@ const MapEngine = (function () {
       window.RouteEngine.addWaypoint(c);
       if (map) map.closePopup();
 
-      // Switch to route tab in bottom sheet
-      const routeTab = document.querySelector('[data-tab="route"]');
-      if (routeTab) routeTab.click();
+      // Show sleek non-intrusive floating toast on map (WITHOUT popping up the bottom drawer UI)
+      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast(`📍 Added Stop: ${c.name}`);
+      }
     }
   }
 
