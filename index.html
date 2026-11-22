@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=4.8">
+  <link rel="stylesheet" href="css/app.css?v=4.9">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -29,7 +29,7 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v4-5-fresh') {
+            if (name !== 'voltway-2w-v4-9-fresh') {
               caches.delete(name);
             }
           });
@@ -52,13 +52,13 @@
       </div>
       <div class="header-actions">
         <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="⚡ Sync Latest EV Chargers (Ather, VIDA & Bolt)">
-          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">2,962</span>)
+          <span class="live-status-dot"></span> <span class="sync-text-prefix">🔄 Sync (</span><span id="header-station-count">2,962</span><span class="sync-text-suffix">)</span>
         </button>
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
         </button>
-        <button id="btn-force-refresh" class="btn-header-action" title="Clear Cache & Force Refresh" style="font-size: 0.72rem; padding: 5px 8px; background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 9999px; cursor: pointer;">
-          v4.8
+        <button id="btn-force-refresh" class="btn-header-action btn-version-pill" title="Clear Cache & Force Refresh" style="font-size: 0.72rem; padding: 5px 8px; background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 9999px; cursor: pointer;">
+          v4.9
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -110,8 +110,8 @@
 
     <!-- Slide-Up Bottom Sheet Drawer -->
     <div id="bottom-sheet" class="bottom-sheet">
-      <!-- Handle Bar -->
-      <div class="sheet-handle-bar">
+      <!-- Handle Bar (Touch Swipeable & Tap to Toggle) -->
+      <div id="sheet-handle-bar" class="sheet-handle-bar" title="Swipe up/down or tap to toggle drawer">
         <div class="sheet-pill"></div>
         <button id="btn-toggle-drawer" class="btn-drawer-toggle">▼ Minimize</button>
       </div>
@@ -119,16 +119,24 @@
       <!-- Navigation Tabs -->
       <nav class="tabs-nav">
         <button class="tab-btn active" data-tab="route">
-          <span>🗺️</span> Route Planner
+          <span class="tab-icon">🗺️</span>
+          <span class="tab-label-full">Route Planner</span>
+          <span class="tab-label-short">Route</span>
         </button>
         <button class="tab-btn" data-tab="battery">
-          <span>🔋</span> Range & Vehicle
+          <span class="tab-icon">🔋</span>
+          <span class="tab-label-full">Range & Vehicle</span>
+          <span class="tab-label-short">Range</span>
         </button>
         <button class="tab-btn" data-tab="calculator">
-          <span>⏱️</span> Charge Time
+          <span class="tab-icon">⏱️</span>
+          <span class="tab-label-full">Charge Time</span>
+          <span class="tab-label-short">Charge</span>
         </button>
         <button class="tab-btn" data-tab="sos">
-          <span>🚨</span> SOS Nearest
+          <span class="tab-icon">🚨</span>
+          <span class="tab-label-full">SOS Nearest</span>
+          <span class="tab-label-short">SOS</span>
         </button>
       </nav>
 
@@ -598,15 +606,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=4.8"></script>
+  <script src="chargers_db.js?v=4.9"></script>
 
-  <!-- Application Engine Scripts with Version 4.8 Cache Buster -->
-  <script src="js/battery.js?v=4.8"></script>
-  <script src="js/sync.js?v=4.8"></script>
-  <script src="js/navigator.js?v=4.8"></script>
-  <script src="js/router.js?v=4.8"></script>
-  <script src="js/utilities.js?v=4.8"></script>
-  <script src="js/map.js?v=4.8"></script>
-  <script src="js/app.js?v=4.8"></script>
+  <!-- Application Engine Scripts with Version 4.9 Cache Buster -->
+  <script src="js/battery.js?v=4.9"></script>
+  <script src="js/sync.js?v=4.9"></script>
+  <script src="js/navigator.js?v=4.9"></script>
+  <script src="js/router.js?v=4.9"></script>
+  <script src="js/utilities.js?v=4.9"></script>
+  <script src="js/map.js?v=4.9"></script>
+  <script src="js/app.js?v=4.9"></script>
 </body>
 </html>

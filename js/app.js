@@ -123,12 +123,28 @@ function setupSunlightToggle() {
   });
 }
 
+// Global Bottom Sheet Control Helpers
+window.expandBottomSheet = function() {
+  const bs = document.getElementById('bottom-sheet');
+  const tb = document.getElementById('btn-toggle-drawer');
+  if (bs) bs.classList.remove('collapsed');
+  if (tb) tb.innerHTML = '▼ Minimize';
+};
+
+window.collapseBottomSheet = function() {
+  const bs = document.getElementById('bottom-sheet');
+  const tb = document.getElementById('btn-toggle-drawer');
+  if (bs) bs.classList.add('collapsed');
+  if (tb) tb.innerHTML = '▲ Expand Panel';
+};
+
 // --- Tabs Management ---
 function setupTabs() {
   const tabButtons = document.querySelectorAll('.tab-btn');
   const tabPanes = document.querySelectorAll('.tab-pane');
   const bottomSheet = document.getElementById('bottom-sheet');
   const toggleDrawerBtn = document.getElementById('btn-toggle-drawer');
+  const handleBar = document.getElementById('sheet-handle-bar');
 
   tabButtons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -142,15 +158,56 @@ function setupTabs() {
       if (targetPane) targetPane.classList.add('active');
 
       // Expand bottom sheet if collapsed
-      if (bottomSheet) bottomSheet.classList.remove('collapsed');
-      if (toggleDrawerBtn) toggleDrawerBtn.innerHTML = '▼ Minimize';
+      window.expandBottomSheet();
     });
   });
 
   if (toggleDrawerBtn && bottomSheet) {
-    toggleDrawerBtn.addEventListener('click', () => {
+    toggleDrawerBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const isCollapsed = bottomSheet.classList.toggle('collapsed');
       toggleDrawerBtn.innerHTML = isCollapsed ? '▲ Expand Panel' : '▼ Minimize';
+    });
+  }
+
+  // Mobile Handle Bar Touch & Tap Interactions
+  if (handleBar && bottomSheet) {
+    handleBar.addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'btn-toggle-drawer') return;
+      const isCollapsed = bottomSheet.classList.toggle('collapsed');
+      if (toggleDrawerBtn) {
+        toggleDrawerBtn.innerHTML = isCollapsed ? '▲ Expand Panel' : '▼ Minimize';
+      }
+    });
+
+    let touchStartY = 0;
+    let touchEndY = 0;
+    handleBar.addEventListener('touchstart', (e) => {
+      if (e.touches && e.touches.length > 0) {
+        touchStartY = e.touches[0].clientY;
+        touchEndY = touchStartY;
+      }
+    }, { passive: true });
+
+    handleBar.addEventListener('touchmove', (e) => {
+      if (e.touches && e.touches.length > 0) {
+        touchEndY = e.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    handleBar.addEventListener('touchend', () => {
+      const deltaY = touchEndY - touchStartY;
+      if (Math.abs(deltaY) > 30) {
+        if (deltaY < 0) {
+          // Swiped up -> expand
+          window.expandBottomSheet();
+        } else {
+          // Swiped down -> collapse
+          window.collapseBottomSheet();
+        }
+      }
+      touchStartY = 0;
+      touchEndY = 0;
     });
   }
 }
@@ -693,6 +750,7 @@ function setupRoutePlanner() {
           console.log('[VoltWay] Route exceeds safe range, auto-discovering corridor charging stops...');
           await RouteEngine.autoSuggestChargingStops(evalMetrics);
         }
+        window.expandBottomSheet();
       } catch (err) {
         alert('Route calculation error: ' + err.message);
       } finally {

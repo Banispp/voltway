@@ -62,6 +62,11 @@ const MapEngine = (function () {
 
     map.on('moveend', onMapMoveEnd);
     map.on('zoomend', onMapMoveEnd);
+    map.on('click', () => {
+      if (window.innerWidth <= 768 && typeof window.collapseBottomSheet === 'function') {
+        window.collapseBottomSheet();
+      }
+    });
 
     locateUser(false);
 
