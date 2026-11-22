@@ -252,7 +252,7 @@ def main():
 
                 seen_ids.add(item_id)
                 clean_addr = addr.split(',')[0].strip()
-                disp_name = f"Vida Grid Fast (Ather Gun ⚡) - {st_name or clean_addr}"
+                disp_name = f"Vida Grid Fast - {st_name or clean_addr}"
 
                 station_entry = {
                     'id': item_id,
@@ -348,7 +348,7 @@ def main():
     print("=" * 72)
     print("STRICT 4-STATE VERIFIED DATABASE (KL + TN + KA + PY ONLY):")
     print(f"  • Ather Grid Fast Chargers (3.3kW / 6kW)   : {ather_added}")
-    print(f"  • Hero VIDA Grid Fast (Ather Gun ⚡)       : {vida_added}")
+    print(f"  • Hero VIDA Grid Fast                      : {vida_added}")
     print(f"  • Bolt.Earth 2W Fast (Ather Gun ⚡)        : {bolt_fast_added}")
     print(f"  • Bolt.Earth 15A Sockets (Universal 2W)   : {bolt_slow_added}")
     print("  -------------------------------------------------------------")

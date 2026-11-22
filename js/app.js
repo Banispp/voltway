@@ -1114,6 +1114,8 @@ function renderTripBatteryTimeline(route) {
         badgeClass = 'badge-bolt-fast';
       }
 
+      const stationNameClean = (step.station?.name || `Stop ${step.index}`).replace(step.station?.network === 'VIDA_GRID' ? /\s*\(Ather Gun[^)]*\)/gi : '', '');
+
       html += `
         <div class="timeline-step timeline-step-stop">
           <div class="step-icon-col">
@@ -1124,7 +1126,7 @@ function renderTripBatteryTimeline(route) {
           </div>
           <div class="step-content stop-card">
             <div class="step-title-row">
-              <span class="step-title">${step.station?.name || `Stop ${step.index}`}</span>
+              <span class="step-title">${stationNameClean}</span>
               <span class="badge-net ${badgeClass}">${netName}</span>
             </div>
 
@@ -1162,11 +1164,10 @@ function renderTripBatteryTimeline(route) {
               💡 ${step.smartAdvice}
             </div>
 
-            <!-- Power, Units & Cost Indicators -->
+            <!-- Power & Energy Indicators -->
             <div class="stop-energy-pills-row">
               <span class="stop-pill-spec">⚡ ${isFast ? '3.3 kW DC Fast (~1.5 km/min)' : '15A AC Socket (~0.33 km/min)'}</span>
               <span class="stop-pill-spec">🔋 ~${step.unitsKWh} kWh</span>
-              <span class="stop-pill-spec">💰 ${step.estCost === 0 ? '₹0 (Ather Grid Free ⚡)' : `~₹${step.estCost}`}</span>
             </div>
 
             <!-- Active Metrics Grid -->
@@ -1414,13 +1415,15 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
       netName = 'Bolt Fast ⚡';
     }
 
+    const cleanName = c.network === 'VIDA_GRID' ? c.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : c.name;
+
     html += `
       <div class="corridor-card ${isWp ? 'is-waypoint' : ''}">
         <div class="corridor-card-header">
           <span class="popup-badge ${badgeClass}">${netName}</span>
           <span class="corridor-dist">📍 ~${c.kmFromOrigin} km from start (${c.corridorDistanceKm} km detour)</span>
         </div>
-        <div class="corridor-card-title">${c.name}</div>
+        <div class="corridor-card-title">${cleanName}</div>
         <div class="corridor-card-desc">${c.connector || ''} • ${c.power_kw || 1.5} kW</div>
         <div class="corridor-card-actions">
           <button class="btn-sm btn-nav" onclick="MapEngine.focusCharger(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">🔍 Show on Map</button>

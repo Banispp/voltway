@@ -285,13 +285,13 @@ const MapEngine = (function () {
       <div class="popup-card">
         <div class="popup-header">
           <span class="popup-badge ${networkBadgeClass}">${networkName}</span>
-          <span class="popup-type">${isFast ? '⚡ Ather Gun Fast' : '🔌 15A Socket'}</span>
+          <span class="popup-type">${isVida ? '⚡ Hero VIDA Fast' : (isAther ? '⚡ Ather Grid Fast' : (isFast ? '⚡ Bolt Fast' : '🔌 15A Socket'))}</span>
         </div>
-        <div class="popup-title">${charger.name}</div>
+        <div class="popup-title">${isVida ? charger.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : charger.name}</div>
 
-        <!-- Ather Gun Compatibility Banner -->
+        <!-- Fast Charging Compatibility Banner -->
         <div class="popup-ather-compat ${isAtherGun ? 'compat-direct' : 'compat-socket'}">
-          ${isAtherGun ? '⚡ 100% Ather Gun Compatible (Direct Plug-in, No Adapter)' : '🔌 15A Socket (Requires Ather Portable Charger Cable)'}
+          ${isVida ? '⚡ 100% Direct Plug-in (Hero VIDA DC Fast Gun)' : (isAtherGun ? '⚡ 100% Direct Plug-in (No Adapter Needed)' : '🔌 15A Socket (Requires Portable Charger Cable)')}
         </div>
 
         <div class="popup-detail">

@@ -62,7 +62,7 @@ for c in vida_cities:
         addr = ch.get('chargingStationAddress') or ''
         if is_in_target_region(lat, lng, s_name, addr):
             clean_addr = addr.split(',')[0].strip()
-            name_label = f"Vida Grid Fast (Ather Gun ⚡) - {ch.get('stationName') or clean_addr}"
+            name_label = f"Vida Grid Fast - {ch.get('stationName') or clean_addr}"
             vida_target[sid] = {
                 'id': f"VIDA_{sid}",
                 'name': name_label,
