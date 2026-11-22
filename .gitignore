@@ -1,2 +1,7 @@
+*.zip
+*.log
+*.tmp
 __pycache__/
-*.pyc
+.system_generated/
+scratch/
+cloudflared.exe
