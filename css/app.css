@@ -353,6 +353,19 @@ html, body {
   color: #00b0ff;
 }
 
+.chip-fast-only {
+  background: rgba(15, 23, 42, 0.95);
+  border-color: rgba(0, 230, 118, 0.35);
+  color: #94a3b8;
+}
+
+.chip-fast-only.active {
+  background: linear-gradient(135deg, rgba(0, 230, 118, 0.2), rgba(255, 87, 34, 0.2));
+  border-color: #00e676;
+  color: #00e676;
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.25);
+}
+
 .chip-badge {
   font-size: 0.72rem;
   padding: 1px 6px;

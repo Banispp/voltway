@@ -157,10 +157,52 @@ function setupTabs() {
 
 // --- Filter Chips Bar ---
 function setupFilterChips() {
+  const chipFastOnly = document.getElementById('chip-fast-only');
   const chipAther = document.getElementById('chip-ather-fast');
   const chipVidaFast = document.getElementById('chip-vida-fast');
   const chipBoltFast = document.getElementById('chip-bolt-fast');
   const chipBoltSlow = document.getElementById('chip-bolt-slow');
+
+  function checkFastOnlySync() {
+    if (!chipFastOnly) return;
+    const isFastOnly = chipAther?.classList.contains('active') &&
+                       chipVidaFast?.classList.contains('active') &&
+                       chipBoltFast?.classList.contains('active') &&
+                       !chipBoltSlow?.classList.contains('active');
+    chipFastOnly.classList.toggle('active', isFastOnly);
+  }
+
+  if (chipFastOnly) {
+    chipFastOnly.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const willBeActive = !chipFastOnly.classList.contains('active');
+      chipFastOnly.classList.toggle('active', willBeActive);
+
+      if (willBeActive) {
+        // Fast Only mode: Turn on Ather, Vida, Bolt Fast; Turn off Bolt Slow 15A
+        if (chipAther) chipAther.classList.add('active');
+        if (chipVidaFast) chipVidaFast.classList.add('active');
+        if (chipBoltFast) chipBoltFast.classList.add('active');
+        if (chipBoltSlow) chipBoltSlow.classList.remove('active');
+
+        MapEngine.setFilter('atherFast', true);
+        MapEngine.setFilter('vidaFast', true);
+        MapEngine.setFilter('boltFast', true);
+        MapEngine.setFilter('boltSlow', false);
+
+        syncRouteFilterBtn('atherFast', true);
+        syncRouteFilterBtn('vidaFast', true);
+        syncRouteFilterBtn('boltFast', true);
+        syncRouteFilterBtn('boltSlow', false);
+      } else {
+        // Restore all chargers
+        if (chipBoltSlow) chipBoltSlow.classList.add('active');
+        MapEngine.setFilter('boltSlow', true);
+        syncRouteFilterBtn('boltSlow', true);
+      }
+    });
+  }
 
   if (chipAther) {
     chipAther.addEventListener('click', (e) => {
@@ -169,6 +211,7 @@ function setupFilterChips() {
       const active = chipAther.classList.toggle('active');
       MapEngine.setFilter('atherFast', active);
       syncRouteFilterBtn('atherFast', active);
+      checkFastOnlySync();
     });
   }
 
@@ -179,6 +222,7 @@ function setupFilterChips() {
       const active = chipVidaFast.classList.toggle('active');
       MapEngine.setFilter('vidaFast', active);
       syncRouteFilterBtn('vidaFast', active);
+      checkFastOnlySync();
     });
   }
 
@@ -189,6 +233,7 @@ function setupFilterChips() {
       const active = chipBoltFast.classList.toggle('active');
       MapEngine.setFilter('boltFast', active);
       syncRouteFilterBtn('boltFast', active);
+      checkFastOnlySync();
     });
   }
 
@@ -199,6 +244,7 @@ function setupFilterChips() {
       const active = chipBoltSlow.classList.toggle('active');
       MapEngine.setFilter('boltSlow', active);
       syncRouteFilterBtn('boltSlow', active);
+      checkFastOnlySync();
     });
   }
 }
@@ -216,6 +262,7 @@ function syncRouteFilterBtn(filterKey, active) {
 
 function updateFilterBadges() {
   const stats = SyncEngine.getStats();
+  const countFastOnly = document.getElementById('count-fast-only');
   const countAther = document.getElementById('count-ather-fast');
   const countVida = document.getElementById('count-vida-fast');
   const countBoltFast = document.getElementById('count-bolt-fast');
@@ -223,6 +270,8 @@ function updateFilterBadges() {
   const btnNetworkPill = document.getElementById('btn-open-sync');
   const headerCountEl = document.getElementById('header-station-count');
 
+  const totalFast = (stats.atherFast || 0) + (stats.vidaFast || 0) + (stats.boltFast || 0);
+  if (countFastOnly) countFastOnly.textContent = totalFast.toLocaleString();
   if (countAther) countAther.textContent = stats.atherFast.toLocaleString();
   if (countVida) countVida.textContent = (stats.vidaFast || 0).toLocaleString();
   if (countBoltFast) countBoltFast.textContent = stats.boltFast.toLocaleString();
@@ -276,14 +325,7 @@ function setupBatteryControls() {
     });
   });
 
-  // Planner Riding Mode buttons (Quick selector on Route Planner)
-  const plannerModeButtons = document.querySelectorAll('.btn-planner-mode');
-  plannerModeButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const mode = btn.getAttribute('data-mode');
-      BatteryEngine.setRidingMode(mode);
-    });
-  });
+
 
   // Custom Efficiency
   if (effInput) {
@@ -355,11 +397,8 @@ function onBatteryStateChange(state) {
   if (safeRangeText) safeRangeText.textContent = `${state.reachableSafeKm} km`;
   if (maxRangeText) maxRangeText.textContent = `${state.absoluteMaxKm} km`;
 
-  // Sync Riding mode pills in both planner and battery dashboard
+  // Sync Riding mode pills in battery dashboard
   document.querySelectorAll('.btn-mode').forEach(b => {
-    b.classList.toggle('active', b.getAttribute('data-mode') === state.ridingMode);
-  });
-  document.querySelectorAll('.btn-planner-mode').forEach(b => {
     b.classList.toggle('active', b.getAttribute('data-mode') === state.ridingMode);
   });
 
@@ -390,7 +429,7 @@ function renderIntermediateStops() {
     row.className = 'intermediate-stop-row';
     row.innerHTML = `
       <div class="stop-row-top">
-        <span class="stop-badge">📍 Stop ${charCode} (ഇടയിലെ സ്റ്റോപ്പ്)</span>
+        <span class="stop-badge">📍 Stop ${charCode}</span>
         <div class="stop-row-actions">
           ${index > 0 ? `<button type="button" class="btn-stop-ctrl btn-stop-up" title="Move Up">↑</button>` : ''}
           ${index < intermediateCustomStops.length - 1 ? `<button type="button" class="btn-stop-ctrl btn-stop-down" title="Move Down">↓</button>` : ''}
@@ -398,7 +437,7 @@ function renderIntermediateStops() {
         </div>
       </div>
       <div class="autocomplete-wrapper">
-        <input type="text" class="input-text input-stop-text" placeholder="Type intermediate stop (e.g. Aluva, Thrissur...)" value="${stop.name || ''}" autocomplete="off">
+        <input type="text" class="input-text input-stop-text" placeholder="Intermediate stop or city..." value="${stop.name || ''}" autocomplete="off">
         <div class="autocomplete-dropdown"></div>
       </div>
     `;

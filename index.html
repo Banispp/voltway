@@ -7,9 +7,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="VoltWay 2W">
-  <meta name="description" content="Production-ready, zero-server-cost Android EV Route Planner for 2-wheeler electric vehicles (Ather Grid & Bolt.Earth)">
+  <meta name="description" content="Production-ready, zero-server-cost EV Route Planner for 2-wheeler electric vehicles (Ather Grid, Hero VIDA & Bolt.Earth)">
 
-  <title>VoltWay 2W - EV Route Planner (Ather & Bolt.Earth)</title>
+  <title>VoltWay 2W - EV Route Planner (Ather, VIDA & Bolt)</title>
 
   <!-- PWA Manifest & Icons -->
   <link rel="manifest" href="manifest.json">
@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=4.2">
+  <link rel="stylesheet" href="css/app.css?v=4.3">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -29,7 +29,7 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v4-2-fresh') {
+            if (name !== 'voltway-2w-v4-3-fresh') {
               caches.delete(name);
             }
           });
@@ -52,13 +52,13 @@
       </div>
       <div class="header-actions">
         <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="⚡ Sync Latest EV Chargers (Ather, VIDA & Bolt)">
-          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">2,963</span>)
+          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">2,958</span>)
         </button>
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action" title="Clear Cache & Force Refresh" style="font-size: 0.72rem; padding: 5px 8px; background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 9999px; cursor: pointer;">
-          v4.2
+          v4.3
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -70,16 +70,20 @@
     <div class="map-top-bar">
       <!-- Location & Charger Search Bar -->
       <div class="search-box-container">
-        <input type="text" id="search-places-input" class="search-input" placeholder="Search city, place, or charger (e.g. Bangalore, Kochi, Indiranagar...)" autocomplete="off">
+        <input type="text" id="search-places-input" class="search-input" placeholder="Search location, city, or EV station..." autocomplete="off">
         <span class="search-icon">🔍</span>
         <div id="search-dropdown" class="search-dropdown"></div>
       </div>
 
       <!-- Filter Chips Bar (Sticky) -->
       <div class="filter-chips-bar">
+        <button type="button" id="chip-fast-only" class="filter-chip chip-fast-only" title="Show Only High-Speed DC Fast Chargers (Ather, VIDA & Bolt Fast)">
+          <span>⚡ Fast Only</span>
+          <span id="count-fast-only" class="chip-badge">1,761</span>
+        </button>
         <button type="button" id="chip-ather-fast" class="filter-chip chip-ather active" title="Toggle Ather Grid DC Fast Chargers">
           <span>⚡ Ather Grid</span>
-          <span id="count-ather-fast" class="chip-badge">1,328</span>
+          <span id="count-ather-fast" class="chip-badge">1,331</span>
         </button>
         <button type="button" id="chip-vida-fast" class="filter-chip chip-vida-fast active" title="Toggle Hero VIDA Fast Chargers">
           <span>⚡ VIDA Grid</span>
@@ -91,7 +95,7 @@
         </button>
         <button type="button" id="chip-bolt-slow" class="filter-chip chip-bolt-slow active" title="Toggle Bolt.Earth 15A Sockets">
           <span>🔌 Bolt 15A</span>
-          <span id="count-bolt-slow" class="chip-badge">1,205</span>
+          <span id="count-bolt-slow" class="chip-badge">1,197</span>
         </button>
       </div>
     </div>
@@ -138,7 +142,7 @@
             <span class="input-label">Starting Point (A)</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="input-origin" class="input-text" placeholder="Type starting place (e.g. Indiranagar, Kochi...)" value="Current Location (GPS)" autocomplete="off">
+                <input type="text" id="input-origin" class="input-text" placeholder="Starting point or GPS..." value="Current Location (GPS)" autocomplete="off">
                 <button id="btn-use-gps-origin" class="btn-addon" title="Use Current GPS Location">📍 GPS</button>
               </div>
               <div id="origin-suggestions" class="autocomplete-dropdown"></div>
@@ -151,17 +155,17 @@
           <!-- Add Intermediate Stop & Google Maps Route Import Buttons -->
           <div class="route-stops-action-bar">
             <button type="button" id="btn-add-intermediate-stop" class="btn-action-pill btn-pill-add-stop" title="Add intermediate stop / city between start and destination">
-              ➕ Add Stop (ഇടയിലെ സ്റ്റോപ്പ് ചേർക്കുക)
+              ➕ Add Stop
             </button>
             <button type="button" id="btn-import-gmaps-trigger" class="btn-action-pill btn-pill-import-gmaps" title="Import route or stops from Google Maps">
-              📥 Import Google Maps Route
+              📥 Import Route
             </button>
           </div>
 
           <div class="input-group">
             <span class="input-label">Final Destination (D)</span>
             <div class="autocomplete-wrapper">
-              <input type="text" id="input-destination" class="input-text" placeholder="Type destination place (e.g. Mysuru, Calicut, Nandi Hills...)" autocomplete="off">
+              <input type="text" id="input-destination" class="input-text" placeholder="Destination location..." autocomplete="off">
               <div id="dest-suggestions" class="autocomplete-dropdown"></div>
             </div>
           </div>
@@ -197,19 +201,11 @@
             <div id="trip-waypoints-container" class="trip-waypoints-container"></div>
           </div>
 
-          <!-- Quick Riding Mode Selector in Route Planner -->
-          <div class="planner-riding-mode-row">
-            <span class="planner-mode-label">⚡ Ride Mode:</span>
-            <div class="planner-mode-pills" id="planner-mode-pills">
-              <button class="btn-planner-mode" data-mode="ECO" title="Eco Mode - Maximum Range">🍃 Eco</button>
-              <button class="btn-planner-mode active" data-mode="RIDE" title="Ride Mode - Balanced City & Highway">⚡ Ride</button>
-              <button class="btn-planner-mode" data-mode="WARP" title="Warp / Sport Mode - Peak Power">🚀 Warp</button>
-            </div>
-          </div>
+
 
           <div class="input-row">
             <button id="btn-plan-route" class="btn-primary-action">
-              ⚡ Plan Optimal 2W Route
+              ⚡ Plan 2W Route
             </button>
             <button id="btn-clear-route" class="btn-secondary-action" style="max-width: 90px;">
               Reset
@@ -219,7 +215,7 @@
           <!-- Route Alternative Options (Google Maps Style Selection) -->
           <div id="route-selector-container" class="route-selector-container" style="display: none;">
             <div class="route-selector-header">
-              <span class="route-selector-title">🛣️ SELECT ROUTE (GOOGLE MAPS STYLE)</span>
+              <span class="route-selector-title">🛣️ ROUTE OPTIONS</span>
               <span id="route-selector-count" class="route-selector-count">3 Available</span>
             </div>
             <div id="route-selector-pills" class="route-selector-pills">
@@ -288,7 +284,7 @@
                 <span>🔋 Trip Battery & Charging Plan</span>
                 <div class="timeline-mode-toggle" id="timeline-mode-toggle">
                   <button type="button" class="btn-timeline-mode active" id="btn-mode-optimal" title="Fast Travel - Charges only what's needed to reach next stop safely">⚡ Fast Travel</button>
-                  <button type="button" class="btn-timeline-mode" id="btn-mode-target" title="Full Target - Charges to configured limit (e.g. 80%) at every stop">🔋 Full Target</button>
+                  <button type="button" class="btn-timeline-mode" id="btn-mode-target" title="Full Target - Charges to configured limit at every stop">🔋 Full Target</button>
                 </div>
               </div>
               <div id="trip-battery-timeline-container" class="battery-timeline-container">
@@ -483,7 +479,7 @@
         <!-- Overall Network Sync Summary -->
         <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;">
           <div class="metric-box">
-            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">2,963</span>
+            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">2,958</span>
             <span class="metric-label">Total Verified 2W Stations</span>
           </div>
           <div class="metric-box">
@@ -498,7 +494,7 @@
           <div class="sync-net-item sync-item-ather">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-ather">⚡ ATHER GRID FAST</span>
-              <span id="modal-ather-count" class="sync-item-count">1,328</span>
+              <span id="modal-ather-count" class="sync-item-count">1,331</span>
             </div>
             <div class="sync-item-sub">
               <span>🔌 <strong>Connector:</strong> Ather Proprietary DC Fast Gun (IS 17017-2-7 / Type 7)</span>
@@ -534,7 +530,7 @@
           <div class="sync-net-item sync-item-bolt-slow">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-bolt-slow">🔌 BOLT.EARTH 15A</span>
-              <span id="modal-bolt-slow-count" class="sync-item-count">1,205</span>
+              <span id="modal-bolt-slow-count" class="sync-item-count">1,197</span>
             </div>
             <div class="sync-item-sub">
               <span>🔌 <strong>Connector:</strong> Standard 15A AC 3-Pin Socket</span>
@@ -569,7 +565,7 @@
             <span style="font-size: 1.3rem;">📥</span>
             <div>
               <div class="modal-title" style="font-size: 1.05rem;">Import Google Maps Route</div>
-              <div style="font-size: 0.72rem; color: var(--text-secondary);">Google Maps ലിങ്ക് അല്ലെങ്കിൽ ഷെയർ ചെയ്ത റൂട്ട് പേസ്റ്റ് ചെയ്യുക</div>
+              <div style="font-size: 0.72rem; color: var(--text-secondary);">Import multi-stop routes directly from Google Maps</div>
             </div>
           </div>
           <button class="modal-close" id="btn-close-import-gmaps">&times;</button>
@@ -577,7 +573,7 @@
 
         <div class="modal-body" style="display: flex; flex-direction: column; gap: 12px;">
           <div class="import-help-box">
-            💡 <strong>Google Maps-ൽ നിന്ന്:</strong> റൂട്ട് സെലക്ട് ചെയ്ത ശേഷം <strong>Share</strong> ക്ലിക്ക് ചെയ്ത് ലിങ്ക് കോപ്പി ചെയ്യുക. താഴെ പേസ്റ്റ് ചെയ്താൽ എല്ലാ സ്റ്റോപ്പുകളും ഓട്ടോമാറ്റിക്കായി ഇതിൽ വരും!
+            💡 <strong>How to import:</strong> Share route from Google Maps, copy the link, and paste below to automatically import all origin, stops, and destination waypoints.
           </div>
 
           <div class="input-group">
@@ -602,15 +598,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=4.2"></script>
+  <script src="chargers_db.js?v=4.3"></script>
 
-  <!-- Application Engine Scripts with Version 4.2 Cache Buster -->
-  <script src="js/battery.js?v=4.2"></script>
-  <script src="js/sync.js?v=4.2"></script>
-  <script src="js/navigator.js?v=4.2"></script>
-  <script src="js/router.js?v=4.2"></script>
-  <script src="js/utilities.js?v=4.2"></script>
-  <script src="js/map.js?v=4.2"></script>
-  <script src="js/app.js?v=4.2"></script>
+  <!-- Application Engine Scripts with Version 4.3 Cache Buster -->
+  <script src="js/battery.js?v=4.3"></script>
+  <script src="js/sync.js?v=4.3"></script>
+  <script src="js/navigator.js?v=4.3"></script>
+  <script src="js/router.js?v=4.3"></script>
+  <script src="js/utilities.js?v=4.3"></script>
+  <script src="js/map.js?v=4.3"></script>
+  <script src="js/app.js?v=4.3"></script>
 </body>
 </html>

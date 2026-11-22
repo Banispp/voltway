@@ -1,7 +1,7 @@
 {
   "name": "VoltWay 2W: EV Route Planner",
   "short_name": "VoltWay 2W",
-  "description": "Zero-server Android EV Route Planner for 2-wheeler electric vehicles (Ather Grid & Bolt.Earth)",
+  "description": "Zero-server mobile EV Route Planner for 2-wheeler electric vehicles (Ather Grid, Hero VIDA & Bolt.Earth in South India)",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

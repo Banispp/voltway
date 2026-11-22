@@ -155,6 +155,7 @@ const SyncEngine = (function () {
 
   function reconcileChargers(authoritativeList) {
     if (!Array.isArray(authoritativeList) || authoritativeList.length === 0) return { added: 0, removed: 0 };
+    authoritativeList = authoritativeList.filter(c => isTargetSouthRegion(c.name, c.address, c.lat, c.lng));
 
     const remoteMap = new Map();
     authoritativeList.forEach(c => remoteMap.set(c.id, c));
@@ -198,6 +199,56 @@ const SyncEngine = (function () {
         resolve();
       }
     });
+  }
+
+  /**
+   * Regional Target Filter: Strictly Kerala, Tamil Nadu, Karnataka & Puducherry/Mahe
+   * Rejects out-of-region states (AP, Telangana, Maharashtra, Goa, North India)
+   */
+  function isTargetSouthRegion(name, address, lat, lng) {
+    if (lat < 8.05 || lat > 18.55 || lng < 74.00 || lng > 80.40) return false;
+    let text = `${name || ''} ${address || ''}`.toLowerCase();
+
+    // Contextual exception replacements
+    text = text.replace('anantapuram vari', 'restaurant')
+               .replace('pune bangalore', 'highway')
+               .replace('pune-bangalore', 'highway')
+               .replace('goa main road', 'road')
+               .replace('goa road', 'road')
+               .replace('maharashtra bank', 'bank');
+
+    // 1. Excluded State checks (negative keywords)
+    const isTelangana = ['telangana', 'hyderabad', 'secunderabad', 'warangal'].some(k => text.includes(k));
+    const isAndhra = ['andhra', 'andhra pradesh', 'anantapur', 'chittoor', 'tirupati', 'vijayawada', 'visakhapatnam', 'vizag', 'guntur', 'nellore', 'kurnool'].some(k => text.includes(k));
+    const isMaharashtra = (text.includes('maharashtra') || text.includes('mumbai') || text.includes('pune') || text.includes('nagpur') || text.includes('nashik') || text.includes('sangli') || text.includes('kolhapur') || text.includes('solapur') || text.includes('satara')) && !text.includes('bank');
+    const isGoa = ['curchorem', 'canacona', 'margao', 'panaji', 'mapusa', 'quepem', 'zambaulim'].some(k => text.includes(k)) || (/\bgoa\b/.test(text) && !text.includes('road') && !text.includes('highway') && !text.includes('hwy'));
+    const isNorth = ['delhi', 'noida', 'gurgaon', 'gurugram', 'haryana', 'punjab', 'rajasthan', 'gujarat', 'uttar pradesh', 'bhopal', 'indore', 'bihar', 'bengal', 'aizawl', 'mizoram', 'assam'].some(k => new RegExp(`\\b${k}\\b`).test(text));
+
+    if (isTelangana || isAndhra || isMaharashtra || isGoa || isNorth) {
+      return false;
+    }
+
+    // 2. Positive State checks
+    const isKL = ['kerala', 'malappuram', 'kozhikode', 'ernakulam', 'kochi', 'thrissur', 'trivandrum', 'thiruvananthapuram', 'kollam', 'alappuzha', 'kottayam', 'palakkad', 'kannur', 'kasaragod', 'wayanad', 'idukki', 'pathanamthitta'].some(k => text.includes(k));
+    const isTN = ['tamil nadu', 'tamilnadu', 'chennai', 'coimbatore', 'madurai', 'trichy', 'tiruchirappalli', 'salem', 'tirunelveli', 'tiruppur', 'erode', 'vellore', 'hosur', 'kanyakumari', 'ooty', 'udhagamandalam', 'dharmapuri', 'krishnagiri'].some(k => text.includes(k));
+    const isKA = [
+      'karnataka', 'bengaluru', 'bangalore', 'mysuru', 'mysore', 'mangaluru', 'mangalore', 
+      'hubli', 'hubballi', 'dharwad', 'belagavi', 'belgaum', 'udupi', 'manipal', 'tumkur', 
+      'tumakuru', 'shimoga', 'shivamogga', 'davanagere', 'ballari', 'bellary', 'kolar', 
+      'hassan', 'mandya', 'chikkamagaluru', 'raichur', 'bidar', 'kalaburagi', 'gulbarga', 
+      'jewargi', 'badami', 'bagalkot', 'bagalkote', 'yadgir', 'yadgiri', 'vijayapura', 
+      'bijapur', 'ilkal', 'kerur', 'bagepalli', 'kudatini'
+    ].some(k => text.includes(k));
+    const isPY = ['puducherry', 'pondicherry', 'mahe', 'karaikal'].some(k => text.includes(k));
+
+    if (isKL || isTN || isKA || isPY) return true;
+
+    // Strict bounding fallback for concise addresses
+    if ((lat >= 8.15 && lat <= 12.85) && (lng >= 74.85 && lng <= 77.40)) return true; // Kerala
+    if ((lat >= 8.08 && lat <= 13.50) && (lng >= 76.25 && lng <= 80.35) && !(lat > 13.35 && lng > 79.75)) return true; // TN
+    if ((lat >= 11.55 && lat <= 18.45) && (lng >= 74.05 && lng <= 77.75)) return true; // KA interior
+
+    return false;
   }
 
   /**
@@ -248,9 +299,12 @@ const SyncEngine = (function () {
           return; // Strictly reject all 4-wheeler car chargers!
         }
 
+        const addr = item.station?.address || '';
+        const stnName = item.station?.name || '';
+
         // Regional Target Check: Strictly Kerala, Tamil Nadu, Karnataka, Puducherry / Mahe
-        if (lat < 8.05 || lat > 18.55 || lng < 74.00 || lng > 80.40) {
-          return;
+        if (!isTargetSouthRegion(stnName, addr, lat, lng)) {
+          return; // Reject any station outside KL, TN, KA, PY
         }
 
         // 2. Verified 2-Wheeler Fast Charger (Ather Gun IS 17017 Type 7 LEV DC / Type 6)
@@ -277,7 +331,6 @@ const SyncEngine = (function () {
         const connName = is2WFast ? 'Ather Gun (IS 17017 Type 7 LEV DC Fast) ⚡' : 'Standard 15A / 3-Pin AC Socket (Requires Ather Portable Charger) 🔌';
         const compat = is2WFast ? '100% Direct Plug-in (Ather 450X/Rizta/Apex)' : 'Requires Portable Charger Cable';
         const powerKw = is2WFast ? 3.3 : 1.5;
-        const addr = item.station?.address || '';
         const cleanAddr = addr.split(',')[0].trim();
         const name = is2WFast ? `Bolt Fast (Ather Gun ⚡) - ${cleanAddr || cid}` : `Bolt.Earth 15A Socket - ${cleanAddr || cid}`;
 
@@ -386,6 +439,7 @@ const SyncEngine = (function () {
 
     newChargers.forEach(c => {
       if (!existingMap.has(c.id)) {
+        if (!isTargetSouthRegion(c.name, c.address, c.lat, c.lng)) return;
         existingMap.set(c.id, c);
         toAdd.push(c);
         addedCount++;
