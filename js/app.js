@@ -1040,7 +1040,7 @@ function renderTripBatteryTimeline(route) {
                 <div class="stop-rec-main">
                   Charge to <span class="rec-highlight">${step.fullTargetSoC}%</span> (+${step.fullChargeNeededPct}%)
                 </div>
-                <div class="stop-rec-sub">Max range cushion (${step.targetChargeSoC}% limit)</div>
+                <div class="stop-rec-sub">${step.fullTargetSoC > step.targetChargeSoC ? `Extended charge needed for next stretch (${step.fullTargetSoC}%)` : `Configured target charge (${step.targetChargeSoC}% limit)`}</div>
               </div>
             </div>
 

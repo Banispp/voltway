@@ -306,9 +306,11 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Identifies all compatible 2W chargers within corridorDistanceKm of the route polyline
+   * Identifies all compatible 2W chargers within corridorDistanceKm of the route polyline.
+   * Uses adaptive corridor width: 4.5 km for intercity highway routes (>40 km) to capture
+   * chargers near bypasses/town entries, and 3.0 km for urban trips.
    */
-  function findCorridorChargers(routeCoords, maxCorridorKm = 2.5) {
+  function findCorridorChargers(routeCoords, maxCorridorKm = null) {
     const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
     const matching = [];
 
@@ -316,6 +318,10 @@ const RouteEngine = (function () {
       corridorChargers = [];
       return [];
     }
+
+    const effectiveMaxCorridorKm = (maxCorridorKm != null)
+      ? maxCorridorKm
+      : ((activeRoute && activeRoute.distanceKm > 40) ? 4.5 : 3.0);
 
     // Precompute cumulative Haversine distance along route coordinates
     const cumDists = new Float64Array(routeCoords.length);
@@ -342,7 +348,7 @@ const RouteEngine = (function () {
       if (lng > maxLng) maxLng = lng;
     }
 
-    const degBuffer = 0.04;
+    const degBuffer = effectiveMaxCorridorKm > 3 ? 0.065 : 0.04;
     minLat -= degBuffer;
     maxLat += degBuffer;
     minLng -= degBuffer;
@@ -375,7 +381,7 @@ const RouteEngine = (function () {
         if (minDistance <= 0.05) break;
       }
 
-      if (minDistance <= maxCorridorKm) {
+      if (minDistance <= effectiveMaxCorridorKm) {
         const segDist = cumDists[closestSegmentIndex] + closestT * (cumDists[closestSegmentIndex + 1] - cumDists[closestSegmentIndex]);
         const approxKmFromOrigin = Math.round(segDist * distScale * 10) / 10;
 
@@ -393,7 +399,9 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Automatically suggests optimal charging stops along the route if distance > safe battery range
+   * Automatically suggests optimal charging stops along the route if distance > safe battery range.
+   * Handles multi-hundred-kilometer intercity journeys with intelligent gap recovery,
+   * adaptive corridor search, and forward-progress candidate ranking.
    */
   async function autoSuggestChargingStops(batteryEvaluation) {
     if (!activeRoute || !batteryEvaluation) return [];
@@ -411,12 +419,16 @@ const RouteEngine = (function () {
     const suggestedWaypoints = [];
     let currentCoveredKm = 0;
     let attempts = 0;
+    const maxAttempts = 35; // Supports up to 1,000+ km cross-state journeys
 
-    while (currentCoveredKm + safeRange < totalDist && attempts < 8) {
+    while (currentCoveredKm + safeRange < totalDist && attempts < maxAttempts) {
       attempts++;
-      const targetMinKm = currentCoveredKm + (safeRange * 0.50);
+
+      // Ideal target zone: between 45% and 95% of safe range ahead of current covered km
+      const targetMinKm = currentCoveredKm + (safeRange * 0.45);
       const targetMaxKm = currentCoveredKm + (safeRange * 0.95);
 
+      // 1. Ideal zone candidates (45% - 95% of safe range)
       let candidates = corridorChargers.filter(c => {
         if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
         if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
@@ -427,31 +439,53 @@ const RouteEngine = (function () {
                !suggestedWaypoints.some(w => w.id === c.id);
       });
 
+      // 2. Fallback zone: any charger between currentCoveredKm + 15km and currentCoveredKm + safeRange
       if (candidates.length === 0) {
         candidates = corridorChargers.filter(c => {
           if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
           if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
           if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
           if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
-          return c.kmFromOrigin > currentCoveredKm &&
+          return c.kmFromOrigin > currentCoveredKm + 15 &&
                  c.kmFromOrigin <= currentCoveredKm + safeRange &&
                  !suggestedWaypoints.some(w => w.id === c.id);
         });
       }
 
-      if (candidates.length === 0) break;
+      // 3. Gap Recovery: If there is a charging desert / ghat stretch where no charger exists within safe range:
+      // NEVER give up on the rest of the route! Pick the nearest available forward charger along the route.
+      if (candidates.length === 0) {
+        const forwardChargers = corridorChargers.filter(c => {
+          if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
+          if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
+          if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
+          if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
+          return c.kmFromOrigin > currentCoveredKm &&
+                 !suggestedWaypoints.some(w => w.id === c.id);
+        });
 
+        if (forwardChargers.length === 0) {
+          // No more chargers exist between here and the destination
+          break;
+        }
+
+        // Pick the charger closest to currentCoveredKm + safeRange
+        forwardChargers.sort((a, b) => Math.abs(a.kmFromOrigin - (currentCoveredKm + safeRange)) - Math.abs(b.kmFromOrigin - (currentCoveredKm + safeRange)));
+        candidates = [forwardChargers[0]];
+      }
+
+      // Rank candidates: prioritize furthest forward progress along the route, balanced with network priority and low detour
       candidates.sort((a, b) => {
-        const getPriority = (c) => {
-          if (c.network === 'ATHER_GRID') return 1;
-          if (c.network === 'VIDA_GRID') return 1;
-          if (c.network === 'BOLT_EARTH' && c.type === 'FAST') return 2;
-          return 3;
+        const getNetScore = (c) => {
+          if (c.network === 'ATHER_GRID') return 30;
+          if (c.network === 'VIDA_GRID') return 30;
+          if (c.network === 'BOLT_EARTH' && c.type === 'FAST') return 20;
+          return 0; // 15A socket
         };
-        const pA = getPriority(a);
-        const pB = getPriority(b);
-        if (pA !== pB) return pA - pB;
-        return a.corridorDistanceKm - b.corridorDistanceKm;
+
+        const scoreA = ((a.kmFromOrigin - currentCoveredKm) * 1.5) + getNetScore(a) - (a.corridorDistanceKm * 3.5);
+        const scoreB = ((b.kmFromOrigin - currentCoveredKm) * 1.5) + getNetScore(b) - (b.corridorDistanceKm * 3.5);
+        return scoreB - scoreA;
       });
 
       const selected = candidates[0];
@@ -648,8 +682,10 @@ const RouteEngine = (function () {
         let smartAdvice = '';
         if (optimalTargetSoC < fullTargetSoC) {
           smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charging to ${optimalTargetSoC}% gets you there safely with ${minReserve}% buffer — saving ${timeSavedMins} mins! Or charge to ${fullTargetSoC}% for max cushion.`;
+        } else if (optimalTargetSoC >= 100) {
+          smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. High energy stretch — recommended to charge to 100% to guarantee arrival with ${minReserve}% safety reserve.`;
         } else {
-          smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. High energy leg — recommended to charge fully to ${optimalTargetSoC}% to guarantee arrival with ${minReserve}% reserve.`;
+          smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charge to ${optimalTargetSoC}% to guarantee safe arrival with ${minReserve}% safety buffer.`;
         }
 
         // Active values depending on current timeline mode ('optimal' vs 'target')
