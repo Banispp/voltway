@@ -74,15 +74,16 @@ const RouteEngine = (function () {
 
   /**
    * Calculates perpendicular distance from a point to a line segment (km)
+   * and returns { distance, t } where t in [0, 1] is the projection fraction.
    */
   function distToSegment(p, v, w) {
     const l2 = (v[0] - w[0]) * (v[0] - w[0]) + (v[1] - w[1]) * (v[1] - w[1]);
-    if (l2 === 0) return haversineDistance(p[0], p[1], v[0], v[1]);
+    if (l2 === 0) return { distance: haversineDistance(p[0], p[1], v[0], v[1]), t: 0 };
     let t = ((p[0] - v[0]) * (w[0] - v[0]) + (p[1] - v[1]) * (w[1] - v[1])) / l2;
     t = Math.max(0, Math.min(1, t));
     const projectionLat = v[0] + t * (w[0] - v[0]);
     const projectionLng = v[1] + t * (w[1] - v[1]);
-    return haversineDistance(p[0], p[1], projectionLat, projectionLng);
+    return { distance: haversineDistance(p[0], p[1], projectionLat, projectionLng), t };
   }
 
   /**
@@ -112,17 +113,20 @@ const RouteEngine = (function () {
 
   /**
    * Accurately calculate charging duration for a given percentage and station type
+   * Unified with Utilities physics model
    */
   function computeChargingDuration(chargeNeededPct, currentArrivalSoC, isFast) {
+    if (window.Utilities && window.Utilities.computeChargingDuration) {
+      return window.Utilities.computeChargingDuration(chargeNeededPct, currentArrivalSoC, isFast);
+    }
     if (chargeNeededPct <= 0) return 0;
     if (isFast) {
       const startSoC = Math.max(0, currentArrivalSoC);
-      const endSoC = startSoC + chargeNeededPct;
+      const endSoC = Math.min(100, startSoC + chargeNeededPct);
       const upTo80 = Math.max(0, Math.min(80, endSoC) - Math.min(80, startSoC));
       const above80 = Math.max(0, endSoC - Math.max(80, startSoC));
-      return Math.round((upTo80 / 1.4) + (above80 / 0.45));
+      return Math.round((upTo80 / 1.5) + (above80 / 0.55));
     } else {
-      // 15A socket ~0.33% SoC per min
       return Math.round(chargeNeededPct / 0.33);
     }
   }
@@ -313,6 +317,20 @@ const RouteEngine = (function () {
       return [];
     }
 
+    // Precompute cumulative Haversine distance along route coordinates
+    const cumDists = new Float64Array(routeCoords.length);
+    cumDists[0] = 0;
+    for (let i = 1; i < routeCoords.length; i++) {
+      cumDists[i] = cumDists[i - 1] + haversineDistance(
+        routeCoords[i - 1][0], routeCoords[i - 1][1],
+        routeCoords[i][0], routeCoords[i][1]
+      );
+    }
+
+    const totalPolyDist = cumDists[cumDists.length - 1] || 1;
+    const routeDist = (activeRoute && activeRoute.distanceKm) ? activeRoute.distanceKm : totalPolyDist;
+    const distScale = routeDist / totalPolyDist;
+
     // Bounding box filter for quick rejection
     let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
     for (let i = 0; i < routeCoords.length; i++) {
@@ -345,19 +363,21 @@ const RouteEngine = (function () {
       const p = [charger.lat, charger.lng];
       let minDistance = Infinity;
       let closestSegmentIndex = 0;
+      let closestT = 0;
 
       for (let s = 0; s < routeCoords.length - 1; s++) {
-        const d = distToSegment(p, routeCoords[s], routeCoords[s + 1]);
-        if (d < minDistance) {
-          minDistance = d;
+        const res = distToSegment(p, routeCoords[s], routeCoords[s + 1]);
+        if (res.distance < minDistance) {
+          minDistance = res.distance;
           closestSegmentIndex = s;
+          closestT = res.t;
         }
-        if (minDistance <= 0.1) break;
+        if (minDistance <= 0.05) break;
       }
 
       if (minDistance <= maxCorridorKm) {
-        const progressFrac = closestSegmentIndex / (routeCoords.length - 1);
-        const approxKmFromOrigin = activeRoute ? Math.round(progressFrac * activeRoute.distanceKm * 10) / 10 : 0;
+        const segDist = cumDists[closestSegmentIndex] + closestT * (cumDists[closestSegmentIndex + 1] - cumDists[closestSegmentIndex]);
+        const approxKmFromOrigin = Math.round(segDist * distScale * 10) / 10;
 
         matching.push({
           ...charger,
@@ -385,13 +405,16 @@ const RouteEngine = (function () {
       return [];
     }
 
+    // Preserve any existing custom stops added by user
+    const existingCustomStops = intermediateWaypoints.filter(w => !w.network && !w.type);
+
     const suggestedWaypoints = [];
     let currentCoveredKm = 0;
     let attempts = 0;
 
-    while (currentCoveredKm + safeRange < totalDist && attempts < 5) {
+    while (currentCoveredKm + safeRange < totalDist && attempts < 8) {
       attempts++;
-      const targetMinKm = currentCoveredKm + (safeRange * 0.55);
+      const targetMinKm = currentCoveredKm + (safeRange * 0.50);
       const targetMaxKm = currentCoveredKm + (safeRange * 0.95);
 
       let candidates = corridorChargers.filter(c => {
@@ -437,7 +460,10 @@ const RouteEngine = (function () {
     }
 
     if (suggestedWaypoints.length > 0) {
-      intermediateWaypoints = suggestedWaypoints;
+      // Merge custom stops and suggested chargers in order along the route
+      const merged = [...existingCustomStops, ...suggestedWaypoints];
+      merged.sort((a, b) => (a.kmFromOrigin || 0) - (b.kmFromOrigin || 0));
+      intermediateWaypoints = merged;
       await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
     }
 
@@ -709,7 +735,7 @@ const RouteEngine = (function () {
       totalDrivingMins: route.durationMins,
       totalChargingMins: totalChargingTimeMins,
       totalTripDurationMins: route.durationMins + totalChargingTimeMins,
-      totalChargingStops: waypoints.length,
+      totalChargingStops: waypoints.filter(w => w.network || w.type).length,
       totalEnergyChargedPct: Math.round(totalEnergyChargedPct * 10) / 10,
       finalArrivalSoC: destArrivalSoC,
       targetChargePct: targetCharge

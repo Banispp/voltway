@@ -655,7 +655,7 @@ function setupRoutePlanner() {
         alert('Route calculation error: ' + err.message);
       } finally {
         btnPlanRoute.disabled = false;
-        btnPlanRoute.textContent = '⚡ Plan Optimal 2W Route';
+        btnPlanRoute.textContent = '⚡ Plan 2W Route';
       }
     });
   }
@@ -991,9 +991,19 @@ function renderTripBatteryTimeline(route) {
       `;
     } else if (step.type === 'CHARGER_STOP') {
       const isFast = step.isFast;
-      const isAther = step.station?.network === 'ATHER_GRID';
-      const netName = isAther ? 'Ather Grid Fast ⚡' : (isFast ? 'Bolt.Earth Fast ⚡' : 'Bolt.Earth 15A 🔌');
-      const badgeClass = isAther ? 'badge-ather' : (isFast ? 'badge-bolt-fast' : 'badge-bolt-slow');
+      let netName = 'Bolt.Earth 15A 🔌';
+      let badgeClass = 'badge-bolt-slow';
+
+      if (step.station?.network === 'ATHER_GRID') {
+        netName = 'Ather Grid Fast ⚡';
+        badgeClass = 'badge-ather';
+      } else if (step.station?.network === 'VIDA_GRID') {
+        netName = 'Hero VIDA Fast ⚡';
+        badgeClass = 'badge-vida-fast';
+      } else if (isFast) {
+        netName = 'Bolt.Earth Fast ⚡';
+        badgeClass = 'badge-bolt-fast';
+      }
 
       html += `
         <div class="timeline-step timeline-step-stop">
@@ -1148,22 +1158,82 @@ window.setPlannerDest = function (point) {
 };
 
 function updateRouteMetrics(route) {
-  const evalMetrics = BatteryEngine.evaluateTrip(route.distanceKm);
-
   const distEl = document.getElementById('metric-trip-dist');
   const timeEl = document.getElementById('metric-trip-time');
   const batNeedEl = document.getElementById('metric-bat-needed');
   const batArrivalEl = document.getElementById('metric-bat-arrival');
   const statusBanner = document.getElementById('route-status-banner');
 
-  if (distEl) distEl.textContent = `${route.distanceKm} km`;
-  if (timeEl) timeEl.textContent = Utilities.formatMinutes(route.durationMins);
-  if (batNeedEl) batNeedEl.textContent = `${evalMetrics.batteryNeededPct}%`;
-  if (batArrivalEl) batArrivalEl.textContent = `${evalMetrics.batteryAtArrivalPct}%`;
+  if (!route) return;
 
-  if (statusBanner) {
-    statusBanner.className = `status-banner ${evalMetrics.statusClass}`;
-    statusBanner.innerHTML = `<strong>${evalMetrics.statusText}</strong>`;
+  const batState = BatteryEngine.getState();
+  const eff = batState.efficiency || 0.85;
+  const hasStops = route.waypoints && route.waypoints.length > 0;
+
+  if (hasStops) {
+    const tripPlan = RouteEngine.calculateTripTimeline(route, batState);
+    const chargerStopsCount = route.waypoints.filter(w => w.network || w.type).length;
+
+    if (distEl) distEl.textContent = `${route.distanceKm} km`;
+    if (timeEl) {
+      if (tripPlan.totalChargingMins > 0) {
+        timeEl.textContent = Utilities.formatMinutes(tripPlan.totalTripDurationMins);
+        timeEl.title = `Driving: ${Utilities.formatMinutes(tripPlan.totalDrivingMins)} + Charging: ${tripPlan.totalChargingMins} mins`;
+      } else {
+        timeEl.textContent = Utilities.formatMinutes(route.durationMins);
+      }
+    }
+
+    const totalBatNeeded = Math.ceil(route.distanceKm / eff);
+    if (batNeedEl) batNeedEl.textContent = `${totalBatNeeded}%`;
+    if (batArrivalEl) batArrivalEl.textContent = `${tripPlan.finalArrivalSoC}%`;
+
+    if (statusBanner) {
+      let criticalStep = null;
+      let warningStep = null;
+
+      for (let s of tripPlan.timeline) {
+        if (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'DESTINATION') {
+          if (s.arrivalSoC < 0) {
+            criticalStep = s;
+            break;
+          } else if (s.arrivalSoC < batState.safetyReservePct && !warningStep) {
+            warningStep = s;
+          }
+        }
+      }
+
+      if (criticalStep) {
+        const stepName = criticalStep.station?.name || criticalStep.name || 'Next Stop';
+        const shortfall = Math.abs(criticalStep.arrivalSoC);
+        const shortfallKm = Math.round(shortfall * eff * 10) / 10;
+        statusBanner.className = 'status-banner status-critical';
+        statusBanner.innerHTML = `<strong>🚨 Range Exceeded: Leg to ${stepName} is short by ~${shortfallKm} km (${shortfall}% SoC). Please add an intermediate charging stop!</strong>`;
+      } else if (warningStep) {
+        const stepName = warningStep.station?.name || warningStep.name || 'Next Stop';
+        statusBanner.className = 'status-banner status-warning';
+        statusBanner.innerHTML = `<strong>⚠️ Reserve Warning: Reaches ${stepName} with ${warningStep.arrivalSoC}% SoC (below ${batState.safetyReservePct}% safety reserve buffer).</strong>`;
+      } else {
+        statusBanner.className = 'status-banner status-safe';
+        const chargeNote = tripPlan.totalChargingMins > 0
+          ? ` (${chargerStopsCount} charging stop${chargerStopsCount > 1 ? 's' : ''}, ~${tripPlan.totalChargingMins} min charging)`
+          : '';
+        statusBanner.innerHTML = `<strong>🟢 Safe Multi-Stop Trip Planned! Reaches destination with ${tripPlan.finalArrivalSoC}% battery${chargeNote}.</strong>`;
+      }
+    }
+  } else {
+    // Direct Trip without intermediate stops
+    const evalMetrics = BatteryEngine.evaluateTrip(route.distanceKm);
+
+    if (distEl) distEl.textContent = `${route.distanceKm} km`;
+    if (timeEl) timeEl.textContent = Utilities.formatMinutes(route.durationMins);
+    if (batNeedEl) batNeedEl.textContent = `${evalMetrics.batteryNeededPct}%`;
+    if (batArrivalEl) batArrivalEl.textContent = `${evalMetrics.batteryAtArrivalPct}%`;
+
+    if (statusBanner) {
+      statusBanner.className = `status-banner ${evalMetrics.statusClass}`;
+      statusBanner.innerHTML = `<strong>${evalMetrics.statusText}</strong>`;
+    }
   }
 }
 
@@ -1182,10 +1252,19 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
   let html = '';
   corridorChargers.forEach((c) => {
     const isWp = waypoints.some(w => w.id === c.id);
-    const isAther = c.network === 'ATHER_GRID';
-    const isFast = c.type === 'FAST';
-    const badgeClass = isAther ? 'badge-ather' : (isFast ? 'badge-bolt-fast' : 'badge-bolt-slow');
-    const netName = isAther ? 'Ather Grid' : 'Bolt.Earth';
+    let badgeClass = 'badge-bolt-slow';
+    let netName = 'Bolt 15A 🔌';
+
+    if (c.network === 'ATHER_GRID') {
+      badgeClass = 'badge-ather';
+      netName = 'Ather Grid ⚡';
+    } else if (c.network === 'VIDA_GRID') {
+      badgeClass = 'badge-vida-fast';
+      netName = 'Hero VIDA ⚡';
+    } else if (c.network === 'BOLT_EARTH' && c.type === 'FAST') {
+      badgeClass = 'badge-bolt-fast';
+      netName = 'Bolt Fast ⚡';
+    }
 
     html += `
       <div class="corridor-card ${isWp ? 'is-waypoint' : ''}">
@@ -1194,7 +1273,7 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
           <span class="corridor-dist">📍 ~${c.kmFromOrigin} km from start (${c.corridorDistanceKm} km detour)</span>
         </div>
         <div class="corridor-card-title">${c.name}</div>
-        <div class="corridor-card-desc">${c.connector} • ${c.power_kw} kW</div>
+        <div class="corridor-card-desc">${c.connector || ''} • ${c.power_kw || 1.5} kW</div>
         <div class="corridor-card-actions">
           <button class="btn-sm btn-nav" onclick="MapEngine.focusCharger(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">🔍 Show on Map</button>
           ${isWp

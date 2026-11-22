@@ -78,16 +78,35 @@ const Utilities = (function () {
   }
 
   /**
+   * Accurate physical charging duration for 2-wheeler lithium batteries
+   * Fast DC: 0-80% at 1.5% SoC/min (~1.5 km/min gain, Ather Grid & 3.3 kW DC Fast)
+   *          80-100% tapered CC-CV at 0.55% SoC/min
+   * Slow AC 15A Socket: ~0.33% SoC/min (~20% per hour, standard portable charger)
+   */
+  function computeChargingDuration(chargeNeededPct, startSoC = 20, isFast = true) {
+    if (chargeNeededPct <= 0) return 0;
+    if (isFast) {
+      const start = Math.max(0, Math.min(100, Number(startSoC) || 0));
+      const end = Math.min(100, start + chargeNeededPct);
+      const upTo80 = Math.max(0, Math.min(80, end) - Math.min(80, start));
+      const above80 = Math.max(0, end - Math.max(80, start));
+      return Math.round((upTo80 / 1.5) + (above80 / 0.55));
+    } else {
+      return Math.round(chargeNeededPct / 0.33);
+    }
+  }
+
+  /**
    * Charging Time Estimator
    *
    * Fast Charger:
    * - Based on standard 2W DC fast charging curves (Ather Grid / Bolt Fast ~3.3 kW DC)
-   * - ~1 km range gained per minute (~35 mins for 20% to 80% SoC)
+   * - ~1.5 km range gained per minute (~40 mins for 20% to 80% SoC)
    * - Tapers after 80% to protect lithium-ion cell chemistry
    *
    * Slow 15A Socket:
-   * - Based on standard 5A/15A portable charger (1.2 - 1.5 kW AC)
-   * - ~18% to 20% charge gain per hour (~4.5 to 5 hours for 0% to 100%)
+   * - Based on standard 5A/15A portable charger (750W - 1.2 kW AC)
+   * - ~20% charge gain per hour (~5 hours for 0% to 100%)
    *
    * @param {number} currentPct Starting battery % (e.g. 20)
    * @param {number} targetPct Target battery % (e.g. 80)
@@ -101,23 +120,8 @@ const Utilities = (function () {
     const gainPct = targetPct - currentPct;
     const rangeGainedKm = Math.round(gainPct * efficiency * 10) / 10;
 
-    // --- Fast Charger Calculation ---
-    // Fast charging rates:
-    // 0-80%: ~1.7% per minute (~35 mins for 60% gain)
-    // 80-100%: ~0.8% per minute (tapered trickle)
-    let fastMinutes = 0;
-    if (currentPct < 80) {
-      const fastPortion = Math.min(targetPct, 80) - currentPct;
-      fastMinutes += Math.round(fastPortion / 1.7);
-    }
-    if (targetPct > 80) {
-      const tricklePortion = targetPct - Math.max(currentPct, 80);
-      fastMinutes += Math.round(tricklePortion / 0.8);
-    }
-
-    // --- Slow 15A Socket Calculation ---
-    // 15A Socket rate: ~18.5% per hour (~0.31% per min)
-    const slowMinutes = Math.round((gainPct / 18.5) * 60);
+    const fastMinutes = computeChargingDuration(gainPct, currentPct, true);
+    const slowMinutes = computeChargingDuration(gainPct, currentPct, false);
 
     return {
       currentPct,
@@ -280,6 +284,7 @@ const Utilities = (function () {
   return {
     haversine,
     findNearestChargers,
+    computeChargingDuration,
     estimateChargingTime,
     formatMinutes,
     searchPlace,
