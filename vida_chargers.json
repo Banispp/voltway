@@ -2531,5 +2531,22 @@
     "source": "Hero VIDA Official",
     "is_2w": true,
     "status": "OPERATIONAL"
+  },
+  {
+    "id": "VIDA_471",
+    "name": "Vida Grid Fast (Ather Gun ⚡) - CLOTHO, Kochi",
+    "network": "VIDA_GRID",
+    "type": "FAST",
+    "model_id": "HERO_VIDA_FAST_LEVDC",
+    "connector": "Hero VIDA Official DC Fast Gun (IS 17017-2-7 / Type 7 LEV DC) ⚡",
+    "is_ather_gun": true,
+    "ather_compatibility": "100% Direct Plug-in (Official Hero VIDA Fast Gun)",
+    "power_kw": 3.3,
+    "lat": 10.00109,
+    "lng": 76.27956,
+    "address": "CLOTHO, Ambalathingal Building, Chittoor Rd, Pachalam, Kochi, Ernakulam, Kerala 682012",
+    "source": "Hero VIDA Official",
+    "is_2w": true,
+    "status": "OPERATIONAL"
   }
 ]

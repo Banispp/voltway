@@ -215,6 +215,8 @@ const SyncEngine = (function () {
                .replace('pune-bangalore', 'highway')
                .replace('goa main road', 'road')
                .replace('goa road', 'road')
+               .replace('chittoor rd', 'road')
+               .replace('chittoor road', 'road')
                .replace('maharashtra bank', 'bank');
 
     // 1. Excluded State checks (negative keywords)
@@ -237,7 +239,7 @@ const SyncEngine = (function () {
       'tumakuru', 'shimoga', 'shivamogga', 'davanagere', 'ballari', 'bellary', 'kolar', 
       'hassan', 'mandya', 'chikkamagaluru', 'raichur', 'bidar', 'kalaburagi', 'gulbarga', 
       'jewargi', 'badami', 'bagalkot', 'bagalkote', 'yadgir', 'yadgiri', 'vijayapura', 
-      'bijapur', 'ilkal', 'kerur', 'bagepalli', 'kudatini'
+      'bijapur', 'ilkal', 'kerur', 'bagepalli', 'kudatini', 'sindhanur'
     ].some(k => text.includes(k));
     const isPY = ['puducherry', 'pondicherry', 'mahe', 'karaikal'].some(k => text.includes(k));
 

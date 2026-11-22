@@ -59,12 +59,12 @@ def test_with_edge():
     for k, v in checks.items():
         print(f"  {k}: {v}")
 
-    assert checks['count-fast-only'] in ['1,761', '1761'], f"Expected 1,761, got {checks['count-fast-only']}"
-    assert checks['count-ather-fast'] in ['1,331', '1331'], f"Expected 1,331, got {checks['count-ather-fast']}"
-    assert checks['count-vida-fast'] in ['149'], f"Expected 149, got {checks['count-vida-fast']}"
-    assert checks['count-bolt-fast'] in ['281'], f"Expected 281, got {checks['count-bolt-fast']}"
-    assert checks['count-bolt-slow'] in ['1,197', '1197'], f"Expected 1,197, got {checks['count-bolt-slow']}"
-    assert checks['header-station-count'] in ['2,958', '2958'], f"Expected 2,958, got {checks['header-station-count']}"
+    assert checks['count-fast-only'] in ['1,764', '1764'], f"Expected 1,764, got {checks['count-fast-only']}"
+    assert checks['count-ather-fast'] in ['1,332', '1332'], f"Expected 1,332, got {checks['count-ather-fast']}"
+    assert checks['count-vida-fast'] in ['150'], f"Expected 150, got {checks['count-vida-fast']}"
+    assert checks['count-bolt-fast'] in ['282'], f"Expected 282, got {checks['count-bolt-fast']}"
+    assert checks['count-bolt-slow'] in ['1,198', '1198'], f"Expected 1,198, got {checks['count-bolt-slow']}"
+    assert checks['header-station-count'] in ['2,962', '2962'], f"Expected 2,962, got {checks['header-station-count']}"
 
     print("\nLIVE HEADLESS DOM VERIFICATION PASSED PERFECTLY!")
 

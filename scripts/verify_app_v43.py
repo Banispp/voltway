@@ -25,25 +25,25 @@ def verify():
     with open('chargers_db.json', 'r', encoding='utf-8') as f:
         chargers = json.load(f)
     print(f"Total chargers in chargers_db.json: {len(chargers)}")
-    assert len(chargers) == 2958, f"Expected 2958 chargers, got {len(chargers)}"
+    assert len(chargers) == 2962, f"Expected 2962 chargers, got {len(chargers)}"
 
     ather = [c for c in chargers if c.get('network') == 'ATHER_GRID']
     vida = [c for c in chargers if c.get('network') == 'VIDA_GRID']
     bolt_fast = [c for c in chargers if c.get('network') == 'BOLT_EARTH' and c.get('type') == 'FAST']
     bolt_slow = [c for c in chargers if c.get('network') == 'BOLT_EARTH' and c.get('type') == 'SLOW']
 
-    print(f"Ather Fast: {len(ather)} (expected 1331)")
-    print(f"VIDA Fast: {len(vida)} (expected 149)")
-    print(f"Bolt Fast: {len(bolt_fast)} (expected 281)")
-    print(f"Bolt Slow: {len(bolt_slow)} (expected 1197)")
+    print(f"Ather Fast: {len(ather)} (expected 1332)")
+    print(f"VIDA Fast: {len(vida)} (expected 150)")
+    print(f"Bolt Fast: {len(bolt_fast)} (expected 282)")
+    print(f"Bolt Slow: {len(bolt_slow)} (expected 1198)")
     total_fast = len(ather) + len(vida) + len(bolt_fast)
-    print(f"Total Fast (Ather Gun): {total_fast} (expected 1761)")
+    print(f"Total Fast (Ather Gun): {total_fast} (expected 1764)")
 
-    assert len(ather) == 1331
-    assert len(vida) == 149
-    assert len(bolt_fast) == 281
-    assert len(bolt_slow) == 1197
-    assert total_fast == 1761
+    assert len(ather) == 1332
+    assert len(vida) == 150
+    assert len(bolt_fast) == 282
+    assert len(bolt_slow) == 1198
+    assert total_fast == 1764
 
     # 3. Check chargers_db.js
     with open('chargers_db.js', 'r', encoding='utf-8') as f:
