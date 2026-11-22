@@ -34,8 +34,27 @@ jobs:
           mkdir -p www
           cp -r index.html manifest.json sw.js chargers_db.js chargers_db.json css js icons www/
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/geolocation
           npx cap add android
+
+          # Inject Location Permissions into AndroidManifest.xml
+          python3 -c "
+with open('android/app/src/main/AndroidManifest.xml', 'r') as f:
+    manifest = f.read()
+perms = '''
+    <uses-permission android:name=\"android.permission.INTERNET\" />
+    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />
+    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />
+    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />
+    <uses-feature android:name=\"android.hardware.location.gps\" android:required=\"false\" />
+'''
+if 'ACCESS_FINE_LOCATION' not in manifest:
+    manifest = manifest.replace('<application', perms + '\n    <application')
+with open('android/app/src/main/AndroidManifest.xml', 'w') as f:
+    f.write(manifest)
+print('Location permissions injected successfully into AndroidManifest.xml')
+"
+          npx cap sync android
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
@@ -54,5 +73,6 @@ jobs:
           name: "VoltWay 2W Android APK v5.2"
           body: "Official standalone Android APK for VoltWay 2W EV Route Planner. Live synced with https://banispp.github.io/voltway/"
           files: android/app/build/outputs/apk/debug/app-debug.apk
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

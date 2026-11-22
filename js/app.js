@@ -54,7 +54,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.2')
+      navigator.serviceWorker.register('./sw.js?v=5.3')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -680,21 +680,16 @@ function setupRoutePlanner() {
   }
 
   if (btnUseGps) {
-    btnUseGps.addEventListener('click', () => {
-      MapEngine.locateUser(true);
-      const coords = MapEngine.getUserCoords();
+    btnUseGps.addEventListener('click', async () => {
+      const origText = btnUseGps.innerHTML;
+      btnUseGps.innerHTML = '⏳ GPS...';
+      const coords = await MapEngine.locateUser(true);
+      btnUseGps.innerHTML = origText;
       if (coords) {
         originPoint = { lat: coords.lat, lng: coords.lng, name: 'Current Location (GPS)' };
         if (originInput) originInput.value = 'Current Location (GPS)';
       } else {
-        alert('Fetching GPS location... please wait 2 seconds.');
-        setTimeout(() => {
-          const c = MapEngine.getUserCoords();
-          if (c) {
-            originPoint = { lat: c.lat, lng: c.lng, name: 'Current Location (GPS)' };
-            if (originInput) originInput.value = 'Current Location (GPS)';
-          }
-        }, 1500);
+        alert('Could not fetch GPS. Please make sure Location permission is enabled in device settings.');
       }
     });
   }

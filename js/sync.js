@@ -359,7 +359,6 @@ const SyncEngine = (function () {
         const addedCount = mergeChargers(newItems);
         if (addedCount > 0) {
           console.log(`[VoltWay Live] Auto-discovered ${addedCount} new Bolt.Earth points in viewport!`);
-          showAutoUpdateToast(`⚡ ${addedCount} Live Bolt.Earth Points Added!`);
         }
       }
       return newItems;
@@ -452,7 +451,7 @@ const SyncEngine = (function () {
       inMemoryChargers = Array.from(existingMap.values());
       if (db) saveBatchToDB(toAdd);
       notify();
-      if (window.MapEngine) {
+      if (window.MapEngine && (!window.MapEngine.isPopupOpen || !window.MapEngine.isPopupOpen())) {
         window.MapEngine.renderChargers(inMemoryChargers);
       }
     }

@@ -31,9 +31,11 @@ const MapEngine = (function () {
   // High-performance Marker Pool: chargerId -> marker
   const markerMap = new Map();
   const waypointMarkersMap = new Map();
+  let activePopupChargerId = null;
 
-  // Animation frame throttle
+  // Animation frame throttle & debounce
   let renderRafId = null;
+  let moveDebounceTimer = null;
 
   function initMap(containerId = 'map') {
     if (map) return map;
@@ -294,20 +296,38 @@ const MapEngine = (function () {
       }
     });
 
+    // Ensure currently open popup marker is NEVER dropped from visible chargers
+    if (activePopupChargerId && !visibleChargers.some(c => c.id === activePopupChargerId)) {
+      const activeC = chargers.find(c => c.id === activePopupChargerId);
+      if (activeC) visibleChargers.push(activeC);
+    }
+
     // Filter out chargers that are actively highlighted in waypointsLayer to avoid duplicate markers
     const activeRouteWaypoints = (window.RouteEngine && window.RouteEngine.getActiveRoute() && window.RouteEngine.getActiveRoute().waypoints) || [];
     const activeWpIds = new Set(activeRouteWaypoints.map(w => w.id));
 
-    // 3. Diffing: Remove markers that moved outside the viewport or are now active trip waypoints
-    const newVisibleIds = new Set(visibleChargers.filter(c => !activeWpIds.has(c.id)).map(c => c.id));
+    // 3. Diffing: Remove only markers that have physically moved OUTSIDE the bounds or whose filter is off
     for (const [id, marker] of markerMap.entries()) {
-      if (!newVisibleIds.has(id)) {
+      const c = marker._chargerData;
+      if (c) {
+        if (c.network === 'ATHER_GRID' && !filters.atherFast) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
+        if (c.network === 'VIDA_GRID' && !filters.vidaFast) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
+        if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
+        if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
+      }
+      if (id === activePopupChargerId) continue; // Never destroy active popup marker!
+      if (activeWpIds.has(id)) {
+        markersLayer.removeLayer(marker);
+        markerMap.delete(id);
+        continue;
+      }
+      if (!bounds.contains(marker.getLatLng())) {
         markersLayer.removeLayer(marker);
         markerMap.delete(id);
       }
     }
 
-    // 4. Add only newly entered chargers
+    // 4. Add newly visible chargers
     visibleChargers.forEach((charger) => {
       if (activeWpIds.has(charger.id)) return;
       if (markerMap.has(charger.id)) {
@@ -317,10 +337,21 @@ const MapEngine = (function () {
       const pos = L.latLng(charger.lat, charger.lng);
       const icon = createPinIcon(charger);
       const marker = L.marker(pos, { icon: icon });
+      marker._chargerData = charger;
 
       marker.bindPopup(() => createChargerPopupHtml(charger), {
         maxWidth: 320,
-        className: 'charger-popup'
+        className: 'charger-popup',
+        autoPanPadding: [20, 20]
+      });
+
+      marker.on('popupopen', () => {
+        activePopupChargerId = charger.id;
+      });
+      marker.on('popupclose', () => {
+        if (activePopupChargerId === charger.id) {
+          activePopupChargerId = null;
+        }
       });
 
       marker.addTo(markersLayer);
@@ -744,65 +775,118 @@ const MapEngine = (function () {
     updateSafeRangeOverlay(activeRoute.origin);
   }
 
-  function locateUser(panTo = true) {
-    if (!navigator.geolocation) return;
+  async function locateUser(panTo = true) {
+    let coords = null;
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        userCoords = { lat, lng };
-
-        if (!userLocationMarker) {
-          const userIcon = L.divIcon({
-            className: 'user-location-marker',
-            html: '<div class="user-pulse"></div><div class="user-dot"></div>',
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
+    // 1. Native Capacitor Geolocation Plugin (triggers Android OS location permission dialog in APK)
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+      try {
+        let permStatus = await window.Capacitor.Plugins.Geolocation.checkPermissions();
+        if (permStatus.location !== 'granted') {
+          permStatus = await window.Capacitor.Plugins.Geolocation.requestPermissions();
+        }
+        if (permStatus.location === 'granted') {
+          const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({
+            enableHighAccuracy: true,
+            timeout: 10000
           });
-          userLocationMarker = L.marker([lat, lng], { icon: userIcon }).addTo(map);
-        } else {
-          userLocationMarker.setLatLng([lat, lng]);
+          if (pos && pos.coords) {
+            coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          }
         }
+      } catch (capErr) {
+        console.warn('[VoltWay Location] Capacitor native location request failed, falling back:', capErr);
+      }
+    }
 
-        if (panTo && map) {
-          map.setView([lat, lng], 14, { animate: true });
-        }
+    // 2. Standard Browser navigator.geolocation fallback
+    if (!coords && navigator.geolocation) {
+      coords = await new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          (err) => {
+            console.warn('[VoltWay Location] Browser geolocation error:', err.message);
+            resolve(null);
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+        );
+      });
+    }
 
-        updateSafeRangeOverlay({ lat, lng });
-      },
-      (err) => console.warn('Geolocation:', err.message),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
-    );
+    if (coords) {
+      userCoords = coords;
+      if (!userLocationMarker) {
+        const userIcon = L.divIcon({
+          className: 'user-location-marker',
+          html: '<div class="user-pulse"></div><div class="user-dot"></div>',
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
+        });
+        userLocationMarker = L.marker([coords.lat, coords.lng], { icon: userIcon }).addTo(map);
+      } else {
+        userLocationMarker.setLatLng([coords.lat, coords.lng]);
+      }
+
+      if (panTo && map) {
+        map.setView([coords.lat, coords.lng], 14, { animate: true });
+      }
+
+      updateSafeRangeOverlay(coords);
+      return coords;
+    } else {
+      console.warn('[VoltWay Location] Could not determine user GPS location.');
+      return null;
+    }
   }
 
   function onMapMoveEnd() {
-    renderChargers();
+    clearTimeout(moveDebounceTimer);
+    moveDebounceTimer = setTimeout(() => {
+      renderChargers();
 
-    if (map.getZoom() >= 13 && window.SyncEngine) {
-      const b = map.getBounds();
-      window.SyncEngine.fetchLiveBoltInBounds({
-        south: Math.round(b.getSouth() * 1000) / 1000,
-        west: Math.round(b.getWest() * 1000) / 1000,
-        north: Math.round(b.getNorth() * 1000) / 1000,
-        east: Math.round(b.getEast() * 1000) / 1000
-      });
-    }
+      if (map && map.getZoom() >= 13 && window.SyncEngine) {
+        const b = map.getBounds();
+        window.SyncEngine.fetchLiveBoltInBounds({
+          south: Math.round(b.getSouth() * 1000) / 1000,
+          west: Math.round(b.getWest() * 1000) / 1000,
+          north: Math.round(b.getNorth() * 1000) / 1000,
+          east: Math.round(b.getEast() * 1000) / 1000
+        });
+      }
+    }, 150);
   }
 
   function focusCharger(charger) {
     if (!map || !charger) return;
-    map.setView([charger.lat, charger.lng], 16, { animate: true });
-    renderChargers();
+    activePopupChargerId = charger.id;
+
+    // Ensure marker exists immediately so popup won't fail
+    let marker = markerMap.get(charger.id) || waypointMarkersMap.get(charger.id);
+    if (!marker && !waypointMarkersMap.has(charger.id)) {
+      const pos = L.latLng(charger.lat, charger.lng);
+      const icon = createPinIcon(charger);
+      marker = L.marker(pos, { icon: icon });
+      marker._chargerData = charger;
+      marker.bindPopup(() => createChargerPopupHtml(charger), {
+        maxWidth: 320,
+        className: 'charger-popup',
+        autoPanPadding: [20, 20]
+      });
+      marker.on('popupopen', () => { activePopupChargerId = charger.id; });
+      marker.on('popupclose', () => { if (activePopupChargerId === charger.id) activePopupChargerId = null; });
+      marker.addTo(markersLayer);
+      markerMap.set(charger.id, marker);
+    }
+
+    map.flyTo([charger.lat, charger.lng], 16, { animate: true, duration: 0.4 });
     setTimeout(() => {
       const wpMarker = waypointMarkersMap.get(charger.id);
       if (wpMarker) {
         wpMarker.openPopup();
         return;
       }
-      const marker = markerMap.get(charger.id);
       if (marker) marker.openPopup();
-    }, 150);
+    }, 450);
   }
 
   return {
@@ -816,6 +900,7 @@ const MapEngine = (function () {
     renderRoute,
     locateUser,
     focusCharger,
+    isPopupOpen: () => Boolean(activePopupChargerId),
     getUserCoords: () => userCoords,
     getMap: () => map,
     handleNavigateToCharger,
