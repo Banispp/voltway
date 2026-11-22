@@ -248,6 +248,11 @@ const SyncEngine = (function () {
           return; // Strictly reject all 4-wheeler car chargers!
         }
 
+        // Regional Target Check: Strictly Kerala, Tamil Nadu, Karnataka, Puducherry / Mahe
+        if (lat < 8.05 || lat > 18.55 || lng < 74.00 || lng > 80.40) {
+          return;
+        }
+
         // 2. Verified 2-Wheeler Fast Charger (Ather Gun IS 17017 Type 7 LEV DC / Type 6)
         const is2WFast = cidUpper.startsWith('L1DC') ||
                          modelId.includes('2WFC') ||
@@ -327,8 +332,11 @@ const SyncEngine = (function () {
       if (onProgress) onProgress({ status: 'Scanning live regional 2W fast corridors...', percent: 65 });
       
       const keyCorridors = [
-        { name: 'Bangalore & Karnataka', lat_bottom: 12.8, lng_left: 77.4, lat_top: 13.2, lng_right: 77.8 },
-        { name: 'Kerala Central (Kochi)', lat_bottom: 9.8, lng_left: 76.2, lat_top: 10.2, lng_right: 76.5 }
+        { name: 'Kerala Central (Kochi)', lat_bottom: 9.8, lng_left: 76.2, lat_top: 10.2, lng_right: 76.5 },
+        { name: 'Kerala North (Kozhikode)', lat_bottom: 11.1, lng_left: 75.7, lat_top: 11.4, lng_right: 76.0 },
+        { name: 'Kerala South (Trivandrum)', lat_bottom: 8.4, lng_left: 76.8, lat_top: 8.7, lng_right: 77.1 },
+        { name: 'Bangalore & Hosur', lat_bottom: 12.7, lng_left: 77.4, lat_top: 13.2, lng_right: 77.8 },
+        { name: 'Coimbatore & Palakkad Corridor', lat_bottom: 10.7, lng_left: 76.6, lat_top: 11.2, lng_right: 77.1 }
       ];
 
       for (let i = 0; i < keyCorridors.length; i++) {
@@ -421,6 +429,7 @@ const SyncEngine = (function () {
 
   function getStats() {
     let atherFast = 0;
+    let vidaFast = 0;
     let boltFast = 0;
     let boltSlow = 0;
 
@@ -428,6 +437,8 @@ const SyncEngine = (function () {
       const c = inMemoryChargers[i];
       if (c.network === 'ATHER_GRID') {
         atherFast++;
+      } else if (c.network === 'VIDA_GRID') {
+        vidaFast++;
       } else if (c.network === 'BOLT_EARTH') {
         if (c.type === 'FAST') boltFast++;
         else boltSlow++;
@@ -437,6 +448,7 @@ const SyncEngine = (function () {
     return {
       total: inMemoryChargers.length,
       atherFast,
+      vidaFast,
       boltFast,
       boltSlow,
       lastSync: localStorage.getItem('voltway_last_sync')

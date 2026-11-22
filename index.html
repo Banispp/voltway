@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=4.1">
+  <link rel="stylesheet" href="css/app.css?v=4.2">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -29,7 +29,7 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v4-1-fresh') {
+            if (name !== 'voltway-2w-v4-2-fresh') {
               caches.delete(name);
             }
           });
@@ -51,14 +51,14 @@
         </div>
       </div>
       <div class="header-actions">
-        <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="⚡ Sync Latest EV Chargers (Ather & Bolt)">
-          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">7,274</span>)
+        <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="⚡ Sync Latest EV Chargers (Ather, VIDA & Bolt)">
+          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">3,276</span>)
         </button>
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action" title="Clear Cache & Force Refresh" style="font-size: 0.72rem; padding: 5px 8px; background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 9999px; cursor: pointer;">
-          v4.1
+          v4.2
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -78,16 +78,20 @@
       <!-- Filter Chips Bar (Sticky) -->
       <div class="filter-chips-bar">
         <button type="button" id="chip-ather-fast" class="filter-chip chip-ather active" title="Toggle Ather Grid DC Fast Chargers">
-          <span>⚡ Ather Grid (Fast)</span>
-          <span id="count-ather-fast" class="chip-badge">3,572</span>
+          <span>⚡ Ather Grid</span>
+          <span id="count-ather-fast" class="chip-badge">1,420</span>
+        </button>
+        <button type="button" id="chip-vida-fast" class="filter-chip chip-vida-fast active" title="Toggle Hero VIDA Fast Chargers">
+          <span>⚡ VIDA Grid</span>
+          <span id="count-vida-fast" class="chip-badge">150</span>
         </button>
         <button type="button" id="chip-bolt-fast" class="filter-chip chip-bolt-fast active" title="Toggle Bolt.Earth Fast Chargers">
-          <span>⚡ Bolt.Earth (Fast)</span>
-          <span id="count-bolt-fast" class="chip-badge">398</span>
+          <span>⚡ Bolt Fast</span>
+          <span id="count-bolt-fast" class="chip-badge">319</span>
         </button>
         <button type="button" id="chip-bolt-slow" class="filter-chip chip-bolt-slow active" title="Toggle Bolt.Earth 15A Sockets">
-          <span>🔌 Bolt 15A (Slow Socket)</span>
-          <span id="count-bolt-slow" class="chip-badge">3,304</span>
+          <span>🔌 Bolt 15A</span>
+          <span id="count-bolt-slow" class="chip-badge">1,387</span>
         </button>
       </div>
     </div>
@@ -171,6 +175,9 @@
             <div class="route-filter-pills" id="route-charger-filters">
               <button type="button" class="route-filter-btn active" data-filter="atherFast" title="Include Ather Grid DC Fast Chargers">
                 <span class="filter-dot dot-ather"></span> Ather Fast ⚡
+              </button>
+              <button type="button" class="route-filter-btn active" data-filter="vidaFast" title="Include Hero VIDA DC Fast Chargers">
+                <span class="filter-dot dot-vida-fast"></span> VIDA Fast ⚡
               </button>
               <button type="button" class="route-filter-btn active" data-filter="boltFast" title="Include Bolt.Earth DC/AC Fast Chargers">
                 <span class="filter-dot dot-bolt-fast"></span> Bolt Fast ⚡
@@ -470,14 +477,14 @@
         </div>
 
         <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
-          Directly synchronizes with Ather Grid & Bolt.Earth APIs. <strong>Adds newly installed chargers</strong> and <strong>automatically removes any decommissioned/closed stations</strong> so your map data remains 100% accurate.
+          Directly synchronizes with Ather Grid, Hero VIDA & Bolt.Earth networks (Kerala, Tamil Nadu, Karnataka & Puducherry). <strong>Zero car chargers</strong>, 100% 2-wheeler Ather Gun fast chargers and 15A sockets.
         </div>
 
         <!-- Overall Network Sync Summary -->
         <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;">
           <div class="metric-box">
-            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">7,274</span>
-            <span class="metric-label">Total Verified Stations</span>
+            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">3,276</span>
+            <span class="metric-label">Total Verified 2W Stations</span>
           </div>
           <div class="metric-box">
             <span id="modal-network-status" class="metric-val" style="color: #00e676; font-size: 0.95rem;">🟢 Live & Verified</span>
@@ -485,37 +492,49 @@
           </div>
         </div>
 
-        <!-- Dedicated Network Sections: Ather Fast, Bolt Fast (Ather Gun), Bolt 15A -->
+        <!-- Dedicated Network Sections: Ather Fast, Vida Fast, Bolt Fast (Ather Gun), Bolt 15A -->
         <div class="sync-networks-list">
           <!-- 1. Ather Grid Fast Section -->
           <div class="sync-net-item sync-item-ather">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-ather">⚡ ATHER GRID FAST</span>
-              <span id="modal-ather-count" class="sync-item-count">3,572</span>
+              <span id="modal-ather-count" class="sync-item-count">1,420</span>
             </div>
             <div class="sync-item-sub">
-              <span>🔌 <strong>Connector:</strong> Ather Proprietary DC Fast Gun</span>
+              <span>🔌 <strong>Connector:</strong> Ather Proprietary DC Fast Gun (IS 17017-2-7 / Type 7)</span>
               <span class="sync-compat-tag">✅ 100% Direct Plug-in (450X, Rizta, Apex)</span>
             </div>
           </div>
 
-          <!-- 2. Bolt.Earth Fast Section (Ather Gun Compatible) -->
+          <!-- 2. Hero VIDA Fast Section (Ather Gun Compatible) -->
+          <div class="sync-net-item sync-item-vida-fast">
+            <div class="sync-item-top">
+              <span class="sync-net-badge badge-vida-fast">⚡ HERO VIDA FAST</span>
+              <span id="modal-vida-count" class="sync-item-count">150</span>
+            </div>
+            <div class="sync-item-sub">
+              <span>🔌 <strong>Connector:</strong> Hero VIDA Official DC Fast Gun (IS 17017-2-7 / Type 7 LEV DC)</span>
+              <span class="sync-compat-tag" style="color: #ff5722;">✅ 100% Direct Plug-in (Ather Gun Compatible)</span>
+            </div>
+          </div>
+
+          <!-- 3. Bolt.Earth Fast Section (Ather Gun Compatible) -->
           <div class="sync-net-item sync-item-bolt-fast">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-bolt-fast">⚡ BOLT.EARTH FAST</span>
-              <span id="modal-bolt-fast-count" class="sync-item-count">398</span>
+              <span id="modal-bolt-fast-count" class="sync-item-count">319</span>
             </div>
             <div class="sync-item-sub">
-              <span>🔌 <strong>Connector:</strong> Ather Gun (IS 17017 Type 7 LEV DC)</span>
+              <span>🔌 <strong>Connector:</strong> Ather Gun (IS 17017 Type 7 LEV DC / L1DC)</span>
               <span class="sync-compat-tag">✅ 100% Ather Gun Compatible (Direct Plug-in)</span>
             </div>
           </div>
 
-          <!-- 3. Bolt.Earth 15A Socket Section -->
+          <!-- 4. Bolt.Earth 15A Socket Section -->
           <div class="sync-net-item sync-item-bolt-slow">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-bolt-slow">🔌 BOLT.EARTH 15A</span>
-              <span id="modal-bolt-slow-count" class="sync-item-count">3,304</span>
+              <span id="modal-bolt-slow-count" class="sync-item-count">1,387</span>
             </div>
             <div class="sync-item-sub">
               <span>🔌 <strong>Connector:</strong> Standard 15A AC 3-Pin Socket</span>
@@ -583,15 +602,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=4.1"></script>
+  <script src="chargers_db.js?v=4.2"></script>
 
-  <!-- Application Engine Scripts with Version 4.1 Cache Buster -->
-  <script src="js/battery.js?v=4.1"></script>
-  <script src="js/sync.js?v=4.1"></script>
-  <script src="js/navigator.js?v=4.1"></script>
-  <script src="js/router.js?v=4.1"></script>
-  <script src="js/utilities.js?v=4.1"></script>
-  <script src="js/map.js?v=4.1"></script>
-  <script src="js/app.js?v=4.1"></script>
+  <!-- Application Engine Scripts with Version 4.2 Cache Buster -->
+  <script src="js/battery.js?v=4.2"></script>
+  <script src="js/sync.js?v=4.2"></script>
+  <script src="js/navigator.js?v=4.2"></script>
+  <script src="js/router.js?v=4.2"></script>
+  <script src="js/utilities.js?v=4.2"></script>
+  <script src="js/map.js?v=4.2"></script>
+  <script src="js/app.js?v=4.2"></script>
 </body>
 </html>

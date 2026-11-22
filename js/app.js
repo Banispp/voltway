@@ -158,6 +158,7 @@ function setupTabs() {
 // --- Filter Chips Bar ---
 function setupFilterChips() {
   const chipAther = document.getElementById('chip-ather-fast');
+  const chipVidaFast = document.getElementById('chip-vida-fast');
   const chipBoltFast = document.getElementById('chip-bolt-fast');
   const chipBoltSlow = document.getElementById('chip-bolt-slow');
 
@@ -168,6 +169,16 @@ function setupFilterChips() {
       const active = chipAther.classList.toggle('active');
       MapEngine.setFilter('atherFast', active);
       syncRouteFilterBtn('atherFast', active);
+    });
+  }
+
+  if (chipVidaFast) {
+    chipVidaFast.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const active = chipVidaFast.classList.toggle('active');
+      MapEngine.setFilter('vidaFast', active);
+      syncRouteFilterBtn('vidaFast', active);
     });
   }
 
@@ -206,12 +217,14 @@ function syncRouteFilterBtn(filterKey, active) {
 function updateFilterBadges() {
   const stats = SyncEngine.getStats();
   const countAther = document.getElementById('count-ather-fast');
+  const countVida = document.getElementById('count-vida-fast');
   const countBoltFast = document.getElementById('count-bolt-fast');
   const countBoltSlow = document.getElementById('count-bolt-slow');
   const btnNetworkPill = document.getElementById('btn-open-sync');
   const headerCountEl = document.getElementById('header-station-count');
 
   if (countAther) countAther.textContent = stats.atherFast.toLocaleString();
+  if (countVida) countVida.textContent = (stats.vidaFast || 0).toLocaleString();
   if (countBoltFast) countBoltFast.textContent = stats.boltFast.toLocaleString();
   if (countBoltSlow) countBoltSlow.textContent = stats.boltSlow.toLocaleString();
   if (headerCountEl) {
@@ -501,6 +514,7 @@ function setupRoutePlanner() {
       // Sync corresponding map filter chip
       const chipIdMap = {
         atherFast: 'chip-ather-fast',
+        vidaFast: 'chip-vida-fast',
         boltFast: 'chip-bolt-fast',
         boltSlow: 'chip-bolt-slow'
       };
@@ -1454,12 +1468,14 @@ function updateSyncModalStatus() {
   const stats = SyncEngine.getStats();
   const totalEl = document.getElementById('sync-total-chargers');
   const atherEl = document.getElementById('modal-ather-count');
+  const vidaEl = document.getElementById('modal-vida-count');
   const boltFastEl = document.getElementById('modal-bolt-fast-count');
   const boltSlowEl = document.getElementById('modal-bolt-slow-count');
   const lastSyncEl = document.getElementById('sync-last-timestamp');
 
   if (totalEl) totalEl.textContent = stats.total.toLocaleString();
   if (atherEl) atherEl.textContent = stats.atherFast.toLocaleString();
+  if (vidaEl) vidaEl.textContent = (stats.vidaFast || 0).toLocaleString();
   if (boltFastEl) boltFastEl.textContent = stats.boltFast.toLocaleString();
   if (boltSlowEl) boltSlowEl.textContent = stats.boltSlow.toLocaleString();
   if (lastSyncEl) {

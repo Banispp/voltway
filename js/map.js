@@ -20,6 +20,7 @@ const MapEngine = (function () {
   // Filter state
   const filters = {
     atherFast: true,
+    vidaFast: true,
     boltFast: true,
     boltSlow: true
   };
@@ -95,6 +96,10 @@ const MapEngine = (function () {
       pinClass = 'pin-ather';
       iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
       label = 'Ather Fast';
+    } else if (charger.network === 'VIDA_GRID') {
+      pinClass = 'pin-vida-fast';
+      iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
+      label = 'Vida Fast';
     } else if (charger.network === 'BOLT_EARTH') {
       if (charger.type === 'FAST') {
         pinClass = 'pin-bolt-fast';
@@ -168,6 +173,7 @@ const MapEngine = (function () {
     for (let i = 0; i < chargers.length; i++) {
       const c = chargers[i];
       if (c.network === 'ATHER_GRID' && !filters.atherFast) continue;
+      if (c.network === 'VIDA_GRID' && !filters.vidaFast) continue;
       if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) continue;
       if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) continue;
       activeCandidates.push(c);
@@ -177,9 +183,9 @@ const MapEngine = (function () {
     let visibleChargers = [];
     const inBounds = activeCandidates.filter(c => bounds.contains([c.lat, c.lng]));
 
-    // ALWAYS include ALL Fast Chargers (both Ather Grid and Bolt Fast) in the viewport!
-    const fastInBounds = inBounds.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID');
-    const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID');
+    // ALWAYS include ALL Fast Chargers (Ather Grid, Hero VIDA Fast, Bolt Fast) in the viewport!
+    const fastInBounds = inBounds.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID');
+    const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID' && c.network !== 'VIDA_GRID');
 
     if (zoom < 8) {
       // National level: Show up to 350 Fast Chargers
@@ -245,10 +251,21 @@ const MapEngine = (function () {
    */
   function createChargerPopupHtml(charger) {
     const isAther = charger.network === 'ATHER_GRID';
+    const isVida = charger.network === 'VIDA_GRID';
     const isFast = charger.type === 'FAST';
 
-    const networkBadgeClass = isAther ? 'badge-ather' : (isFast ? 'badge-bolt-fast' : 'badge-bolt-slow');
-    const networkName = isAther ? 'Ather Grid' : 'Bolt.Earth';
+    let networkBadgeClass = 'badge-bolt-slow';
+    let networkName = 'Bolt.Earth';
+    if (isAther) {
+      networkBadgeClass = 'badge-ather';
+      networkName = 'Ather Grid';
+    } else if (isVida) {
+      networkBadgeClass = 'badge-vida-fast';
+      networkName = 'Hero VIDA Grid';
+    } else if (isFast) {
+      networkBadgeClass = 'badge-bolt-fast';
+      networkName = 'Bolt.Earth Fast';
+    }
 
     const batteryState = window.BatteryEngine ? window.BatteryEngine.getState() : { efficiency: 0.85, currentBatteryPct: 85 };
     const chargeTime = window.Utilities ? window.Utilities.estimateChargingTime(batteryState.currentBatteryPct, 80, batteryState.efficiency) : null;
@@ -309,7 +326,7 @@ const MapEngine = (function () {
             🧭 Open in Google Maps
           </button>
           <button class="btn-sm" style="background: rgba(0, 176, 255, 0.1); border: 1px solid var(--color-bolt-slow); color: var(--color-bolt-slow); padding: 7px;" onclick="MapEngine.handleOpenOfficialApp('${charger.network}', '${charger.id}')">
-            📱 Check Live Socket Status in ${isAther ? 'Ather' : 'Bolt'} App
+            📱 Check Live Status in ${isAther ? 'Ather' : (isVida ? 'VIDA' : 'Bolt')} App
           </button>
         </div>
       </div>
@@ -327,6 +344,17 @@ const MapEngine = (function () {
         }, 1200);
       } else {
         window.open('https://play.google.com/store/apps/details?id=com.atherenergy.app', '_blank');
+      }
+    } else if (network === 'VIDA_GRID') {
+      // Hero VIDA App deep link / intent
+      const isAndroid = /android/i.test(navigator.userAgent);
+      if (isAndroid) {
+        window.location.href = 'intent://vidaworld.com/#Intent;package=com.vida.app;scheme=https;end';
+        setTimeout(() => {
+          window.open('https://play.google.com/store/apps/details?id=com.vida.app', '_blank');
+        }, 1200);
+      } else {
+        window.open('https://play.google.com/store/apps/details?id=com.vida.app', '_blank');
       }
     } else {
       // Bolt.Earth App deep link

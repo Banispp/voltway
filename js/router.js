@@ -16,6 +16,7 @@ const RouteEngine = (function () {
   // Route Planner Charger Filter State (Controls corridor search & auto charging stops)
   const routeFilters = {
     atherFast: true,
+    vidaFast: true,
     boltFast: true,
     boltSlow: true
   };
@@ -333,6 +334,7 @@ const RouteEngine = (function () {
       if (c.lat < minLat || c.lat > maxLat || c.lng < minLng || c.lng > maxLng) return false;
       // Filter according to Route Planner Preferences
       if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
+      if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
       if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
       if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
       return true;
@@ -394,6 +396,7 @@ const RouteEngine = (function () {
 
       let candidates = corridorChargers.filter(c => {
         if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
+        if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
         if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
         if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
         return c.kmFromOrigin >= targetMinKm &&
@@ -404,6 +407,7 @@ const RouteEngine = (function () {
       if (candidates.length === 0) {
         candidates = corridorChargers.filter(c => {
           if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
+          if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
           if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
           if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
           return c.kmFromOrigin > currentCoveredKm &&
@@ -417,6 +421,7 @@ const RouteEngine = (function () {
       candidates.sort((a, b) => {
         const getPriority = (c) => {
           if (c.network === 'ATHER_GRID') return 1;
+          if (c.network === 'VIDA_GRID') return 1;
           if (c.network === 'BOLT_EARTH' && c.type === 'FAST') return 2;
           return 3;
         };
@@ -605,6 +610,8 @@ const RouteEngine = (function () {
         let estCost = 0;
         if (wp.network === 'ATHER_GRID') {
           estCost = 0; // Ather Grid Free Fast Charging
+        } else if (wp.network === 'VIDA_GRID') {
+          estCost = Math.round(unitsOptimalKWh * 15);
         } else if (wp.network === 'BOLT_EARTH' && wp.type === 'FAST') {
           estCost = Math.round(unitsOptimalKWh * 16);
         } else {

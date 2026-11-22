@@ -335,6 +335,12 @@ html, body {
   color: #00e676;
 }
 
+.chip-vida-fast.active {
+  background: rgba(255, 87, 34, 0.15);
+  border-color: #ff5722;
+  color: #ff5722;
+}
+
 .chip-bolt-fast.active {
   background: rgba(255, 145, 0, 0.15);
   border-color: #ff9100;
@@ -452,6 +458,18 @@ html, body {
   border: 1px solid rgba(0, 230, 118, 0.5);
 }
 
+/* Hero VIDA Fast Pin */
+.pin-vida-fast .pin-badge {
+  background: #FF5722;
+  color: #ffffff;
+  border-color: #ffffff;
+  box-shadow: 0 0 10px rgba(255, 87, 34, 0.6);
+}
+.pin-vida-fast .pin-label {
+  color: #FF5722;
+  border: 1px solid rgba(255, 87, 34, 0.5);
+}
+
 /* Bolt Fast Pin */
 .pin-bolt-fast .pin-badge {
   background: #FF9100;
@@ -537,6 +555,12 @@ html, body {
   background: rgba(0, 230, 118, 0.2);
   color: #00e676;
   border: 1px solid #00e676;
+}
+
+.badge-vida-fast {
+  background: rgba(255, 87, 34, 0.2);
+  color: #ff5722;
+  border: 1px solid #ff5722;
 }
 
 .badge-bolt-fast {
@@ -875,6 +899,7 @@ html, body {
 }
 
 .dot-ather { background: #00e676; box-shadow: 0 0 6px rgba(0, 230, 118, 0.7); }
+.dot-vida-fast { background: #ff5722; box-shadow: 0 0 6px rgba(255, 87, 34, 0.7); }
 .dot-bolt-fast { background: #ff9100; box-shadow: 0 0 6px rgba(255, 145, 0, 0.7); }
 .dot-bolt-slow { background: #00b0ff; box-shadow: 0 0 6px rgba(0, 176, 255, 0.7); }
 
@@ -1522,6 +1547,11 @@ html, body {
   background: linear-gradient(135deg, rgba(0, 230, 118, 0.05) 0%, #090d16 100%);
 }
 
+.sync-item-vida-fast {
+  border-color: rgba(255, 87, 34, 0.35);
+  background: linear-gradient(135deg, rgba(255, 87, 34, 0.06) 0%, #090d16 100%);
+}
+
 .sync-item-bolt-fast {
   border-color: rgba(255, 145, 0, 0.35);
   background: linear-gradient(135deg, rgba(255, 145, 0, 0.06) 0%, #090d16 100%);
@@ -1554,6 +1584,10 @@ html, body {
 
 .sync-item-ather .sync-item-count {
   color: #00E676;
+}
+
+.sync-item-vida-fast .sync-item-count {
+  color: #FF5722;
 }
 
 .sync-item-bolt-fast .sync-item-count {
