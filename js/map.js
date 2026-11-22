@@ -53,7 +53,7 @@ const MapEngine = (function () {
       .addAttribution('&copy; <a href="https://openstreetmap.org" target="_blank">OSM</a> | VoltWay 2W')
       .addTo(map);
 
-    setTileTheme('dark');
+    setTileTheme('daylight');
 
     markersLayer = L.layerGroup().addTo(map);
     routeLayer = L.layerGroup().addTo(map);
@@ -67,21 +67,15 @@ const MapEngine = (function () {
     return map;
   }
 
-  function setTileTheme(theme) {
-    currentTileTheme = theme;
+  function setTileTheme(theme = 'daylight') {
+    currentTileTheme = 'daylight';
     if (tileLayer) map.removeLayer(tileLayer);
 
-    if (theme === 'sunlight') {
-      tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        subdomains: ['a', 'b', 'c']
-      }).addTo(map);
-    } else {
-      tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        subdomains: 'abcd'
-      }).addTo(map);
-    }
+    // High-visibility crisp daytime OpenStreetMap tiles
+    tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      subdomains: ['a', 'b', 'c']
+    }).addTo(map);
   }
 
   function toggleTileTheme() {
