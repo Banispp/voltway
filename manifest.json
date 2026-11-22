@@ -1,0 +1,55 @@
+{
+  "name": "VoltWay 2W: EV Route Planner",
+  "short_name": "VoltWay 2W",
+  "description": "Zero-server Android EV Route Planner for 2-wheeler electric vehicles (Ather Grid & Bolt.Earth)",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0f18",
+  "theme_color": "#0a0f18",
+  "categories": ["navigation", "travel", "utilities"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Plan EV Route",
+      "short_name": "Route",
+      "description": "Plan multi-stop route with fast chargers",
+      "url": "./index.html?tab=route",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "SOS Nearest Charger",
+      "short_name": "SOS",
+      "description": "Find closest 2W charger immediately",
+      "url": "./index.html?action=sos",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Charging Calculator",
+      "short_name": "Charge Time",
+      "description": "Calculate Ather & Bolt charging duration",
+      "url": "./index.html?tab=calculator",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
