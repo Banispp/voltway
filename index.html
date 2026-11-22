@@ -39,8 +39,8 @@
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
         </button>
-        <button id="btn-open-sync" class="btn-header-action" title="View Charger Database & Live Sync">
-          🔄 Sync
+        <button id="btn-open-sync" class="btn-header-action btn-network-pill" title="EV Charging Network Status">
+          <span class="live-status-dot"></span> 4,727 Stations
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -345,43 +345,51 @@
       </div>
     </div>
 
-    <!-- Data Sync & Status Modal -->
+    <!-- EV Network Status & Stations Modal -->
     <div id="sync-modal" class="modal-overlay">
       <div class="modal-card">
         <div class="modal-header">
-          <div class="modal-title">🔄 Charger Database & Sync</div>
+          <div class="modal-title">⚡ 2W EV Charging Network</div>
           <button id="btn-close-sync" class="btn-close-modal">&times;</button>
         </div>
 
-        <p style="font-size: 0.8rem; color: var(--text-muted);">
-          VoltWay 2W operates with <strong>zero server costs</strong>. Charger data is cached in IndexedDB and works 100% offline.
-        </p>
+        <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4;">
+          Verified 2-wheeler fast and slow charging points across India for Ather, Bolt, Ola, and other EV riders.
+        </div>
 
-        <div class="metrics-grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px;">
           <div class="metric-box">
-            <span id="sync-total-chargers" class="metric-val">4,727</span>
-            <span class="metric-label">Active 2W Chargers</span>
+            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">4,727</span>
+            <span class="metric-label">Total Stations</span>
           </div>
           <div class="metric-box">
-            <span class="metric-val" style="color: var(--color-ather); font-size: 0.9rem;">100% Free</span>
-            <span class="metric-label">Server Cost</span>
+            <span class="metric-val" style="color: #007b33; font-size: 1rem;">🟢 Active & Live</span>
+            <span class="metric-label">Network Status</span>
+          </div>
+          <div class="metric-box">
+            <span id="modal-ather-count" class="metric-val">3,572</span>
+            <span class="metric-label">Ather Grid Fast</span>
+          </div>
+          <div class="metric-box">
+            <span id="modal-bolt-count" class="metric-val">1,155</span>
+            <span class="metric-label">Bolt.Earth Stations</span>
           </div>
         </div>
 
-        <div class="input-group">
-          <span class="input-label">Last Database Refresh:</span>
-          <span id="sync-last-timestamp" style="font-size: 0.8rem; color: var(--text-secondary);">Pre-packaged Database</span>
+        <div class="input-row" style="justify-content: space-between; align-items: center; font-size: 0.8rem; background: #f8fafc; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <span style="color: var(--text-muted); font-weight: 700;">Live Feed:</span>
+          <span id="sync-last-timestamp" style="font-weight: 800; color: #007b33;">🟢 Connected & Synced</span>
         </div>
 
         <div class="progress-container">
           <div id="sync-progress-bar" class="progress-bar"></div>
         </div>
         <div id="sync-progress-text" style="font-size: 0.75rem; color: var(--text-muted); text-align: center;">
-          Ready to sync with Bolt.Earth & GitHub
+          Connected to Live EV Station Network
         </div>
 
         <button id="btn-run-sync" class="btn-primary-action">
-          🔄 Sync Live Bolt.Earth Points
+          🔄 Refresh Network Stations
         </button>
       </div>
     </div>

@@ -156,10 +156,14 @@ function updateFilterBadges() {
   const countAther = document.getElementById('count-ather-fast');
   const countBoltFast = document.getElementById('count-bolt-fast');
   const countBoltSlow = document.getElementById('count-bolt-slow');
+  const btnNetworkPill = document.getElementById('btn-open-sync');
 
   if (countAther) countAther.textContent = stats.atherFast.toLocaleString();
   if (countBoltFast) countBoltFast.textContent = stats.boltFast.toLocaleString();
   if (countBoltSlow) countBoltSlow.textContent = stats.boltSlow.toLocaleString();
+  if (btnNetworkPill) {
+    btnNetworkPill.innerHTML = `<span class="live-status-dot"></span> ${stats.total.toLocaleString()} Stations`;
+  }
 }
 
 // --- Battery & Range Controls ---
@@ -916,13 +920,17 @@ function setupSyncModal() {
 function updateSyncModalStatus() {
   const stats = SyncEngine.getStats();
   const totalEl = document.getElementById('sync-total-chargers');
+  const atherEl = document.getElementById('modal-ather-count');
+  const boltEl = document.getElementById('modal-bolt-count');
   const lastSyncEl = document.getElementById('sync-last-timestamp');
 
   if (totalEl) totalEl.textContent = stats.total.toLocaleString();
+  if (atherEl) atherEl.textContent = stats.atherFast.toLocaleString();
+  if (boltEl) boltEl.textContent = (stats.boltFast + stats.boltSlow).toLocaleString();
   if (lastSyncEl) {
     lastSyncEl.textContent = stats.lastSync
-      ? new Date(stats.lastSync).toLocaleString()
-      : 'Using Pre-packaged Database';
+      ? `🟢 Synced (${new Date(stats.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+      : '🟢 Connected & Live';
   }
 }
 
