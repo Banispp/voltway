@@ -46,13 +46,13 @@ class VoltWayHandler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), VoltWayHandler) as httpd:
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(("", PORT), VoltWayHandler) as httpd:
         print("=======================================================")
         print("VoltWay 2W - EV Route Planner Server (Fresh No-Cache)")
         print("=======================================================")
         print(f"App running locally at: http://localhost:{PORT}")
-        print("Serving PWA, Leaflet Maps, and 4,727 2W EV Chargers")
+        print("Serving PWA, Leaflet Maps, and 7,819 2W EV Chargers")
         print("Live on Local Network: http://192.168.31.230:8080")
         print("=======================================================")
         try:

@@ -260,6 +260,15 @@ function setupBatteryControls() {
     });
   });
 
+  // Planner Riding Mode buttons (Quick selector on Route Planner)
+  const plannerModeButtons = document.querySelectorAll('.btn-planner-mode');
+  plannerModeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-mode');
+      BatteryEngine.setRidingMode(mode);
+    });
+  });
+
   // Custom Efficiency
   if (effInput) {
     effInput.addEventListener('change', (e) => {
@@ -330,6 +339,14 @@ function onBatteryStateChange(state) {
   if (safeRangeText) safeRangeText.textContent = `${state.reachableSafeKm} km`;
   if (maxRangeText) maxRangeText.textContent = `${state.absoluteMaxKm} km`;
 
+  // Sync Riding mode pills in both planner and battery dashboard
+  document.querySelectorAll('.btn-mode').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-mode') === state.ridingMode);
+  });
+  document.querySelectorAll('.btn-planner-mode').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-mode') === state.ridingMode);
+  });
+
   // Update Safe Range circle on map
   MapEngine.updateSafeRangeOverlay();
 
@@ -337,6 +354,7 @@ function onBatteryStateChange(state) {
   const activeRoute = RouteEngine.getActiveRoute();
   if (activeRoute) {
     updateRouteMetrics(activeRoute);
+    renderTripBatteryTimeline(activeRoute);
   }
 }
 
@@ -646,16 +664,33 @@ function onRouteStateChange(routeState) {
   window.__isNewRouteCalculation = false;
   MapEngine.renderRoute(route, allRoutes, selectedRouteIndex, shouldFit);
 
-  // 2. Render Google Maps Style Route Alternative Selector Pills
+  // 2. Render Google Maps Style Route Alternative Selector Cards
   if (routeSelectorContainer && routeSelectorPills) {
     if (allRoutes && allRoutes.length > 1) {
       routeSelectorContainer.style.display = 'flex';
-      routeSelectorPills.innerHTML = allRoutes.map((r, idx) => `
-        <div class="route-pill ${idx === selectedRouteIndex ? 'active' : ''}" onclick="RouteEngine.selectRoute(${idx})">
-          <div class="route-pill-title">${r.name}</div>
-          <div class="route-pill-meta">${r.distanceKm} km • ${Utilities.formatMinutes(r.durationMins)}</div>
-        </div>
-      `).join('');
+      const countEl = document.getElementById('route-selector-count');
+      if (countEl) countEl.textContent = `${allRoutes.length} Available`;
+
+      const primaryDur = (allRoutes[0] && allRoutes[0].durationMins) || route.durationMins;
+
+      routeSelectorPills.innerHTML = allRoutes.map((r, idx) => {
+        const isSelected = idx === selectedRouteIndex;
+        const diffMins = r.durationMins - primaryDur;
+        const badgeLabel = idx === 0 ? '⚡ FASTEST' : (diffMins > 0 ? `+${diffMins} min` : `${r.durationMins} min`);
+        const badgeClass = idx === 0 ? 'pill-badge-fastest' : 'pill-badge-diff';
+        const roadLabel = r.roadName || r.name;
+
+        return `
+          <div class="route-card-pill ${isSelected ? 'active' : ''}" onclick="RouteEngine.selectRoute(${idx})" role="button" tabindex="0">
+            <div class="pill-top-row">
+              <span class="pill-badge ${badgeClass}">${badgeLabel}</span>
+              <span class="pill-dist-txt">${r.distanceKm} km</span>
+            </div>
+            <div class="pill-duration-val">${Utilities.formatMinutes(r.durationMins)}</div>
+            <div class="pill-road-txt" title="${roadLabel}">${roadLabel}</div>
+          </div>
+        `;
+      }).join('');
     } else {
       routeSelectorContainer.style.display = 'none';
     }
@@ -696,7 +731,6 @@ function onRouteStateChange(routeState) {
 function renderTripBatteryTimeline(route) {
   const timelineSection = document.getElementById('trip-battery-timeline-section');
   const timelineContainer = document.getElementById('trip-battery-timeline-container');
-  const targetBadge = document.getElementById('timeline-target-badge');
   if (!timelineSection || !timelineContainer || !route) return;
 
   const batteryState = BatteryEngine.getState();
@@ -707,8 +741,20 @@ function renderTripBatteryTimeline(route) {
   }
 
   timelineSection.style.display = 'block';
-  if (targetBadge) {
-    targetBadge.textContent = `Fast Target: ${tripPlan.targetChargePct}% SoC`;
+
+  // Wire up Timeline Mode Toggle (Fast Travel vs Full Target)
+  const currentMode = RouteEngine.getTimelineMode ? RouteEngine.getTimelineMode() : 'optimal';
+  const btnOptimal = document.getElementById('btn-mode-optimal');
+  const btnTarget = document.getElementById('btn-mode-target');
+  if (btnOptimal && btnTarget) {
+    btnOptimal.classList.toggle('active', currentMode === 'optimal');
+    btnTarget.classList.toggle('active', currentMode === 'target');
+    btnOptimal.onclick = () => {
+      if (RouteEngine.setTimelineMode) RouteEngine.setTimelineMode('optimal');
+    };
+    btnTarget.onclick = () => {
+      if (RouteEngine.setTimelineMode) RouteEngine.setTimelineMode('target');
+    };
   }
 
   let html = `
@@ -786,6 +832,45 @@ function renderTripBatteryTimeline(route) {
               <span class="step-title">${step.station?.name || `Stop ${step.index}`}</span>
               <span class="badge-net ${badgeClass}">${netName}</span>
             </div>
+
+            <!-- Smart Stop Charging Recommendation Box -->
+            <div class="stop-rec-grid">
+              <div class="stop-rec-card ${currentMode === 'optimal' ? 'active' : ''}">
+                <div class="stop-rec-hdr">
+                  <span class="stop-rec-tag tag-rec">⚡ RECOMMENDED (FAST HOP)</span>
+                  <span class="stop-rec-time">⏱️ ~${step.optimalChargeTimeMins} min</span>
+                </div>
+                <div class="stop-rec-main">
+                  Charge to <span class="rec-highlight">${step.optimalTargetSoC}%</span> (+${step.optimalChargeNeededPct}%)
+                </div>
+                <div class="stop-rec-sub">Safe buffer to reach next stop (${step.nextLegDist} km)</div>
+              </div>
+
+              <div class="stop-rec-card ${currentMode === 'target' ? 'active' : ''}">
+                <div class="stop-rec-hdr">
+                  <span class="stop-rec-tag tag-target">🔋 FULL TARGET LIMIT</span>
+                  <span class="stop-rec-time">⏱️ ~${step.fullChargeTimeMins} min</span>
+                </div>
+                <div class="stop-rec-main">
+                  Charge to <span class="rec-highlight">${step.fullTargetSoC}%</span> (+${step.fullChargeNeededPct}%)
+                </div>
+                <div class="stop-rec-sub">Max range cushion (${step.targetChargeSoC}% limit)</div>
+              </div>
+            </div>
+
+            <!-- Smart Rider Advice Callout -->
+            <div class="stop-smart-callout">
+              💡 ${step.smartAdvice}
+            </div>
+
+            <!-- Power, Units & Cost Indicators -->
+            <div class="stop-energy-pills-row">
+              <span class="stop-pill-spec">⚡ ${isFast ? '3.3 kW DC Fast (~1.5 km/min)' : '15A AC Socket (~0.33 km/min)'}</span>
+              <span class="stop-pill-spec">🔋 ~${step.unitsKWh} kWh</span>
+              <span class="stop-pill-spec">💰 ${step.estCost === 0 ? '₹0 (Ather Grid Free ⚡)' : `~₹${step.estCost}`}</span>
+            </div>
+
+            <!-- Active Metrics Grid -->
             <div class="stop-metrics-grid">
               <div class="stop-metric-box">
                 <span class="stop-metric-lbl">Arrival SoC</span>
@@ -828,6 +913,11 @@ function renderTripBatteryTimeline(route) {
             <div class="step-sub">
               ${step.isSafe ? `✅ Safe Arrival! ${step.arrivalSoC}% battery reserve remaining at destination.` : `⚠️ Range Alert: Battery reaches ${step.arrivalSoC}%. Please add an intermediate charging stop!`}
             </div>
+          </div>
+        </div>
+      `;
+    }
+  });
           </div>
         </div>
       `;

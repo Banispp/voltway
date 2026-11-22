@@ -437,6 +437,46 @@ const MapEngine = (function () {
    * @param {number} selectedIndex Index of active route
    * @param {boolean} shouldFitBounds Only fit bounds when explicitly planning a new route
    */
+  /**
+   * Helper to create Google Maps Style floating duration badge on route polyline
+   */
+  function createRouteBadgeMarker(route, idx, isSelected, primaryDuration) {
+    if (!route.coordinates || route.coordinates.length < 4) return null;
+    const midIdx = Math.floor(route.coordinates.length * 0.48);
+    const midCoord = route.coordinates[midIdx];
+
+    const diffMins = route.durationMins - primaryDuration;
+    const badgeText = `${route.durationMins} min`;
+    const badgeSub = isSelected ? (route.isPrimary ? '⚡ Fastest' : 'Active') : (diffMins > 0 ? `+${diffMins}m` : `${route.distanceKm} km`);
+
+    const icon = L.divIcon({
+      className: 'route-duration-badge-wrapper',
+      html: `
+        <div class="map-route-duration-pill ${isSelected ? 'pill-active' : 'pill-alt'}" title="${route.name}">
+          <span class="pill-duration-txt">${badgeText}</span>
+          <span class="pill-badge-tag">${badgeSub}</span>
+        </div>
+      `,
+      iconSize: [92, 32],
+      iconAnchor: [46, 16]
+    });
+
+    const marker = L.marker(midCoord, { icon, zIndexOffset: isSelected ? 2000 : 1200 });
+    marker.on('click', (e) => {
+      L.DomEvent.stopPropagation(e);
+      if (window.RouteEngine) window.RouteEngine.selectRoute(idx);
+    });
+    return marker;
+  }
+
+  /**
+   * Render calculated routes on map (Google Maps Style Multi-Route Selector)
+   * Alternative routes are rendered with clickable slate lines and duration badges!
+   * @param {Object} activeRoute Active selected route
+   * @param {Array} allRoutes All candidate alternative routes
+   * @param {number} selectedIndex Index of active route
+   * @param {boolean} shouldFitBounds Only fit bounds when explicitly planning a new route
+   */
   function renderRoute(activeRoute, allRoutes = [], selectedIndex = 0, shouldFitBounds = false) {
     if (!map || !routeLayer || !waypointsLayer) return;
 
@@ -448,6 +488,7 @@ const MapEngine = (function () {
     }
 
     const routesList = (allRoutes && allRoutes.length > 0) ? allRoutes : [activeRoute];
+    const primaryDuration = (routesList[0] && routesList[0].durationMins) || activeRoute.durationMins;
 
     // 1. Render Alternative Unselected Routes first (in the background, clickable!)
     routesList.forEach((r, idx) => {
@@ -455,8 +496,8 @@ const MapEngine = (function () {
 
       const altLine = L.polyline(r.coordinates, {
         color: '#64748B',
-        weight: 5,
-        opacity: 0.7,
+        weight: 6,
+        opacity: 0.75,
         lineCap: 'round',
         lineJoin: 'round',
         className: 'clickable-route-line'
@@ -465,7 +506,7 @@ const MapEngine = (function () {
       altLine.bindTooltip(`
         <div style="font-weight: 700; color: #fff;">${r.name}</div>
         <div style="font-size: 0.78rem; color: #cbd5e1;">${r.distanceKm} km • ${r.durationMins} mins</div>
-        <div style="font-size: 0.72rem; color: #00E676;">👆 Click to select this route</div>
+        <div style="font-size: 0.72rem; color: #00E676;">👆 Tap to select this route</div>
       `, { sticky: true });
 
       altLine.on('click', () => {
@@ -473,12 +514,18 @@ const MapEngine = (function () {
           window.RouteEngine.selectRoute(idx);
         }
       });
+
+      // Add floating route pill badge directly on the alternative route
+      if (routesList.length > 1) {
+        const altBadge = createRouteBadgeMarker(r, idx, false, primaryDuration);
+        if (altBadge) altBadge.addTo(routeLayer);
+      }
     });
 
     // 2. Render Active Selected Route (Glowing Neon Blue/Green)
     const glowLine = L.polyline(activeRoute.coordinates, {
       color: '#00E676',
-      weight: 9,
+      weight: 10,
       opacity: 0.45,
       lineCap: 'round',
       lineJoin: 'round'
@@ -486,12 +533,18 @@ const MapEngine = (function () {
 
     const mainLine = L.polyline(activeRoute.coordinates, {
       color: '#00B0FF',
-      weight: 5,
+      weight: 6,
       opacity: 0.98,
       lineCap: 'round',
       lineJoin: 'round',
       zIndexOffset: 1000
     }).addTo(routeLayer);
+
+    // Add floating route pill badge on the active route
+    if (routesList.length > 1) {
+      const activeBadge = createRouteBadgeMarker(activeRoute, selectedIndex, true, primaryDuration);
+      if (activeBadge) activeBadge.addTo(routeLayer);
+    }
 
     // 3. Render Origin Pin (A)
     L.marker([activeRoute.origin.lat, activeRoute.origin.lng], {

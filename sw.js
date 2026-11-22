@@ -1,20 +1,20 @@
-// VoltWay 2W Service Worker - Version 3.6 (Fresh Network-First)
+// VoltWay 2W Service Worker - Version 3.7 (Fresh Network-First)
 // Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v3-fresh';
+const CACHE_NAME = 'voltway-2w-v3-7-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css?v=3.6',
-  './js/app.js?v=3.6',
-  './js/map.js?v=3.6',
-  './js/router.js?v=3.6',
-  './js/battery.js?v=3.6',
-  './js/navigator.js?v=3.6',
-  './js/sync.js?v=3.6',
-  './js/utilities.js?v=3.6',
-  './chargers_db.js?v=3.6',
+  './css/app.css?v=3.7',
+  './js/app.js?v=3.7',
+  './js/map.js?v=3.7',
+  './js/router.js?v=3.7',
+  './js/battery.js?v=3.7',
+  './js/navigator.js?v=3.7',
+  './js/sync.js?v=3.7',
+  './js/utilities.js?v=3.7',
+  './chargers_db.js?v=3.7',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -27,7 +27,7 @@ const ASSETS_TO_CACHE = [
 
 // Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
-  console.log('[VoltWay SW] Installing fresh v3.5 service worker...');
+  console.log('[VoltWay SW] Installing fresh v3.7 service worker...');
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {

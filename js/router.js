@@ -20,6 +20,9 @@ const RouteEngine = (function () {
     boltSlow: true
   };
 
+  // Timeline charging calculation mode: 'optimal' (Fast Travel) vs 'target' (Full Limit)
+  let currentTimelineMode = 'optimal';
+
   // Listeners
   const listeners = [];
 
@@ -37,8 +40,20 @@ const RouteEngine = (function () {
       allRoutes,
       selectedRouteIndex,
       corridorChargers,
-      waypoints: intermediateWaypoints
+      waypoints: intermediateWaypoints,
+      timelineMode: currentTimelineMode
     }));
+  }
+
+  function setTimelineMode(mode) {
+    if (mode === 'optimal' || mode === 'target') {
+      currentTimelineMode = mode;
+      notify();
+    }
+  }
+
+  function getTimelineMode() {
+    return currentTimelineMode;
   }
 
   /**
@@ -67,6 +82,48 @@ const RouteEngine = (function () {
     const projectionLat = v[0] + t * (w[0] - v[0]);
     const projectionLng = v[1] + t * (w[1] - v[1]);
     return haversineDistance(p[0], p[1], projectionLat, projectionLng);
+  }
+
+  /**
+   * Helper to extract prominent highway or street name from OSRM steps
+   */
+  function extractMainRoadName(legs) {
+    if (!legs || legs.length === 0) return '';
+    const roadLengths = {};
+    legs.forEach(leg => {
+      (leg.steps || []).forEach(step => {
+        const name = step.name ? step.name.trim() : '';
+        if (name && !name.toLowerCase().includes('unnamed') && name.length > 2) {
+          roadLengths[name] = (roadLengths[name] || 0) + (step.distance || 0);
+        }
+      });
+    });
+    let bestRoad = '';
+    let maxLen = 0;
+    for (const [rName, rLen] of Object.entries(roadLengths)) {
+      if (rLen > maxLen) {
+        maxLen = rLen;
+        bestRoad = rName;
+      }
+    }
+    return bestRoad;
+  }
+
+  /**
+   * Accurately calculate charging duration for a given percentage and station type
+   */
+  function computeChargingDuration(chargeNeededPct, currentArrivalSoC, isFast) {
+    if (chargeNeededPct <= 0) return 0;
+    if (isFast) {
+      const startSoC = Math.max(0, currentArrivalSoC);
+      const endSoC = startSoC + chargeNeededPct;
+      const upTo80 = Math.max(0, Math.min(80, endSoC) - Math.min(80, startSoC));
+      const above80 = Math.max(0, endSoC - Math.max(80, startSoC));
+      return Math.round((upTo80 / 1.4) + (above80 / 0.45));
+    } else {
+      // 15A socket ~0.33% SoC per min
+      return Math.round(chargeNeededPct / 0.33);
+    }
   }
 
   /**
@@ -107,16 +164,20 @@ const RouteEngine = (function () {
       primaryRoutes.forEach((routeData, idx) => {
         const distKm = Math.round((routeData.distance / 1000) * 10) / 10;
         const durMins = Math.round(routeData.duration / 60);
-        const name = idx === 0 ? 'Route 1 (Fastest)' : `Route ${idx + 1} (${distKm} km)`;
+        const prominentRoad = extractMainRoadName(routeData.legs);
+        const roadLabel = prominentRoad ? `via ${prominentRoad}` : (idx === 0 ? 'Main Highway' : `Route ${idx + 1}`);
+        const name = idx === 0 ? `${roadLabel} (Fastest)` : `${roadLabel} (${distKm} km)`;
 
         allRoutes.push({
           id: `route-${idx}`,
           name,
+          roadName: prominentRoad || (idx === 0 ? 'Fastest Highway' : `Route ${idx + 1}`),
           origin,
           destination,
           waypoints: [...intermediateWaypoints],
           distanceKm: distKm,
           durationMins: durMins,
+          timeDiffMins: 0,
           geometry: routeData.geometry,
           coordinates: routeData.geometry.coordinates.map(c => [c[1], c[0]]),
           legs: routeData.legs || [],
@@ -124,9 +185,9 @@ const RouteEngine = (function () {
         });
       });
 
-      // 2. If OSRM only returned 1 route and trip distance > 15 km, generate realistic highway alternative
+      // 2. Generate Google Maps Style Alternative Corridors for any trip >= 1.5 km
       const directDist = haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng);
-      if (allRoutes.length === 1 && directDist > 15 && intermediateWaypoints.length === 0) {
+      if (allRoutes.length < 3 && directDist >= 1.5 && intermediateWaypoints.length === 0) {
         try {
           const midLat = (origin.lat + destination.lat) / 2;
           const midLng = (origin.lng + destination.lng) / 2;
@@ -137,48 +198,44 @@ const RouteEngine = (function () {
           // Perpendicular offset vector
           const perpLat = -dLng / degDist;
           const perpLng = dLat / degDist;
-          const offset = degDist * 0.12;
 
-          const altMid1 = { lat: Math.round((midLat + perpLat * offset) * 1000000) / 1000000, lng: Math.round((midLng + perpLng * offset) * 1000000) / 1000000 };
-          const altMid2 = { lat: Math.round((midLat - perpLat * offset) * 1000000) / 1000000, lng: Math.round((midLng - perpLng * offset) * 1000000) / 1000000 };
+          // Adaptive offsets: for urban trips use 0.08, for longer highway trips use 0.11
+          const factorA = directDist > 25 ? 0.11 : 0.08;
+          const factorB = directDist > 25 ? -0.11 : -0.08;
 
-          const altRes1 = await fetchOsrmRaw([origin, altMid1, destination]);
-          if (altRes1 && altRes1.length > 0) {
-            const rData = altRes1[0];
-            const distKm = Math.round((rData.distance / 1000) * 10) / 10;
-            const durMins = Math.round(rData.duration / 60);
-            if (Math.abs(distKm - allRoutes[0].distanceKm) > 1.5) {
-              allRoutes.push({
-                id: 'route-alt-1',
-                name: `Route 2 (+${Math.round((distKm - allRoutes[0].distanceKm) * 10) / 10} km)`,
-                origin,
-                destination,
-                waypoints: [...intermediateWaypoints],
-                distanceKm: distKm,
-                durationMins: durMins,
-                geometry: rData.geometry,
-                coordinates: rData.geometry.coordinates.map(c => [c[1], c[0]]),
-                legs: rData.legs || [],
-                isPrimary: false
-              });
-            }
-          }
+          const altMid1 = { lat: Math.round((midLat + perpLat * degDist * factorA) * 1000000) / 1000000, lng: Math.round((midLng + perpLng * degDist * factorA) * 1000000) / 1000000 };
+          const altMid2 = { lat: Math.round((midLat + perpLat * degDist * factorB) * 1000000) / 1000000, lng: Math.round((midLng + perpLng * degDist * factorB) * 1000000) / 1000000 };
 
-          if (allRoutes.length < 3) {
-            const altRes2 = await fetchOsrmRaw([origin, altMid2, destination]);
-            if (altRes2 && altRes2.length > 0) {
-              const rData = altRes2[0];
+          const candidates = [altMid1, altMid2];
+          const results = await Promise.allSettled(candidates.map(m => fetchOsrmRaw([origin, m, destination])));
+
+          results.forEach((res, rIdx) => {
+            if (res.status === 'fulfilled' && res.value && res.value.length > 0) {
+              const rData = res.value[0];
               const distKm = Math.round((rData.distance / 1000) * 10) / 10;
               const durMins = Math.round(rData.duration / 60);
-              if (Math.abs(distKm - allRoutes[0].distanceKm) > 1.5) {
+
+              // Avoid duplicates (allow distinct routes with >= 0.2 km or >= 1 min difference)
+              const isDuplicate = allRoutes.some(existing => 
+                Math.abs(existing.distanceKm - distKm) < 0.25 && Math.abs(existing.durationMins - durMins) < 1
+              );
+
+              if (!isDuplicate && allRoutes.length < 3) {
+                const prominentRoad = extractMainRoadName(rData.legs);
+                const roadLabel = prominentRoad ? `via ${prominentRoad}` : (rIdx === 0 ? 'via Arterial Bypass' : 'via Alternate Highway');
+                const diffMins = durMins - allRoutes[0].durationMins;
+                const timeDiffStr = diffMins > 0 ? `+${diffMins} min` : `${durMins} min`;
+
                 allRoutes.push({
-                  id: 'route-alt-2',
-                  name: `Route 3 (+${Math.round((distKm - allRoutes[0].distanceKm) * 10) / 10} km)`,
+                  id: `route-alt-${rIdx + 1}`,
+                  name: `${roadLabel} (${timeDiffStr})`,
+                  roadName: prominentRoad || (rIdx === 0 ? 'Arterial Bypass' : 'Alternate Highway'),
                   origin,
                   destination,
                   waypoints: [...intermediateWaypoints],
                   distanceKm: distKm,
                   durationMins: durMins,
+                  timeDiffMins: diffMins,
                   geometry: rData.geometry,
                   coordinates: rData.geometry.coordinates.map(c => [c[1], c[0]]),
                   legs: rData.legs || [],
@@ -186,7 +243,7 @@ const RouteEngine = (function () {
                 });
               }
             }
-          }
+          });
         } catch (altErr) {
           console.warn('Could not generate synthetic alternative route:', altErr);
         }
@@ -208,11 +265,13 @@ const RouteEngine = (function () {
       activeRoute = {
         id: 'route-fallback',
         name: 'Estimated Direct Route',
+        roadName: 'Direct Road',
         origin,
         destination,
         waypoints: [...intermediateWaypoints],
         distanceKm: estRoadDist,
         durationMins: Math.round(estRoadDist * 2),
+        timeDiffMins: 0,
         geometry: {
           type: 'LineString',
           coordinates: [[origin.lng, origin.lat], [destination.lng, destination.lat]]
@@ -499,35 +558,64 @@ const RouteEngine = (function () {
       const isSafeArrival = arrivalSoC >= minReserve;
       const isCriticalArrival = arrivalSoC < 0;
 
-      // Charge needed up to target charge %
-      let chargeNeeded = 0;
-      let departureSoC = arrivalSoC;
-      let chargeTimeMins = 0;
-
-      if (arrivalSoC < targetCharge) {
-        chargeNeeded = Math.round((targetCharge - Math.max(0, arrivalSoC)) * 10) / 10;
-        departureSoC = targetCharge;
+      // Distance and consumption of NEXT leg (either next waypoint or final destination)
+      let nextLegDist = 0;
+      let nextStopName = 'Destination';
+      if (i + 1 < waypoints.length) {
+        nextLegDist = (legs[i + 1] && legs[i + 1].distance) ? Math.round((legs[i + 1].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
+        nextStopName = waypoints[i + 1].name || `Stop ${String.fromCharCode(66 + i + 1)}`;
       } else {
-        chargeNeeded = 0;
-        departureSoC = arrivalSoC;
+        const lastIdx = waypoints.length;
+        nextLegDist = (legs[lastIdx] && legs[lastIdx].distance) ? Math.round((legs[lastIdx].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
+        nextStopName = route.destination?.name || 'Destination';
       }
 
-      // Calculate charging duration
+      const nextLegBatUsed = Math.round((nextLegDist / eff) * 10) / 10;
+      const minDepartureNeeded = Math.ceil(nextLegBatUsed + minReserve);
+
       const isFast = wp.network === 'ATHER_GRID' || wp.type === 'FAST';
-      if (chargeNeeded > 0) {
-        if (isFast) {
-          // Fast DC: ~1.4% SoC per minute up to 80%, ~0.45%/min above 80% (taper)
-          const upTo80 = Math.max(0, Math.min(80, targetCharge) - Math.min(80, Math.max(0, arrivalSoC)));
-          const above80 = Math.max(0, targetCharge - Math.max(80, arrivalSoC));
-          chargeTimeMins = Math.round((upTo80 / 1.4) + (above80 / 0.45));
-        } else {
-          // Slow 15A: ~0.33% SoC per minute
-          chargeTimeMins = Math.round(chargeNeeded / 0.33);
-        }
+
+      // 1. Optimal Fast Travel Recommendation (Charge only what is needed to reach next stop with buffer)
+      const optimalTargetSoC = Math.min(100, Math.max(Math.ceil(arrivalSoC), minDepartureNeeded));
+      const optimalChargeNeededPct = Math.max(0, Math.round((optimalTargetSoC - Math.max(0, arrivalSoC)) * 10) / 10);
+      const optimalChargeTimeMins = computeChargingDuration(optimalChargeNeededPct, arrivalSoC, isFast);
+
+      // 2. Full Target Limit Charge (Configured target, e.g. 80%)
+      const fullTargetSoC = Math.min(100, Math.max(targetCharge, optimalTargetSoC));
+      const fullChargeNeededPct = Math.max(0, Math.round((fullTargetSoC - Math.max(0, arrivalSoC)) * 10) / 10);
+      const fullChargeTimeMins = computeChargingDuration(fullChargeNeededPct, arrivalSoC, isFast);
+
+      const timeSavedMins = Math.max(0, fullChargeTimeMins - optimalChargeTimeMins);
+
+      // 3. Units (kWh) and Estimated Cost
+      const batCap = (batState.vehicleDetails && batState.vehicleDetails.batteryCapacity) || 3.7;
+      const unitsOptimalKWh = Math.round(((optimalChargeNeededPct / 100) * batCap) * 10) / 10;
+      const unitsTargetKWh = Math.round(((fullChargeNeededPct / 100) * batCap) * 10) / 10;
+
+      let estCost = 0;
+      if (wp.network === 'ATHER_GRID') {
+        estCost = 0; // Ather Grid Free Fast Charging
+      } else if (wp.network === 'BOLT_EARTH' && wp.type === 'FAST') {
+        estCost = Math.round(unitsOptimalKWh * 16);
+      } else {
+        estCost = Math.round(unitsOptimalKWh * 14);
       }
 
-      totalChargingTimeMins += chargeTimeMins;
-      totalEnergyChargedPct += chargeNeeded;
+      // 4. Smart Recommendation Advice Text
+      let smartAdvice = '';
+      if (optimalTargetSoC < fullTargetSoC) {
+        smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charging to ${optimalTargetSoC}% gets you there safely with ${minReserve}% buffer — saving ${timeSavedMins} mins! Or charge to ${fullTargetSoC}% for max cushion.`;
+      } else {
+        smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. High energy leg — recommended to charge fully to ${optimalTargetSoC}% to guarantee arrival with ${minReserve}% reserve.`;
+      }
+
+      // Active values depending on current timeline mode ('optimal' vs 'target')
+      const activeDepartureSoC = currentTimelineMode === 'optimal' ? optimalTargetSoC : fullTargetSoC;
+      const activeChargeNeeded = currentTimelineMode === 'optimal' ? optimalChargeNeededPct : fullChargeNeededPct;
+      const activeChargeTime = currentTimelineMode === 'optimal' ? optimalChargeTimeMins : fullChargeTimeMins;
+
+      totalChargingTimeMins += activeChargeTime;
+      totalEnergyChargedPct += activeChargeNeeded;
 
       timeline.push({
         type: 'LEG',
@@ -544,13 +632,25 @@ const RouteEngine = (function () {
         arrivalSoC,
         isSafeArrival,
         isCriticalArrival,
+        nextLegDist,
+        nextStopName,
+        optimalTargetSoC,
+        optimalChargeNeededPct,
+        optimalChargeTimeMins,
+        fullTargetSoC,
+        fullChargeNeededPct,
+        fullChargeTimeMins,
+        timeSavedMins,
+        unitsKWh: unitsOptimalKWh,
+        estCost,
+        smartAdvice,
         targetChargeSoC: targetCharge,
-        chargeNeededPct: chargeNeeded,
-        chargeTimeMins,
-        departureSoC
+        chargeNeededPct: activeChargeNeeded,
+        chargeTimeMins: activeChargeTime,
+        departureSoC: activeDepartureSoC
       });
 
-      currentSoC = departureSoC;
+      currentSoC = activeDepartureSoC;
     }
 
     // Final Leg to Destination
@@ -604,6 +704,8 @@ const RouteEngine = (function () {
     findCorridorChargers,
     autoSuggestChargingStops,
     calculateTripTimeline,
+    setTimelineMode,
+    getTimelineMode,
     addWaypoint,
     removeWaypoint,
     clearRoute,
