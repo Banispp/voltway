@@ -30,6 +30,7 @@ const MapEngine = (function () {
 
   // High-performance Marker Pool: chargerId -> marker
   const markerMap = new Map();
+  const waypointMarkersMap = new Map();
 
   // Animation frame throttle
   let renderRafId = null;
@@ -136,18 +137,89 @@ const MapEngine = (function () {
     });
   }
 
-  function createWaypointPinIcon(letter, labelColor = '#00E676') {
+  /**
+   * Prominently Highlighted Charging Stop Pin on the Active Route
+   */
+  function createHighlightedStopPinIcon(wp, idx) {
+    const isFast = wp.type === 'FAST' || wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID';
+    let brandColor = '#00E676';
+    let brandGlow = 'rgba(0, 230, 118, 0.55)';
+    let networkTag = 'Ather Fast';
+
+    if (wp.network === 'ATHER_GRID') {
+      brandColor = '#00E676';
+      brandGlow = 'rgba(0, 230, 118, 0.55)';
+      networkTag = 'Ather Fast';
+    } else if (wp.network === 'VIDA_GRID') {
+      brandColor = '#FF5722';
+      brandGlow = 'rgba(255, 87, 34, 0.55)';
+      networkTag = 'Vida Fast';
+    } else if (wp.network === 'BOLT_EARTH') {
+      if (wp.type === 'FAST') {
+        brandColor = '#FF9100';
+        brandGlow = 'rgba(255, 145, 0, 0.55)';
+        networkTag = 'Bolt Fast';
+      } else {
+        brandColor = '#00B0FF';
+        brandGlow = 'rgba(0, 176, 255, 0.55)';
+        networkTag = 'Bolt 15A';
+      }
+    }
+
+    let cleanName = (wp.name || `Stop ${idx + 1}`).replace(/^Vida Grid Fast\s*-\s*/i, '').replace(/^Ather Grid Fast\s*-\s*/i, '').replace(/^Bolt Fast\s*-\s*/i, '').replace(/^.*-\s*/, '').trim();
+    if (cleanName.length > 18) {
+      cleanName = cleanName.substring(0, 16) + '…';
+    }
+
     const html = `
-      <div class="custom-waypoint-pin" style="--wp-color: ${labelColor};">
-        <div class="wp-badge">${letter}</div>
+      <div class="highlight-stop-container" style="--brand-color: ${brandColor}; --brand-glow: ${brandGlow};">
+        <div class="beacon-pulse-ring"></div>
+        <div class="beacon-pulse-ring delay"></div>
+        <div class="highlight-stop-pin">
+          <div class="stop-badge-icon">${isFast ? '⚡' : '🔌'}</div>
+          <span class="stop-badge-text">STOP ${idx + 1}</span>
+        </div>
+        <div class="highlight-stop-label">
+          <span class="label-net">${networkTag}</span>
+          <span class="label-name">${cleanName}</span>
+        </div>
       </div>
     `;
+
     return L.divIcon({
-      className: 'waypoint-pin-container',
+      className: 'highlight-stop-div-icon',
       html: html,
-      iconSize: [36, 36],
-      iconAnchor: [18, 34],
-      popupAnchor: [0, -32]
+      iconSize: [120, 64],
+      iconAnchor: [60, 20],
+      popupAnchor: [0, -28]
+    });
+  }
+
+  /**
+   * Route Endpoint Pins (Start Point & Destination Point)
+   */
+  function createEndpointPinIcon(type = 'START', name = '') {
+    const isStart = type === 'START';
+    const color = isStart ? '#0284c7' : '#10b981';
+    const glow = isStart ? 'rgba(2, 132, 199, 0.55)' : 'rgba(16, 185, 129, 0.55)';
+    const icon = isStart ? '🚩' : '🏁';
+    const tag = isStart ? 'START' : 'DEST';
+
+    const html = `
+      <div class="route-endpoint-container" style="--end-color: ${color}; --end-glow: ${glow};">
+        <div class="endpoint-pin">
+          <span class="endpoint-icon">${icon}</span>
+          <span class="endpoint-tag">${tag}</span>
+        </div>
+      </div>
+    `;
+
+    return L.divIcon({
+      className: 'route-endpoint-div-icon',
+      html: html,
+      iconSize: [84, 38],
+      iconAnchor: [42, 19],
+      popupAnchor: [0, -24]
     });
   }
 
@@ -222,8 +294,12 @@ const MapEngine = (function () {
       }
     });
 
-    // 3. Diffing: Remove markers that moved outside the viewport
-    const newVisibleIds = new Set(visibleChargers.map(c => c.id));
+    // Filter out chargers that are actively highlighted in waypointsLayer to avoid duplicate markers
+    const activeRouteWaypoints = (window.RouteEngine && window.RouteEngine.getActiveRoute() && window.RouteEngine.getActiveRoute().waypoints) || [];
+    const activeWpIds = new Set(activeRouteWaypoints.map(w => w.id));
+
+    // 3. Diffing: Remove markers that moved outside the viewport or are now active trip waypoints
+    const newVisibleIds = new Set(visibleChargers.filter(c => !activeWpIds.has(c.id)).map(c => c.id));
     for (const [id, marker] of markerMap.entries()) {
       if (!newVisibleIds.has(id)) {
         markersLayer.removeLayer(marker);
@@ -233,6 +309,7 @@ const MapEngine = (function () {
 
     // 4. Add only newly entered chargers
     visibleChargers.forEach((charger) => {
+      if (activeWpIds.has(charger.id)) return;
       if (markerMap.has(charger.id)) {
         return; // Already rendered in DOM, keep it!
       }
@@ -590,35 +667,74 @@ const MapEngine = (function () {
       if (activeBadge) activeBadge.addTo(routeLayer);
     }
 
-    // 3. Render Origin Pin (A)
-    L.marker([activeRoute.origin.lat, activeRoute.origin.lng], {
-      icon: createWaypointPinIcon('A', '#00E676')
-    }).bindPopup(`<b>Start Point (A)</b><br>${activeRoute.origin.name || 'Origin'}`).addTo(waypointsLayer);
+    waypointMarkersMap.clear();
 
-    // 4. Render Intermediate Charging Waypoints (B, C, ...)
+    // 3. Render Origin Pin (Start Point)
+    L.marker([activeRoute.origin.lat, activeRoute.origin.lng], {
+      icon: createEndpointPinIcon('START', activeRoute.origin.name),
+      zIndexOffset: 15000
+    }).bindPopup(`
+      <div class="popup-card">
+        <div class="popup-header"><span class="popup-badge badge-ather">🚩 Starting Point</span></div>
+        <div class="popup-title">${activeRoute.origin.name || 'Origin'}</div>
+      </div>
+    `).addTo(waypointsLayer);
+
+    // 4. Render Intermediate Highlighted Charging Stops (STOP 1, STOP 2, ...)
     const intermediateStops = activeRoute.waypoints || [];
     intermediateStops.forEach((wp, idx) => {
-      const letter = String.fromCharCode(66 + idx);
-      const color = wp.type === 'FAST' ? '#FF9100' : '#00B0FF';
-      L.marker([wp.lat, wp.lng], {
-        icon: createWaypointPinIcon(letter, color)
+      const isFast = wp.type === 'FAST' || wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID';
+      let brandColor = '#00E676';
+      let netTag = 'Ather Fast';
+      if (wp.network === 'VIDA_GRID') { brandColor = '#FF5722'; netTag = 'Vida Fast'; }
+      else if (wp.network === 'BOLT_EARTH') {
+        if (wp.type === 'FAST') { brandColor = '#FF9100'; netTag = 'Bolt Fast'; }
+        else { brandColor = '#00B0FF'; netTag = 'Bolt 15A'; }
+      }
+
+      const cleanTitle = (wp.name || `Charging Stop ${idx + 1}`).replace(/\s*\(Ather Gun[^)]*\)/gi, '');
+
+      const stopMarker = L.marker([wp.lat, wp.lng], {
+        icon: createHighlightedStopPinIcon(wp, idx),
+        zIndexOffset: 20000 + idx
       }).bindPopup(`
         <div class="popup-card">
-          <div class="popup-header"><span class="popup-badge badge-bolt-fast">Stop ${letter}</span></div>
-          <div class="popup-title">${wp.name}</div>
-          <div class="popup-detail"><span>Connector:</span> <span>${wp.connector}</span></div>
-          <div class="popup-actions">
-            <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${wp.id}')">❌ Remove Stop</button>
+          <div class="popup-header">
+            <span class="popup-badge" style="background: ${brandColor}; color: #000; font-weight: 800;">⚡ TRIP CHARGING STOP #${idx + 1}</span>
+          </div>
+          <div class="popup-title">${cleanTitle}</div>
+          <div class="popup-detail">
+            <span class="detail-label">Network:</span>
+            <span class="detail-val" style="color: ${brandColor}; font-weight: 700;">${netTag}</span>
+          </div>
+          <div class="popup-detail">
+            <span class="detail-label">Connector:</span>
+            <span class="detail-val">${wp.connector || (isFast ? 'DC Fast Charger' : '15A AC Plug Socket')}</span>
+          </div>
+          <div class="popup-actions" style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+            <button class="btn-popup-nav" style="background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; padding: 8px; border-radius: 6px; font-weight: 700; cursor: pointer;" onclick="MapEngine.handleNavigateToCharger(window.SyncEngine.getChargers().find(x=>x.id==='${wp.id}') || {id: '${wp.id}', name: '${cleanTitle.replace(/'/g, "\\'")}', lat: ${wp.lat}, lng: ${wp.lng}})">
+              🎙️ Google Maps Navigation to this Stop
+            </button>
+            <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.15); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 8px; border-radius: 6px; font-weight: 700; cursor: pointer;" onclick="RouteEngine.removeWaypoint('${wp.id}')">
+              ❌ Remove from Trip Stops
+            </button>
           </div>
         </div>
-      `).addTo(waypointsLayer);
+      `, { maxWidth: 320, className: 'charger-popup' }).addTo(waypointsLayer);
+
+      waypointMarkersMap.set(wp.id, stopMarker);
     });
 
     // 5. Render Final Destination Pin
-    const destLetter = String.fromCharCode(66 + intermediateStops.length);
     L.marker([activeRoute.destination.lat, activeRoute.destination.lng], {
-      icon: createWaypointPinIcon(destLetter, '#FF3D71')
-    }).bindPopup(`<b>Destination (${destLetter})</b><br>${activeRoute.destination.name || 'Destination'}`).addTo(waypointsLayer);
+      icon: createEndpointPinIcon('DEST', activeRoute.destination.name),
+      zIndexOffset: 15000
+    }).bindPopup(`
+      <div class="popup-card">
+        <div class="popup-header"><span class="popup-badge" style="background: #10b981; color: #fff;">🏁 Destination</span></div>
+        <div class="popup-title">${activeRoute.destination.name || 'Destination'}</div>
+      </div>
+    `).addTo(waypointsLayer);
 
     // Fit bounds to show route ONLY when requested (preserves user map position when filtering!)
     if (shouldFitBounds && mainLine) {
@@ -679,6 +795,11 @@ const MapEngine = (function () {
     map.setView([charger.lat, charger.lng], 16, { animate: true });
     renderChargers();
     setTimeout(() => {
+      const wpMarker = waypointMarkersMap.get(charger.id);
+      if (wpMarker) {
+        wpMarker.openPopup();
+        return;
+      }
       const marker = markerMap.get(charger.id);
       if (marker) marker.openPopup();
     }, 150);

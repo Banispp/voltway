@@ -1139,7 +1139,7 @@ function renderTripBatteryTimeline(route) {
           </div>
           <div class="step-content stop-card">
             <div class="step-title-row">
-              <span class="step-title">${stationNameClean}</span>
+              <span class="step-title" style="cursor: pointer; display: flex; align-items: center; gap: 4px;" onclick="MapEngine.focusCharger({id: '${step.station?.id}', lat: ${step.station?.lat}, lng: ${step.station?.lng}}); if (window.innerWidth <= 768) window.collapseBottomSheet();" title="Click to view highlighted stop on map">🎯 ${stationNameClean}</span>
               <span class="badge-net ${badgeClass}">${netName}</span>
             </div>
 
