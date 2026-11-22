@@ -432,7 +432,7 @@ const RouteEngine = (function () {
     // First leg safe range based on current starting battery SoC
     const firstLegSafeRange = Math.max(15, Math.round((startBat - minReserve) * eff * 10) / 10);
     // Intermediate legs safe range based on charging to target limit (e.g. 80%)
-    const intermediateSafeRange = Math.max(20, Math.round((Math.max(targetCharge, 80) - minReserve) * eff * 10) / 10);
+    const intermediateSafeRange = Math.max(20, Math.round((targetCharge - minReserve) * eff * 10) / 10);
 
     const totalDist = activeRoute.distanceKm;
 
@@ -757,14 +757,19 @@ const RouteEngine = (function () {
 
       if (isCharger) {
         const isFast = wp.network === 'ATHER_GRID' || wp.type === 'FAST';
+        // DC Fast Chargers cut off at targetCharge (typically 80%) to protect lithium cells
+        // Slow 15A AC sockets can charge up to 100%
+        const maxChargerCeiling = isFast ? targetCharge : 100;
 
         // 1. Optimal Fast Travel Recommendation (Charge only what is needed to reach next stop with buffer)
-        const optimalTargetSoC = Math.min(100, Math.max(Math.ceil(arrivalSoC), minDepartureNeeded));
+        // Strictly capped at maxChargerCeiling (e.g. 80% for Fast Chargers)
+        const optimalTargetSoC = Math.min(maxChargerCeiling, Math.max(Math.ceil(arrivalSoC), minDepartureNeeded));
         const optimalChargeNeededPct = Math.max(0, Math.round((optimalTargetSoC - Math.max(0, arrivalSoC)) * 10) / 10);
         const optimalChargeTimeMins = computeChargingDuration(optimalChargeNeededPct, arrivalSoC, isFast);
 
         // 2. Full Target Limit Charge (Configured target, e.g. 80%)
-        const fullTargetSoC = Math.min(100, Math.max(targetCharge, optimalTargetSoC));
+        // Strictly capped at maxChargerCeiling (e.g. 80% for Fast Chargers)
+        const fullTargetSoC = Math.min(maxChargerCeiling, Math.max(targetCharge, optimalTargetSoC));
         const fullChargeNeededPct = Math.max(0, Math.round((fullTargetSoC - Math.max(0, arrivalSoC)) * 10) / 10);
         const fullChargeTimeMins = computeChargingDuration(fullChargeNeededPct, arrivalSoC, isFast);
 
@@ -788,10 +793,16 @@ const RouteEngine = (function () {
 
         // 4. Smart Recommendation Advice Text
         let smartAdvice = '';
-        if (optimalTargetSoC < fullTargetSoC) {
+        if (isFast && minDepartureNeeded > maxChargerCeiling) {
+          const estArrival = Math.round((maxChargerCeiling - nextLegBatUsed) * 10) / 10;
+          if (estArrival >= 0) {
+            smartAdvice = `Fast charger cuts off at ${maxChargerCeiling}%. Next stretch is ${nextLegDist} km to ${nextStopName}. Reaches next stop with ~${estArrival}% battery reserve.`;
+          } else {
+            const shortKm = Math.round(Math.abs(estArrival) * eff * 10) / 10;
+            smartAdvice = `⚠️ Range Gap: Next stretch is ${nextLegDist} km to ${nextStopName}. Fast charger cuts off at ${maxChargerCeiling}%, which is short by ~${shortKm} km. Consider a 15A socket or ride in ECO mode.`;
+          }
+        } else if (optimalTargetSoC < fullTargetSoC) {
           smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charging to ${optimalTargetSoC}% gets you there safely with ${minReserve}% buffer — saving ${timeSavedMins} mins! Or charge to ${fullTargetSoC}% for max cushion.`;
-        } else if (optimalTargetSoC > targetCharge) {
-          smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Long highway stretch requires ${optimalTargetSoC}% (exceeding your ${targetCharge}% limit) to guarantee safe arrival without running empty.`;
         } else {
           smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charge to ${optimalTargetSoC}% to guarantee safe arrival with ${minReserve}% safety buffer.`;
         }

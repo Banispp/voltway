@@ -1,7 +1,7 @@
 // VoltWay 2W Service Worker - Version 4.5 (South India 2W: Ather + Hero VIDA + Bolt 2W)
 // Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v4-7-fresh';
+const CACHE_NAME = 'voltway-2w-v4-8-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
