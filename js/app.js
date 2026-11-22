@@ -52,7 +52,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=3.2')
+      navigator.serviceWorker.register('./sw.js?v=3.3')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -187,12 +187,14 @@ function updateFilterBadges() {
   const countBoltFast = document.getElementById('count-bolt-fast');
   const countBoltSlow = document.getElementById('count-bolt-slow');
   const btnNetworkPill = document.getElementById('btn-open-sync');
+  const headerCountEl = document.getElementById('header-station-count');
 
   if (countAther) countAther.textContent = stats.atherFast.toLocaleString();
   if (countBoltFast) countBoltFast.textContent = stats.boltFast.toLocaleString();
   if (countBoltSlow) countBoltSlow.textContent = stats.boltSlow.toLocaleString();
+  if (headerCountEl) headerCountEl.textContent = stats.total.toLocaleString();
   if (btnNetworkPill) {
-    btnNetworkPill.innerHTML = `<span class="live-status-dot"></span> ${stats.total.toLocaleString()} Stations`;
+    btnNetworkPill.innerHTML = `<span class="live-status-dot"></span> 🔄 Sync (${stats.total.toLocaleString()})`;
   }
 }
 

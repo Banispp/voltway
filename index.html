@@ -21,17 +21,15 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=3.2">
+  <link rel="stylesheet" href="css/app.css?v=3.3">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
     (function() {
-      // Automatic stale cache eviction
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
             if (name !== 'voltway-2w-v3-fresh') {
-              console.log('[VoltWay CacheBuster] Purging obsolete cache:', name);
               caches.delete(name);
             }
           });
@@ -43,7 +41,7 @@
 <body>
   <div id="app-container">
 
-    <!-- Top App Header -->
+    <!-- Top App Header (OLED Dark Mode) -->
     <header class="app-header">
       <div class="brand-wrapper">
         <img src="icons/icon-192.png" alt="VoltWay 2W Logo" class="brand-logo">
@@ -53,14 +51,14 @@
         </div>
       </div>
       <div class="header-actions">
-        <button id="btn-force-refresh" class="btn-header-action" title="Force Refresh & Clear Cache" style="font-size: 0.72rem; padding: 5px 9px; background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; border-radius: 9999px; font-weight: 700; cursor: pointer;">
-          🔄 v3.2
+        <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="⚡ Sync Latest EV Chargers (Ather & Bolt)">
+          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">4,727</span>)
         </button>
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
         </button>
-        <button id="btn-open-sync" class="btn-header-action btn-network-pill" title="EV Charging Network Status">
-          <span class="live-status-dot"></span> 4,727 Stations
+        <button id="btn-force-refresh" class="btn-header-action" title="Clear Cache & Force Refresh" style="font-size: 0.72rem; padding: 5px 8px; background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 9999px; cursor: pointer;">
+          v3.3
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -369,21 +367,21 @@
     <div id="sync-modal" class="modal-overlay">
       <div class="modal-card">
         <div class="modal-header">
-          <div class="modal-title">⚡ 2W EV Charging Network</div>
+          <div class="modal-title">⚡ Live EV Network Sync</div>
           <button id="btn-close-sync" class="btn-close-modal">&times;</button>
         </div>
 
-        <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4;">
-          Verified 2-wheeler fast and slow charging points across India for Ather, Bolt, Ola, and other EV riders.
+        <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.45;">
+          Directly synchronizes with Ather Grid & Bolt.Earth APIs. <strong>Adds newly installed chargers</strong> and <strong>automatically removes any decommissioned/closed stations</strong> so your map data remains 100% accurate.
         </div>
 
         <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px;">
           <div class="metric-box">
             <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">4,727</span>
-            <span class="metric-label">Total Stations</span>
+            <span class="metric-label">Total Active Stations</span>
           </div>
           <div class="metric-box">
-            <span class="metric-val" style="color: #007b33; font-size: 1rem;">🟢 Active & Live</span>
+            <span class="metric-val" style="color: #00e676; font-size: 0.95rem;">🟢 Live & Verified</span>
             <span class="metric-label">Network Status</span>
           </div>
           <div class="metric-box">
@@ -396,20 +394,20 @@
           </div>
         </div>
 
-        <div class="input-row" style="justify-content: space-between; align-items: center; font-size: 0.8rem; background: #f8fafc; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+        <div class="input-row" style="justify-content: space-between; align-items: center; font-size: 0.8rem; background: #080c14; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
           <span style="color: var(--text-muted); font-weight: 700;">Live Feed:</span>
-          <span id="sync-last-timestamp" style="font-weight: 800; color: #007b33;">🟢 Connected & Synced</span>
+          <span id="sync-last-timestamp" style="font-weight: 800; color: #00e676;">🟢 Connected & Synced</span>
         </div>
 
         <div class="progress-container">
           <div id="sync-progress-bar" class="progress-bar"></div>
         </div>
-        <div id="sync-progress-text" style="font-size: 0.75rem; color: var(--text-muted); text-align: center;">
-          Connected to Live EV Station Network
+        <div id="sync-progress-text" style="font-size: 0.78rem; color: var(--text-secondary); text-align: center;">
+          Ready to sync with official Ather & Bolt servers
         </div>
 
         <button id="btn-run-sync" class="btn-primary-action">
-          🔄 Refresh Network Stations
+          ⚡ Sync Network Now (Add New & Remove Closed)
         </button>
       </div>
     </div>
@@ -417,15 +415,15 @@
   </div>
 
   <!-- Pre-bundled 4,727 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=3.2"></script>
+  <script src="chargers_db.js?v=3.3"></script>
 
-  <!-- Application Engine Scripts with Version 3.2 Cache Buster -->
-  <script src="js/battery.js?v=3.2"></script>
-  <script src="js/sync.js?v=3.2"></script>
-  <script src="js/navigator.js?v=3.2"></script>
-  <script src="js/router.js?v=3.2"></script>
-  <script src="js/utilities.js?v=3.2"></script>
-  <script src="js/map.js?v=3.2"></script>
-  <script src="js/app.js?v=3.2"></script>
+  <!-- Application Engine Scripts with Version 3.3 Cache Buster -->
+  <script src="js/battery.js?v=3.3"></script>
+  <script src="js/sync.js?v=3.3"></script>
+  <script src="js/navigator.js?v=3.3"></script>
+  <script src="js/router.js?v=3.3"></script>
+  <script src="js/utilities.js?v=3.3"></script>
+  <script src="js/map.js?v=3.3"></script>
+  <script src="js/app.js?v=3.3"></script>
 </body>
 </html>

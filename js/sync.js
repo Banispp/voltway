@@ -123,32 +123,81 @@ const SyncEngine = (function () {
 
   /**
    * AUTOMATIC BACKGROUND SYNC:
-   * Checks the latest online database for any newly opened Ather Grid or Bolt.Earth chargers
-   * and merges them directly into the phone's database with ZERO manual work from the user!
+   * Reconciles additions and deletions.
+   * If new chargers are opened, they are added.
+   * If existing chargers were decommissioned or removed from official map, they are removed.
    */
   async function checkAndSyncRemoteUpdates() {
-    if (!navigator.onLine) return;
+    if (!navigator.onLine) return { added: 0, removed: 0 };
 
     try {
-      console.log('[VoltWay Sync] Auto-checking for newly added Ather & Bolt chargers in background...');
-      // Fetch latest database with cache-busting timestamp
+      console.log('[VoltWay Sync] Auto-reconciling Ather & Bolt chargers in background...');
       const resp = await fetch('chargers_db.json?v=' + Date.now(), { cache: 'no-store' });
-      if (!resp.ok) return;
+      if (!resp.ok) return { added: 0, removed: 0 };
 
       const remoteChargers = await resp.json();
-      if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) return;
+      if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) return { added: 0, removed: 0 };
 
-      const added = mergeChargers(remoteChargers);
-      if (added > 0) {
-        console.log(`[VoltWay Sync] ✨ AUTOMATICALLY ADDED ${added} NEW CHARGERS!`);
-        showAutoUpdateToast(`✨ ${added} New EV Chargers Added Automatically!`);
+      const stats = reconcileChargers(remoteChargers);
+      if (stats.added > 0 || stats.removed > 0) {
+        console.log(`[VoltWay Sync] Reconciled: +${stats.added} new, -${stats.removed} decommissioned`);
+        showAutoUpdateToast(`⚡ Network Synced: +${stats.added} new, -${stats.removed} closed stations`);
         localStorage.setItem('voltway_last_sync', new Date().toISOString());
       } else {
         console.log('[VoltWay Sync] All chargers up-to-date.');
       }
+      return stats;
     } catch (e) {
       console.warn('[VoltWay Sync] Background auto-sync skipped:', e);
+      return { added: 0, removed: 0 };
     }
+  }
+
+  function reconcileChargers(authoritativeList) {
+    if (!Array.isArray(authoritativeList) || authoritativeList.length === 0) return { added: 0, removed: 0 };
+
+    const remoteMap = new Map();
+    authoritativeList.forEach(c => remoteMap.set(c.id, c));
+
+    const currentMap = new Map();
+    inMemoryChargers.forEach(c => currentMap.set(c.id, c));
+
+    let added = 0;
+    let removed = 0;
+
+    authoritativeList.forEach(c => {
+      if (!currentMap.has(c.id)) added++;
+    });
+
+    inMemoryChargers.forEach(c => {
+      if (!remoteMap.has(c.id)) removed++;
+    });
+
+    inMemoryChargers = authoritativeList;
+    if (db) {
+      clearAndSaveAllToDB(inMemoryChargers);
+    }
+    notify();
+    if (window.MapEngine) {
+      window.MapEngine.renderChargers(inMemoryChargers);
+    }
+    return { added, removed };
+  }
+
+  function clearAndSaveAllToDB(chargers) {
+    return new Promise((resolve) => {
+      if (!db || !chargers) return resolve();
+      try {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.clear();
+        chargers.forEach(c => store.put(c));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (e) {
+        resolve();
+      }
+    });
   }
 
   /**
@@ -159,7 +208,8 @@ const SyncEngine = (function () {
   async function fetchLiveBoltInBounds(bounds) {
     if (!bounds || !navigator.onLine) return [];
     const { south, west, north, east } = bounds;
-    const url = `https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom=${south}&lng_right=${east}&lat_top=${north}&lng_left=${west}&zoom=14`;
+    // Query at zoom=16 to ensure 100% unclustered granular charger points
+    const url = `https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom=${south}&lng_right=${east}&lat_top=${north}&lng_left=${west}&zoom=16`;
 
     try {
       const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -177,13 +227,22 @@ const SyncEngine = (function () {
         const lat = coords[1];
 
         const modelId = (item.model?.modelId || '').toUpperCase();
+        const cidUpper = String(cid).toUpperCase();
 
         // Automatic exclusion of 4-wheeler high-power car guns
         if (modelId.includes('CCS') || modelId.includes('GB/T') || modelId.includes('CHADEMO')) {
           return;
         }
 
-        const isFast = modelId.includes('FAST') || modelId.includes('2WFC') || modelId.includes('LEVEL_2') || modelId.includes('LEVEL_3');
+        // Precision 2W Fast Charger detection (L1DC, 2WFC, Type 6, Type 7, Level 2 Fast AC)
+        const isFast = cidUpper.startsWith('L1DC') ||
+                       modelId.includes('2WFC') ||
+                       modelId.includes('FAST') ||
+                       modelId.includes('TYPE6') ||
+                       modelId.includes('TYPE7') ||
+                       modelId.includes('LEVEL_2') ||
+                       modelId.includes('LEVEL_3');
+
         const ctype = isFast ? 'FAST' : 'SLOW';
         const connName = isFast ? 'Bolt.Earth Fast Charger (DC / Fast AC)' : 'Standard 15A / 3-Pin AC Socket';
         const powerKw = isFast ? 3.3 : 1.5;
@@ -231,28 +290,20 @@ const SyncEngine = (function () {
     if (onProgress) onProgress({ status: 'Starting sync...', percent: 10 });
 
     try {
-      // 1. Check remote JSON stream for new Ather & Bolt points
-      if (onProgress) onProgress({ status: 'Checking for newly opened Ather Grid & Bolt chargers...', percent: 30 });
-      await checkAndSyncRemoteUpdates();
+      // 1. Reconcile with remote stream (adds new stations & removes decommissioned stations)
+      if (onProgress) onProgress({ status: 'Connecting to Ather Grid & Bolt.Earth networks...', percent: 25 });
+      const reconcileStats = await checkAndSyncRemoteUpdates();
 
-      // 2. Fetch live Bolt chargers for major corridors in India
+      // 2. Fetch live Bolt chargers around current viewport/corridors
+      if (onProgress) onProgress({ status: 'Scanning live regional 2W fast corridors...', percent: 65 });
+      
       const keyCorridors = [
-        { name: 'Bangalore & Karnataka', lat_bottom: 12.5, lng_left: 77.0, lat_top: 13.4, lng_right: 77.9 },
-        { name: 'Kerala (Kochi, Calicut, TVM)', lat_bottom: 8.5, lng_left: 75.5, lat_top: 11.5, lng_right: 77.0 },
-        { name: 'Chennai & Tamil Nadu', lat_bottom: 12.8, lng_left: 79.9, lat_top: 13.3, lng_right: 80.4 },
-        { name: 'Hyderabad & Telangana', lat_bottom: 17.2, lng_left: 78.2, lat_top: 17.6, lng_right: 78.6 },
-        { name: 'Mumbai & Pune', lat_bottom: 18.4, lng_left: 72.8, lat_top: 19.3, lng_right: 73.9 },
-        { name: 'Delhi NCR', lat_bottom: 28.3, lng_left: 76.9, lat_top: 28.8, lng_right: 77.4 }
+        { name: 'Bangalore & Karnataka', lat_bottom: 12.8, lng_left: 77.4, lat_top: 13.2, lng_right: 77.8 },
+        { name: 'Kerala Central (Kochi)', lat_bottom: 9.8, lng_left: 76.2, lat_top: 10.2, lng_right: 76.5 }
       ];
 
       for (let i = 0; i < keyCorridors.length; i++) {
         const c = keyCorridors[i];
-        if (onProgress) {
-          onProgress({
-            status: `Querying live Bolt.Earth API: ${c.name}...`,
-            percent: 40 + Math.floor((i / keyCorridors.length) * 55)
-          });
-        }
         await fetchLiveBoltInBounds({
           south: c.lat_bottom,
           west: c.lng_left,
@@ -263,9 +314,15 @@ const SyncEngine = (function () {
 
       localStorage.setItem('voltway_last_sync', new Date().toISOString());
 
+      const finalStats = getStats();
+      let completionMsg = `Sync complete! Active chargers: ${finalStats.total.toLocaleString()}`;
+      if (reconcileStats && (reconcileStats.added > 0 || reconcileStats.removed > 0)) {
+        completionMsg = `Sync complete! +${reconcileStats.added} added, -${reconcileStats.removed} decommissioned stations removed.`;
+      }
+
       if (onProgress) {
         onProgress({
-          status: `Sync complete! Active chargers: ${inMemoryChargers.length}`,
+          status: completionMsg,
           percent: 100
         });
       }
