@@ -1,14 +1,9 @@
 {
-  "appId": "com.voltway.evrouteplanner",
+  "appId": "com.voltway.evroute",
   "appName": "VoltWay 2W",
-  "webDir": ".",
-  "bundledWebRuntime": false,
+  "webDir": "www",
   "server": {
-    "androidScheme": "https"
-  },
-  "android": {
-    "allowMixedContent": true,
-    "captureInput": true,
-    "webContentsDebuggingEnabled": false
+    "url": "https://banispp.github.io/voltway/",
+    "cleartext": true
   }
 }

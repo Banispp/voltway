@@ -5,6 +5,9 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
@@ -32,7 +35,6 @@ jobs:
           cp -r index.html manifest.json sw.js chargers_db.js chargers_db.json css js icons www/
           npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "VoltWay 2W" "com.voltway.evroute" --web-dir www
           npx cap add android
           cd android
           chmod +x gradlew
@@ -50,7 +52,7 @@ jobs:
         with:
           tag_name: v5.2-release
           name: "VoltWay 2W Android APK v5.2"
-          body: "Official standalone Android APK for VoltWay 2W EV Route Planner. Works 100% without laptop server."
+          body: "Official standalone Android APK for VoltWay 2W EV Route Planner. Live synced with https://banispp.github.io/voltway/"
           files: android/app/build/outputs/apk/debug/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
