@@ -1085,13 +1085,17 @@ function renderTripBatteryTimeline(route) {
 
               <div class="stop-rec-card ${currentMode === 'target' ? 'active' : ''}">
                 <div class="stop-rec-hdr">
-                  <span class="stop-rec-tag tag-target">🔋 FULL TARGET LIMIT</span>
+                  <span class="stop-rec-tag ${step.fullTargetSoC > step.targetChargeSoC ? 'tag-rec' : 'tag-target'}" style="${step.fullTargetSoC > step.targetChargeSoC ? 'background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);' : ''}">
+                    ${step.fullTargetSoC > step.targetChargeSoC ? '⚠️ EXTENDED CHARGE (GAP)' : '🔋 FULL TARGET LIMIT'}
+                  </span>
                   <span class="stop-rec-time">⏱️ ~${step.fullChargeTimeMins} min</span>
                 </div>
                 <div class="stop-rec-main">
                   Charge to <span class="rec-highlight">${step.fullTargetSoC}%</span> (+${step.fullChargeNeededPct}%)
                 </div>
-                <div class="stop-rec-sub">${step.fullTargetSoC > step.targetChargeSoC ? `Extended charge needed for next stretch (${step.fullTargetSoC}%)` : `Configured target charge (${step.targetChargeSoC}% limit)`}</div>
+                <div class="stop-rec-sub">
+                  ${step.fullTargetSoC > step.targetChargeSoC ? `Next stretch (${step.nextLegDist} km) requires ${step.fullTargetSoC}% to avoid running empty (overrides ${step.targetChargeSoC}% limit)` : `Configured target charge (${step.targetChargeSoC}% limit)`}
+                </div>
               </div>
             </div>
 

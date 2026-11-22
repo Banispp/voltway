@@ -467,21 +467,20 @@ const RouteEngine = (function () {
                !suggestedWaypoints.some(w => w.id === c.id);
       });
 
-      // 2. Fallback zone: any charger between currentCoveredKm + 15km and currentCoveredKm + safeRange
+      // 2. Fallback zone: any charger between currentCoveredKm + 8km and currentCoveredKm + safeRange
       if (candidates.length === 0) {
         candidates = corridorChargers.filter(c => {
           if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
           if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
           if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
           if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
-          return c.kmFromOrigin > currentCoveredKm + 15 &&
+          return c.kmFromOrigin > currentCoveredKm + 8 &&
                  c.kmFromOrigin <= currentCoveredKm + safeRange &&
                  !suggestedWaypoints.some(w => w.id === c.id);
         });
       }
 
-      // 3. Gap Recovery: If there is a charging desert / ghat stretch where no charger exists within safe range:
-      // NEVER give up on the rest of the route! Pick the nearest available forward charger along the route.
+      // 3. Gap Recovery: If there is a charging desert / ghat stretch where no charger exists in ideal zone:
       if (candidates.length === 0) {
         const forwardChargers = corridorChargers.filter(c => {
           if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
@@ -497,9 +496,17 @@ const RouteEngine = (function () {
           break;
         }
 
-        // Pick the charger closest to currentCoveredKm + safeRange
-        forwardChargers.sort((a, b) => Math.abs(a.kmFromOrigin - (currentCoveredKm + safeRange)) - Math.abs(b.kmFromOrigin - (currentCoveredKm + safeRange)));
-        candidates = [forwardChargers[0]];
+        // Check if any charger exists within safe range (e.g. final top-up station before mountain pass)
+        const reachableForward = forwardChargers.filter(c => c.kmFromOrigin <= currentCoveredKm + safeRange);
+        if (reachableForward.length > 0) {
+          // Pick the furthest reachable charger to make maximum forward progress
+          reachableForward.sort((a, b) => b.kmFromOrigin - a.kmFromOrigin);
+          candidates = [reachableForward[0]];
+        } else {
+          // True gap: all forward chargers are beyond safeRange. Pick the first one just beyond the gap.
+          forwardChargers.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
+          candidates = [forwardChargers[0]];
+        }
       }
 
       // Rank candidates: prioritize furthest forward progress along the route, balanced with network priority and low detour
@@ -783,8 +790,8 @@ const RouteEngine = (function () {
         let smartAdvice = '';
         if (optimalTargetSoC < fullTargetSoC) {
           smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charging to ${optimalTargetSoC}% gets you there safely with ${minReserve}% buffer — saving ${timeSavedMins} mins! Or charge to ${fullTargetSoC}% for max cushion.`;
-        } else if (optimalTargetSoC >= 100) {
-          smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. High energy stretch — recommended to charge to 100% to guarantee arrival with ${minReserve}% safety reserve.`;
+        } else if (optimalTargetSoC > targetCharge) {
+          smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Long highway stretch requires ${optimalTargetSoC}% (exceeding your ${targetCharge}% limit) to guarantee safe arrival without running empty.`;
         } else {
           smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charge to ${optimalTargetSoC}% to guarantee safe arrival with ${minReserve}% safety buffer.`;
         }
