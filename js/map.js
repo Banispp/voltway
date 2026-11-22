@@ -299,8 +299,8 @@ const MapEngine = (function () {
           <span class="detail-val" style="font-weight: 800; color: ${isFast ? '#00E676' : '#38bdf8'};">${charger.connector}</span>
         </div>
         <div class="popup-detail">
-          <span class="detail-label">Power Output:</span>
-          <span class="detail-val">${charger.power_kw} kW • ${isFast ? '~1.5 km/min (Fast DC)' : '~0.3 km/min (15A Socket)'}</span>
+          <span class="detail-label">Speed:</span>
+          <span class="detail-val">${isFast ? '⚡ High-Speed Fast DC' : '🔌 Standard 15A Socket'}</span>
         </div>
         <div class="popup-detail">
           <span class="detail-label">Est. Charge Time:</span>

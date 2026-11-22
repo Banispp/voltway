@@ -1164,12 +1164,6 @@ function renderTripBatteryTimeline(route) {
               💡 ${step.smartAdvice}
             </div>
 
-            <!-- Power & Energy Indicators -->
-            <div class="stop-energy-pills-row">
-              <span class="stop-pill-spec">⚡ ${isFast ? '3.3 kW DC Fast (~1.5 km/min)' : '15A AC Socket (~0.33 km/min)'}</span>
-              <span class="stop-pill-spec">🔋 ~${step.unitsKWh} kWh</span>
-            </div>
-
             <!-- Active Metrics Grid -->
             <div class="stop-metrics-grid">
               <div class="stop-metric-box">
@@ -1424,7 +1418,7 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
           <span class="corridor-dist">📍 ~${c.kmFromOrigin} km from start (${c.corridorDistanceKm} km detour)</span>
         </div>
         <div class="corridor-card-title">${cleanName}</div>
-        <div class="corridor-card-desc">${c.connector || ''} • ${c.power_kw || 1.5} kW</div>
+        <div class="corridor-card-desc">${c.connector || (c.type === 'FAST' ? '⚡ High-Speed DC Fast Charger' : '🔌 Standard 15A AC Socket')}</div>
         <div class="corridor-card-actions">
           <button class="btn-sm btn-nav" onclick="MapEngine.focusCharger(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">🔍 Show on Map</button>
           ${isWp
