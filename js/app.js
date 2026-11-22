@@ -260,6 +260,20 @@ function setupRoutePlanner() {
   const btnStartFullGmaps = document.getElementById('btn-start-gmaps-full');
   const btnNavNextCharger = document.getElementById('btn-nav-next-charger');
 
+  // Attach rich autocomplete to Starting Point (A)
+  attachLocationAutocomplete(originInput, document.getElementById('origin-suggestions'), (point) => {
+    originPoint = point;
+    const map = MapEngine.getMap();
+    if (map) map.setView([point.lat, point.lng], 14, { animate: true });
+  });
+
+  // Attach rich autocomplete to Final Destination (D)
+  attachLocationAutocomplete(destInput, document.getElementById('dest-suggestions'), (point) => {
+    destinationPoint = point;
+    const map = MapEngine.getMap();
+    if (map) map.setView([point.lat, point.lng], 14, { animate: true });
+  });
+
   if (btnUseGps) {
     btnUseGps.addEventListener('click', () => {
       MapEngine.locateUser(true);
@@ -283,21 +297,19 @@ function setupRoutePlanner() {
   if (btnPlanRoute) {
     btnPlanRoute.addEventListener('click', async () => {
       if (!originPoint) {
-        // Fallback to Bangalore center if not set
         const userC = MapEngine.getUserCoords();
         originPoint = userC ? { ...userC, name: 'Current Location' } : { lat: 12.9716, lng: 77.5946, name: 'MG Road, Bangalore' };
         if (originInput) originInput.value = originPoint.name;
       }
 
       if (!destinationPoint) {
-        // Pick default destination or prompt
         const destQuery = destInput ? destInput.value.trim() : '';
         if (destQuery) {
           const results = await Utilities.searchPlace(destQuery);
           if (results && results.length > 0) {
             destinationPoint = results[0];
           } else {
-            alert('Could not find location. Please select a valid destination from search.');
+            alert('Could not find location. Please select a valid destination from search suggestions.');
             return;
           }
         } else {
@@ -307,13 +319,12 @@ function setupRoutePlanner() {
       }
 
       btnPlanRoute.disabled = true;
-      btnPlanRoute.textContent = 'Calculating Route...';
+      btnPlanRoute.textContent = 'Calculating Routes...';
 
       try {
         const route = await RouteEngine.calculateRoute(originPoint, destinationPoint);
         const evalMetrics = BatteryEngine.evaluateTrip(route.distanceKm);
 
-        // Auto-suggest optimal charging stops if route exceeds safe battery range!
         if (evalMetrics.status !== 'SAFE') {
           console.log('[VoltWay] Route exceeds safe range, auto-discovering corridor charging stops...');
           await RouteEngine.autoSuggestChargingStops(evalMetrics);
@@ -335,7 +346,11 @@ function setupRoutePlanner() {
       if (originInput) originInput.value = '';
       if (destInput) destInput.value = '';
       const summaryCard = document.getElementById('route-summary-card');
+      const routeSelector = document.getElementById('route-selector-container');
+      const waypointsSection = document.getElementById('trip-waypoints-section');
       if (summaryCard) summaryCard.style.display = 'none';
+      if (routeSelector) routeSelector.style.display = 'none';
+      if (waypointsSection) waypointsSection.style.display = 'none';
       if (btnStartFullGmaps) btnStartFullGmaps.style.display = 'none';
       if (btnNavNextCharger) btnNavNextCharger.style.display = 'none';
     });
@@ -358,7 +373,7 @@ function setupRoutePlanner() {
       if (waypoints && waypoints.length > 0) {
         NavigationEngine.navigateToNextCharger(waypoints[0], userC);
       } else {
-        alert('No intermediate charging waypoint on this route. You can navigate directly to destination.');
+        alert('No intermediate charging waypoint on this route. Navigating directly to destination.');
         const active = RouteEngine.getActiveRoute();
         if (active) NavigationEngine.navigateToNextCharger(active.destination, userC);
       }
@@ -366,23 +381,150 @@ function setupRoutePlanner() {
   }
 }
 
+/**
+ * Universal Autocomplete Handler for Location Input Fields
+ */
+function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
+  if (!inputEl || !dropdownEl) return;
+  let timer = null;
+
+  inputEl.addEventListener('input', () => {
+    clearTimeout(timer);
+    const query = inputEl.value.trim();
+    if (query.length < 2) {
+      dropdownEl.style.display = 'none';
+      dropdownEl.innerHTML = '';
+      return;
+    }
+
+    timer = setTimeout(async () => {
+      const allChargers = SyncEngine.getChargers();
+      const qLower = query.toLowerCase();
+      const matchedChargers = allChargers.filter(c =>
+        c.name.toLowerCase().includes(qLower) || (c.address && c.address.toLowerCase().includes(qLower))
+      ).slice(0, 4);
+
+      const osmPlaces = await Utilities.searchPlace(query);
+
+      if (matchedChargers.length === 0 && osmPlaces.length === 0) {
+        dropdownEl.style.display = 'none';
+        return;
+      }
+
+      let html = '';
+      if (osmPlaces.length > 0) {
+        html += '<div class="dropdown-header">📍 Recommended Places & Cities</div>';
+        osmPlaces.forEach(p => {
+          html += `
+            <div class="dropdown-item" data-type="place" data-lat="${p.lat}" data-lng="${p.lng}" data-name="${p.name.replace(/"/g, '&quot;')}">
+              <div class="item-title">${highlightMatch(p.name, query)}</div>
+              <div class="item-sub">${p.fullName}</div>
+            </div>
+          `;
+        });
+      }
+
+      if (matchedChargers.length > 0) {
+        html += '<div class="dropdown-header">⚡ EV Chargers</div>';
+        matchedChargers.forEach(c => {
+          html += `
+            <div class="dropdown-item" data-type="charger" data-id="${c.id}" data-lat="${c.lat}" data-lng="${c.lng}" data-name="${c.name.replace(/"/g, '&quot;')}">
+              <div class="item-title">${highlightMatch(c.name, query)}</div>
+              <div class="item-sub">${c.network === 'ATHER_GRID' ? 'Ather Grid Fast' : c.connector} • ${c.address || ''}</div>
+            </div>
+          `;
+        });
+      }
+
+      dropdownEl.innerHTML = html;
+      dropdownEl.style.display = 'block';
+
+      dropdownEl.querySelectorAll('.dropdown-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const lat = parseFloat(item.getAttribute('data-lat'));
+          const lng = parseFloat(item.getAttribute('data-lng'));
+          const name = item.getAttribute('data-name');
+          inputEl.value = name;
+          dropdownEl.style.display = 'none';
+          onSelect({ lat, lng, name });
+        });
+      });
+    }, 280);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!inputEl.contains(e.target) && !dropdownEl.contains(e.target)) {
+      dropdownEl.style.display = 'none';
+    }
+  });
+}
+
+function highlightMatch(text, query) {
+  if (!text || !query) return text;
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return text.replace(regex, '<span style="color: var(--color-ather); font-weight: 800;">$1</span>');
+}
+
 function onRouteStateChange(routeState) {
-  const { route, corridorChargers, waypoints } = routeState;
+  const { route, allRoutes, selectedRouteIndex, corridorChargers, waypoints } = routeState;
   const summaryCard = document.getElementById('route-summary-card');
+  const routeSelectorContainer = document.getElementById('route-selector-container');
+  const routeSelectorPills = document.getElementById('route-selector-pills');
+  const waypointsSection = document.getElementById('trip-waypoints-section');
+  const waypointsContainer = document.getElementById('trip-waypoints-container');
+  const waypointsCount = document.getElementById('trip-waypoints-count');
   const btnStartFullGmaps = document.getElementById('btn-start-gmaps-full');
   const btnNavNextCharger = document.getElementById('btn-nav-next-charger');
 
   if (!route) {
     if (summaryCard) summaryCard.style.display = 'none';
+    if (routeSelectorContainer) routeSelectorContainer.style.display = 'none';
+    if (waypointsSection) waypointsSection.style.display = 'none';
     if (btnStartFullGmaps) btnStartFullGmaps.style.display = 'none';
     if (btnNavNextCharger) btnNavNextCharger.style.display = 'none';
     return;
   }
 
-  // Render on map
-  MapEngine.renderRoute(route);
+  // 1. Render all alternative routes on map with active selected highlight
+  MapEngine.renderRoute(route, allRoutes, selectedRouteIndex);
 
-  // Update summary card
+  // 2. Render Google Maps Style Route Alternative Selector Pills
+  if (routeSelectorContainer && routeSelectorPills) {
+    if (allRoutes && allRoutes.length > 1) {
+      routeSelectorContainer.style.display = 'flex';
+      routeSelectorPills.innerHTML = allRoutes.map((r, idx) => `
+        <div class="route-pill ${idx === selectedRouteIndex ? 'active' : ''}" onclick="RouteEngine.selectRoute(${idx})">
+          <div class="route-pill-title">${r.name}</div>
+          <div class="route-pill-meta">${r.distanceKm} km • ${Utilities.formatMinutes(r.durationMins)}</div>
+        </div>
+      `).join('');
+    } else {
+      routeSelectorContainer.style.display = 'none';
+    }
+  }
+
+  // 3. Render Trip Planner Added Waypoints (Stops)
+  if (waypointsSection && waypointsContainer) {
+    if (waypoints && waypoints.length > 0) {
+      waypointsSection.style.display = 'flex';
+      if (waypointsCount) waypointsCount.textContent = waypoints.length;
+      waypointsContainer.innerHTML = waypoints.map((wp, idx) => {
+        const letter = String.fromCharCode(66 + idx);
+        return `
+          <div class="trip-waypoint-item">
+            <span class="trip-waypoint-badge">Stop ${letter}</span>
+            <span class="trip-waypoint-title">${wp.name}</span>
+            <button class="btn-remove-waypoint" onclick="RouteEngine.removeWaypoint('${wp.id}')" title="Remove Stop">❌</button>
+          </div>
+        `;
+      }).join('');
+    } else {
+      waypointsSection.style.display = 'none';
+    }
+  }
+
+  // 4. Update Summary Card & Google Maps Actions
   if (summaryCard) summaryCard.style.display = 'block';
   if (btnStartFullGmaps) btnStartFullGmaps.style.display = 'inline-flex';
   if (btnNavNextCharger) {
@@ -392,6 +534,27 @@ function onRouteStateChange(routeState) {
   updateRouteMetrics(route);
   renderCorridorChargersList(corridorChargers, waypoints);
 }
+
+// Global helpers to set origin / destination directly from map charger clicks
+window.setPlannerOrigin = function (point) {
+  originPoint = point;
+  const input = document.getElementById('input-origin');
+  if (input) input.value = point.name;
+  const routeTab = document.querySelector('[data-tab="route"]');
+  if (routeTab) routeTab.click();
+  const map = MapEngine.getMap();
+  if (map) map.setView([point.lat, point.lng], 14, { animate: true });
+};
+
+window.setPlannerDest = function (point) {
+  destinationPoint = point;
+  const input = document.getElementById('input-destination');
+  if (input) input.value = point.name;
+  const routeTab = document.querySelector('[data-tab="route"]');
+  if (routeTab) routeTab.click();
+  const map = MapEngine.getMap();
+  if (map) map.setView([point.lat, point.lng], 14, { animate: true });
+};
 
 function updateRouteMetrics(route) {
   const evalMetrics = BatteryEngine.evaluateTrip(route.distanceKm);

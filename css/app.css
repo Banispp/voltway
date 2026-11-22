@@ -1218,3 +1218,169 @@ html, body {
   opacity: 1;
   pointer-events: auto;
 }
+
+/* --- Autocomplete Dropdowns for Origin & Destination --- */
+.autocomplete-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: rgba(19, 28, 45, 0.98);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  z-index: 1050;
+  display: none;
+}
+
+/* --- Route Alternative Selector Pills (Google Maps Style) --- */
+.route-selector-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.route-selector-header {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.route-selector-pills {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.route-selector-pills::-webkit-scrollbar {
+  display: none;
+}
+
+.route-pill {
+  flex: 1;
+  min-width: 130px;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.route-pill:hover {
+  border-color: var(--text-muted);
+  background: var(--bg-card-hover);
+}
+
+.route-pill.active {
+  border-color: var(--color-ather);
+  background: rgba(0, 230, 118, 0.14);
+  color: #ffffff;
+  box-shadow: 0 0 10px var(--color-ather-glow);
+}
+
+.route-pill-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.route-pill-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.route-pill.active .route-pill-meta {
+  color: var(--color-ather);
+}
+
+/* --- Trip Planner Added Waypoints (Stops) --- */
+.waypoints-summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.trip-waypoints-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trip-waypoint-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+
+.trip-waypoint-badge {
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  font-weight: 800;
+  font-size: 0.7rem;
+  background: rgba(255, 145, 0, 0.2);
+  color: var(--color-bolt-fast);
+  border: 1px solid var(--color-bolt-fast);
+}
+
+.trip-waypoint-title {
+  flex: 1;
+  margin: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.btn-remove-waypoint {
+  background: transparent;
+  border: none;
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+/* Cursor on interactive route lines */
+.clickable-route-line {
+  cursor: pointer;
+  transition: stroke-width 0.15s, opacity 0.15s;
+}
+
+.clickable-route-line:hover {
+  opacity: 1 !important;
+  stroke: #00B0FF !important;
+}

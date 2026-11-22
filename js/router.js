@@ -1,12 +1,15 @@
 /**
- * VoltWay 2W - OSRM Route Engine & Corridor Charger Discovery
- * 100% Free Open-Source Routing Machine with Intelligent 2W Waypoint Optimization
+ * VoltWay 2W - OSRM Route Engine & Multi-Route Selection
+ * 100% Free Open-Source Routing Machine with Google Maps Style Alternative Routes Selection
+ * and Interactive Charger Waypoint Trip Planning
  */
 
 const RouteEngine = (function () {
+  let allRoutes = []; // Array of { id, name, distanceKm, durationMins, coordinates, geometry, legs }
+  let selectedRouteIndex = 0;
   let activeRoute = null;
   let corridorChargers = [];
-  let intermediateWaypoints = []; // [charger1, charger2]
+  let intermediateWaypoints = []; // [charger1, charger2, ...]
 
   const OSRM_PUBLIC_API = 'https://router.project-osrm.org/route/v1/driving';
 
@@ -24,6 +27,8 @@ const RouteEngine = (function () {
   function notify() {
     listeners.forEach(fn => fn({
       route: activeRoute,
+      allRoutes,
+      selectedRouteIndex,
       corridorChargers,
       waypoints: intermediateWaypoints
     }));
@@ -48,7 +53,6 @@ const RouteEngine = (function () {
    * Calculates perpendicular distance from a point to a line segment (km)
    */
   function distToSegment(p, v, w) {
-    // p, v, w are [lat, lng]
     const l2 = (v[0] - w[0]) * (v[0] - w[0]) + (v[1] - w[1]) * (v[1] - w[1]);
     if (l2 === 0) return haversineDistance(p[0], p[1], v[0], v[1]);
     let t = ((p[0] - v[0]) * (w[0] - v[0]) + (p[1] - v[1]) * (w[1] - v[1])) / l2;
@@ -59,7 +63,19 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Fetch driving route between origin, destination, and intermediate waypoints via OSRM
+   * Helper to fetch an OSRM route for an array of points
+   */
+  async function fetchOsrmRaw(points) {
+    const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+    const url = `${OSRM_PUBLIC_API}/${coordsStr}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`OSRM HTTP ${resp.status}`);
+    const data = await resp.json();
+    return data.routes || [];
+  }
+
+  /**
+   * Fetch driving route with Multiple Alternative Routes (Google Maps Style)
    */
   async function calculateRoute(origin, destination, manualWaypoints = null) {
     if (!origin || !destination) {
@@ -70,37 +86,109 @@ const RouteEngine = (function () {
       intermediateWaypoints = manualWaypoints;
     }
 
-    // Coordinates string in format: lng1,lat1;lng2,lat2;lng3,lat3
     const points = [origin, ...intermediateWaypoints, destination];
-    const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
-    const url = `${OSRM_PUBLIC_API}/${coordsStr}?overview=full&geometries=geojson&steps=true`;
+    allRoutes = [];
+    selectedRouteIndex = 0;
 
     try {
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        throw new Error(`OSRM HTTP error: ${resp.status}`);
-      }
-      const data = await resp.json();
-      if (!data.routes || data.routes.length === 0) {
-        throw new Error('No route found between these points');
+      const primaryRoutes = await fetchOsrmRaw(points);
+      if (!primaryRoutes || primaryRoutes.length === 0) {
+        throw new Error('No driving route found');
       }
 
-      const routeData = data.routes[0];
-      const distanceKm = Math.round((routeData.distance / 1000) * 10) / 10;
-      const durationMins = Math.round(routeData.duration / 60);
+      // 1. Process routes returned by OSRM
+      primaryRoutes.forEach((routeData, idx) => {
+        const distKm = Math.round((routeData.distance / 1000) * 10) / 10;
+        const durMins = Math.round(routeData.duration / 60);
+        const name = idx === 0 ? 'Route 1 (Fastest)' : `Route ${idx + 1} (${distKm} km)`;
 
-      activeRoute = {
-        origin,
-        destination,
-        waypoints: [...intermediateWaypoints],
-        distanceKm,
-        durationMins,
-        geometry: routeData.geometry, // GeoJSON LineString
-        coordinates: routeData.geometry.coordinates.map(c => [c[1], c[0]]), // [lat, lng] for Leaflet
-        legs: routeData.legs || []
-      };
+        allRoutes.push({
+          id: `route-${idx}`,
+          name,
+          origin,
+          destination,
+          waypoints: [...intermediateWaypoints],
+          distanceKm: distKm,
+          durationMins: durMins,
+          geometry: routeData.geometry,
+          coordinates: routeData.geometry.coordinates.map(c => [c[1], c[0]]),
+          legs: routeData.legs || [],
+          isPrimary: idx === 0
+        });
+      });
 
-      // Discover chargers along this corridor
+      // 2. If OSRM only returned 1 route and trip distance > 15 km, generate realistic highway alternative
+      const directDist = haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng);
+      if (allRoutes.length === 1 && directDist > 15 && intermediateWaypoints.length === 0) {
+        try {
+          const midLat = (origin.lat + destination.lat) / 2;
+          const midLng = (origin.lng + destination.lng) / 2;
+          const dLat = destination.lat - origin.lat;
+          const dLng = destination.lng - origin.lng;
+          const degDist = Math.sqrt(dLat * dLat + dLng * dLng);
+
+          // Perpendicular offset vector
+          const perpLat = -dLng / degDist;
+          const perpLng = dLat / degDist;
+          const offset = degDist * 0.12;
+
+          const altMid1 = { lat: Math.round((midLat + perpLat * offset) * 1000000) / 1000000, lng: Math.round((midLng + perpLng * offset) * 1000000) / 1000000 };
+          const altMid2 = { lat: Math.round((midLat - perpLat * offset) * 1000000) / 1000000, lng: Math.round((midLng - perpLng * offset) * 1000000) / 1000000 };
+
+          const altRes1 = await fetchOsrmRaw([origin, altMid1, destination]);
+          if (altRes1 && altRes1.length > 0) {
+            const rData = altRes1[0];
+            const distKm = Math.round((rData.distance / 1000) * 10) / 10;
+            const durMins = Math.round(rData.duration / 60);
+            if (Math.abs(distKm - allRoutes[0].distanceKm) > 1.5) {
+              allRoutes.push({
+                id: 'route-alt-1',
+                name: `Route 2 (+${Math.round((distKm - allRoutes[0].distanceKm) * 10) / 10} km)`,
+                origin,
+                destination,
+                waypoints: [...intermediateWaypoints],
+                distanceKm: distKm,
+                durationMins: durMins,
+                geometry: rData.geometry,
+                coordinates: rData.geometry.coordinates.map(c => [c[1], c[0]]),
+                legs: rData.legs || [],
+                isPrimary: false
+              });
+            }
+          }
+
+          if (allRoutes.length < 3) {
+            const altRes2 = await fetchOsrmRaw([origin, altMid2, destination]);
+            if (altRes2 && altRes2.length > 0) {
+              const rData = altRes2[0];
+              const distKm = Math.round((rData.distance / 1000) * 10) / 10;
+              const durMins = Math.round(rData.duration / 60);
+              if (Math.abs(distKm - allRoutes[0].distanceKm) > 1.5) {
+                allRoutes.push({
+                  id: 'route-alt-2',
+                  name: `Route 3 (+${Math.round((distKm - allRoutes[0].distanceKm) * 10) / 10} km)`,
+                  origin,
+                  destination,
+                  waypoints: [...intermediateWaypoints],
+                  distanceKm: distKm,
+                  durationMins: durMins,
+                  geometry: rData.geometry,
+                  coordinates: rData.geometry.coordinates.map(c => [c[1], c[0]]),
+                  legs: rData.legs || [],
+                  isPrimary: false
+                });
+              }
+            }
+          }
+        } catch (altErr) {
+          console.warn('Could not generate synthetic alternative route:', altErr);
+        }
+      }
+
+      selectedRouteIndex = 0;
+      activeRoute = allRoutes[0];
+
+      // Discover chargers along the selected route corridor
       findCorridorChargers(activeRoute.coordinates);
 
       notify();
@@ -111,11 +199,13 @@ const RouteEngine = (function () {
       const directDist = haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng);
       const estRoadDist = Math.round(directDist * 1.25 * 10) / 10;
       activeRoute = {
+        id: 'route-fallback',
+        name: 'Estimated Direct Route',
         origin,
         destination,
         waypoints: [...intermediateWaypoints],
         distanceKm: estRoadDist,
-        durationMins: Math.round(estRoadDist * 2), // ~30 km/h average 2W speed
+        durationMins: Math.round(estRoadDist * 2),
         geometry: {
           type: 'LineString',
           coordinates: [[origin.lng, origin.lat], [destination.lng, destination.lat]]
@@ -124,10 +214,24 @@ const RouteEngine = (function () {
         isFallback: true
       };
 
+      allRoutes = [activeRoute];
+      selectedRouteIndex = 0;
+
       findCorridorChargers(activeRoute.coordinates);
       notify();
       return activeRoute;
     }
+  }
+
+  /**
+   * User selects one of the alternative routes (Google Maps Style)
+   */
+  function selectRoute(index) {
+    if (index < 0 || index >= allRoutes.length) return;
+    selectedRouteIndex = index;
+    activeRoute = allRoutes[index];
+    findCorridorChargers(activeRoute.coordinates);
+    notify();
   }
 
   /**
@@ -153,37 +257,32 @@ const RouteEngine = (function () {
       if (lng > maxLng) maxLng = lng;
     }
 
-    // Expand bounding box by maxCorridorKm (~0.03 deg)
     const degBuffer = 0.04;
     minLat -= degBuffer;
     maxLat += degBuffer;
     minLng -= degBuffer;
     maxLng += degBuffer;
 
-    // Filter candidate chargers in expanded bounding box
     const candidates = allChargers.filter(c =>
       c.lat >= minLat && c.lat <= maxLat && c.lng >= minLng && c.lng <= maxLng
     );
 
-    // Calculate perpendicular distance to polyline segments
     for (let c = 0; c < candidates.length; c++) {
       const charger = candidates[c];
       const p = [charger.lat, charger.lng];
       let minDistance = Infinity;
       let closestSegmentIndex = 0;
 
-      // Sample every segment
       for (let s = 0; s < routeCoords.length - 1; s++) {
         const d = distToSegment(p, routeCoords[s], routeCoords[s + 1]);
         if (d < minDistance) {
           minDistance = d;
           closestSegmentIndex = s;
         }
-        if (minDistance <= 0.1) break; // very close, stop early
+        if (minDistance <= 0.1) break;
       }
 
       if (minDistance <= maxCorridorKm) {
-        // Calculate rough distance from origin along route
         const progressFrac = closestSegmentIndex / (routeCoords.length - 1);
         const approxKmFromOrigin = activeRoute ? Math.round(progressFrac * activeRoute.distanceKm * 10) / 10 : 0;
 
@@ -195,10 +294,8 @@ const RouteEngine = (function () {
       }
     }
 
-    // Sort matching chargers by order along route from origin
     matching.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
     corridorChargers = matching;
-    console.log(`[VoltWay Router] Discovered ${corridorChargers.length} chargers along route corridor (<= ${maxCorridorKm} km)`);
     return corridorChargers;
   }
 
@@ -211,13 +308,7 @@ const RouteEngine = (function () {
     const safeRange = batteryEvaluation.safeMaxKm || 60;
     const totalDist = activeRoute.distanceKm;
 
-    if (totalDist <= safeRange) {
-      console.log('[VoltWay Router] Total trip is within safe battery range. No charging stops required.');
-      return [];
-    }
-
-    if (corridorChargers.length === 0) {
-      console.warn('[VoltWay Router] No chargers found along the route corridor.');
+    if (totalDist <= safeRange || corridorChargers.length === 0) {
       return [];
     }
 
@@ -225,13 +316,11 @@ const RouteEngine = (function () {
     let currentCoveredKm = 0;
     let attempts = 0;
 
-    // We need charging stops when (currentPosition + nextLeg) > safeRange
     while (currentCoveredKm + safeRange < totalDist && attempts < 5) {
       attempts++;
       const targetMinKm = currentCoveredKm + (safeRange * 0.55);
       const targetMaxKm = currentCoveredKm + (safeRange * 0.95);
 
-      // Find chargers in the target window, prioritizing fast chargers (Ather Fast > Bolt Fast > Bolt 15A)
       let candidates = corridorChargers.filter(c =>
         c.kmFromOrigin >= targetMinKm &&
         c.kmFromOrigin <= targetMaxKm &&
@@ -239,7 +328,6 @@ const RouteEngine = (function () {
       );
 
       if (candidates.length === 0) {
-        // Broaden search
         candidates = corridorChargers.filter(c =>
           c.kmFromOrigin > currentCoveredKm &&
           c.kmFromOrigin <= currentCoveredKm + safeRange &&
@@ -247,11 +335,8 @@ const RouteEngine = (function () {
         );
       }
 
-      if (candidates.length === 0) {
-        break;
-      }
+      if (candidates.length === 0) break;
 
-      // Priority sort: Ather Grid Fast (1) > Bolt Fast (2) > Bolt Slow (3), then closest to corridor
       candidates.sort((a, b) => {
         const getPriority = (c) => {
           if (c.network === 'ATHER_GRID') return 1;
@@ -270,33 +355,43 @@ const RouteEngine = (function () {
     }
 
     if (suggestedWaypoints.length > 0) {
-      console.log(`[VoltWay Router] Auto-suggested ${suggestedWaypoints.length} charging stops:`, suggestedWaypoints.map(w => w.name));
       intermediateWaypoints = suggestedWaypoints;
-      // Recalculate route including these stops
       await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
     }
 
     return suggestedWaypoints;
   }
 
+  /**
+   * Add a charger to intermediate waypoints (Trip Planner)
+   */
   function addWaypoint(charger) {
     if (!charger) return;
     if (intermediateWaypoints.some(w => w.id === charger.id)) return;
     intermediateWaypoints.push(charger);
     if (activeRoute) {
       calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
+    } else {
+      notify();
     }
   }
 
+  /**
+   * Remove a charger from waypoints
+   */
   function removeWaypoint(chargerId) {
     intermediateWaypoints = intermediateWaypoints.filter(w => w.id !== chargerId);
     if (activeRoute) {
       calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
+    } else {
+      notify();
     }
   }
 
   function clearRoute() {
     activeRoute = null;
+    allRoutes = [];
+    selectedRouteIndex = 0;
     corridorChargers = [];
     intermediateWaypoints = [];
     notify();
@@ -304,6 +399,7 @@ const RouteEngine = (function () {
 
   return {
     calculateRoute,
+    selectRoute,
     findCorridorChargers,
     autoSuggestChargingStops,
     addWaypoint,
@@ -311,6 +407,8 @@ const RouteEngine = (function () {
     clearRoute,
     subscribe,
     getActiveRoute: () => activeRoute,
+    getAllRoutes: () => allRoutes,
+    getSelectedRouteIndex: () => selectedRouteIndex,
     getCorridorChargers: () => corridorChargers,
     getWaypoints: () => intermediateWaypoints
   };

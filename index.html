@@ -114,18 +114,33 @@
 
         <!-- ==================== TAB 1: ROUTE PLANNER ==================== -->
         <div id="pane-route" class="tab-pane active">
-          <!-- Origin & Destination Inputs -->
+          <!-- Origin & Destination Inputs with Autocomplete -->
           <div class="input-group">
             <span class="input-label">Starting Point (A)</span>
-            <div class="input-row">
-              <input type="text" id="input-origin" class="input-text" placeholder="Starting point (default: Bangalore / GPS)" value="Current Location (GPS)">
-              <button id="btn-use-gps-origin" class="btn-addon">📍 GPS</button>
+            <div class="autocomplete-wrapper">
+              <div class="input-row">
+                <input type="text" id="input-origin" class="input-text" placeholder="Type starting place (e.g. Indiranagar, Kochi...)" value="Current Location (GPS)" autocomplete="off">
+                <button id="btn-use-gps-origin" class="btn-addon" title="Use Current GPS Location">📍 GPS</button>
+              </div>
+              <div id="origin-suggestions" class="autocomplete-dropdown"></div>
             </div>
           </div>
 
           <div class="input-group">
             <span class="input-label">Final Destination (D)</span>
-            <input type="text" id="input-destination" class="input-text" placeholder="Destination place or city (e.g. Mysuru, Kochi, Nandi Hills...)">
+            <div class="autocomplete-wrapper">
+              <input type="text" id="input-destination" class="input-text" placeholder="Type destination place (e.g. Mysuru, Calicut, Nandi Hills...)" autocomplete="off">
+              <div id="dest-suggestions" class="autocomplete-dropdown"></div>
+            </div>
+          </div>
+
+          <!-- Trip Planner Added Waypoints (Stops) -->
+          <div id="trip-waypoints-section" class="waypoints-summary-section" style="display: none;">
+            <div class="section-title">
+              <span>📍 Route Stops (<span id="trip-waypoints-count">0</span>)</span>
+              <span style="font-size: 0.72rem; color: var(--color-ather);">Click charger on map to add</span>
+            </div>
+            <div id="trip-waypoints-container" class="trip-waypoints-container"></div>
           </div>
 
           <div class="input-row">
@@ -135,6 +150,17 @@
             <button id="btn-clear-route" class="btn-secondary-action" style="max-width: 90px;">
               Reset
             </button>
+          </div>
+
+          <!-- Route Alternative Options (Google Maps Style Selection) -->
+          <div id="route-selector-container" class="route-selector-container" style="display: none;">
+            <div class="route-selector-header">
+              <span>🛣️ SELECT ROUTE</span>
+              <span style="font-size: 0.72rem; color: var(--text-muted);">Tap route or map line</span>
+            </div>
+            <div id="route-selector-pills" class="route-selector-pills">
+              <!-- Dynamically populated route tabs -->
+            </div>
           </div>
 
           <!-- Route Summary & Metrics -->
@@ -176,7 +202,7 @@
             <!-- Discovered Chargers Along Corridor (2-3 km) -->
             <div class="corridor-container">
               <div class="section-title">
-                <span>⚡ 2W Chargers Along Route Corridor (<span id="corridor-count">0</span>)</span>
+                <span>⚡ 2W Chargers Along Selected Route (<span id="corridor-count">0</span>)</span>
                 <span style="font-size: 0.72rem; color: var(--color-ather);">Within 2.5 km</span>
               </div>
               <div id="corridor-chargers-list" class="corridor-chargers-list">
