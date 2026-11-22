@@ -52,7 +52,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=3.3')
+      navigator.serviceWorker.register('./sw.js?v=3.4')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -163,6 +163,7 @@ function setupFilterChips() {
     chipAther.addEventListener('click', () => {
       const active = chipAther.classList.toggle('active');
       MapEngine.setFilter('atherFast', active);
+      syncRouteFilterBtn('atherFast', active);
     });
   }
 
@@ -170,6 +171,7 @@ function setupFilterChips() {
     chipBoltFast.addEventListener('click', () => {
       const active = chipBoltFast.classList.toggle('active');
       MapEngine.setFilter('boltFast', active);
+      syncRouteFilterBtn('boltFast', active);
     });
   }
 
@@ -177,8 +179,20 @@ function setupFilterChips() {
     chipBoltSlow.addEventListener('click', () => {
       const active = chipBoltSlow.classList.toggle('active');
       MapEngine.setFilter('boltSlow', active);
+      syncRouteFilterBtn('boltSlow', active);
     });
   }
+}
+
+function syncRouteFilterBtn(filterKey, active) {
+  const btn = document.querySelector(`.route-filter-btn[data-filter="${filterKey}"]`);
+  if (btn) {
+    if (active) btn.classList.add('active');
+    else btn.classList.remove('active');
+  }
+  const currentFilters = RouteEngine.getRouteFilters();
+  currentFilters[filterKey] = active;
+  RouteEngine.setRouteFilters(currentFilters);
 }
 
 function updateFilterBadges() {
@@ -308,6 +322,42 @@ function setupRoutePlanner() {
     destinationPoint = point;
     const map = MapEngine.getMap();
     if (map) map.setView([point.lat, point.lng], 14, { animate: true });
+  });
+
+  // Setup Route Planner Charger Filter Pills (Ather Fast, Bolt Fast, Bolt Slow)
+  const routeFilterBtns = document.querySelectorAll('.route-filter-btn');
+  routeFilterBtns.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const filterKey = btn.getAttribute('data-filter');
+      const isActive = btn.classList.toggle('active');
+
+      const currentFilters = RouteEngine.getRouteFilters();
+      currentFilters[filterKey] = isActive;
+      RouteEngine.setRouteFilters(currentFilters);
+
+      // Sync corresponding map filter chip
+      const chipIdMap = {
+        atherFast: 'chip-ather-fast',
+        boltFast: 'chip-bolt-fast',
+        boltSlow: 'chip-bolt-slow'
+      };
+      const chipEl = document.getElementById(chipIdMap[filterKey]);
+      if (chipEl) {
+        if (isActive) chipEl.classList.add('active');
+        else chipEl.classList.remove('active');
+        MapEngine.setFilter(filterKey, isActive);
+      }
+
+      // If active route exists and battery range needs charging, re-evaluate with updated filter!
+      const active = RouteEngine.getActiveRoute();
+      if (active) {
+        const evalMetrics = BatteryEngine.evaluateTrip(active.distanceKm);
+        if (evalMetrics.status !== 'SAFE') {
+          console.log('[VoltWay Router] Re-evaluating auto charging stops with filter:', currentFilters);
+          await RouteEngine.autoSuggestChargingStops(evalMetrics);
+        }
+      }
+    });
   });
 
   if (btnUseGps) {

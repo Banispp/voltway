@@ -13,6 +13,13 @@ const RouteEngine = (function () {
 
   const OSRM_PUBLIC_API = 'https://router.project-osrm.org/route/v1/driving';
 
+  // Route Planner Charger Filter State (Controls corridor search & auto charging stops)
+  const routeFilters = {
+    atherFast: true,
+    boltFast: true,
+    boltSlow: true
+  };
+
   // Listeners
   const listeners = [];
 
@@ -263,9 +270,14 @@ const RouteEngine = (function () {
     minLng -= degBuffer;
     maxLng += degBuffer;
 
-    const candidates = allChargers.filter(c =>
-      c.lat >= minLat && c.lat <= maxLat && c.lng >= minLng && c.lng <= maxLng
-    );
+    const candidates = allChargers.filter(c => {
+      if (c.lat < minLat || c.lat > maxLat || c.lng < minLng || c.lng > maxLng) return false;
+      // Filter according to Route Planner Preferences
+      if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
+      if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
+      if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
+      return true;
+    });
 
     for (let c = 0; c < candidates.length; c++) {
       const charger = candidates[c];
@@ -321,18 +333,24 @@ const RouteEngine = (function () {
       const targetMinKm = currentCoveredKm + (safeRange * 0.55);
       const targetMaxKm = currentCoveredKm + (safeRange * 0.95);
 
-      let candidates = corridorChargers.filter(c =>
-        c.kmFromOrigin >= targetMinKm &&
-        c.kmFromOrigin <= targetMaxKm &&
-        !suggestedWaypoints.some(w => w.id === c.id)
-      );
+      let candidates = corridorChargers.filter(c => {
+        if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
+        if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
+        if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
+        return c.kmFromOrigin >= targetMinKm &&
+               c.kmFromOrigin <= targetMaxKm &&
+               !suggestedWaypoints.some(w => w.id === c.id);
+      });
 
       if (candidates.length === 0) {
-        candidates = corridorChargers.filter(c =>
-          c.kmFromOrigin > currentCoveredKm &&
-          c.kmFromOrigin <= currentCoveredKm + safeRange &&
-          !suggestedWaypoints.some(w => w.id === c.id)
-        );
+        candidates = corridorChargers.filter(c => {
+          if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
+          if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
+          if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
+          return c.kmFromOrigin > currentCoveredKm &&
+                 c.kmFromOrigin <= currentCoveredKm + safeRange &&
+                 !suggestedWaypoints.some(w => w.id === c.id);
+        });
       }
 
       if (candidates.length === 0) break;
@@ -388,6 +406,18 @@ const RouteEngine = (function () {
     }
   }
 
+  function setRouteFilters(newFilters) {
+    Object.assign(routeFilters, newFilters);
+    if (activeRoute) {
+      findCorridorChargers(activeRoute.coordinates);
+      notify();
+    }
+  }
+
+  function getRouteFilters() {
+    return { ...routeFilters };
+  }
+
   function clearRoute() {
     activeRoute = null;
     allRoutes = [];
@@ -405,6 +435,8 @@ const RouteEngine = (function () {
     addWaypoint,
     removeWaypoint,
     clearRoute,
+    setRouteFilters,
+    getRouteFilters,
     subscribe,
     getActiveRoute: () => activeRoute,
     getAllRoutes: () => allRoutes,
