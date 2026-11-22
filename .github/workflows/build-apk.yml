@@ -13,10 +13,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Prepare web assets folder
+        run: |
+          mkdir -p www
+          cp -r index.html manifest.json sw.js chargers_db.js chargers_db.json css js icons www/
+
       - name: Build Android APK
         uses: darkshredder/web-to-app-action@main
         with:
-          build-folder-path: "."
+          build-folder-path: "www"
           app-name: "VoltWay2W"
           output-folder-path: "release-apk"
 
@@ -24,4 +29,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VoltWay2W-APK
-          path: release-apk/
+          path: release-apk/*.apk
