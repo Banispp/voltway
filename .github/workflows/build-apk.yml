@@ -24,10 +24,9 @@ jobs:
           distribution: 'temurin'
           java-version: 17
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Package Web Assets and Build APK with Capacitor
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
           mkdir -p www
           cp -r index.html manifest.json sw.js chargers_db.js chargers_db.json css js icons www/
