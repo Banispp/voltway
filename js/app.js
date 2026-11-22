@@ -949,7 +949,7 @@ function renderTripBatteryTimeline(route) {
       </div>
       <div class="trip-plan-stat">
         <span class="stat-label">Dest. Arrival</span>
-        <span class="stat-val ${tripPlan.finalArrivalSoC >= batteryState.safetyReservePct ? 'stat-safe' : 'stat-warn'}">${tripPlan.finalArrivalSoC}%</span>
+        <span class="stat-val ${tripPlan.finalArrivalSoC >= batteryState.safetyReservePct ? 'stat-safe' : 'stat-warn'}">${tripPlan.finalArrivalSoC < 0 ? '0% (Empty)' : `${tripPlan.finalArrivalSoC}%`}</span>
       </div>
     </div>
     <div class="timeline-nodes-list">
@@ -1060,7 +1060,7 @@ function renderTripBatteryTimeline(route) {
             <div class="stop-metrics-grid">
               <div class="stop-metric-box">
                 <span class="stop-metric-lbl">Arrival SoC</span>
-                <span class="stop-metric-val ${step.isSafeArrival ? 'val-safe' : 'val-warn'}">${step.arrivalSoC}%</span>
+                <span class="stop-metric-val ${step.isSafeArrival ? 'val-safe' : 'val-warn'}">${step.arrivalSoC < 0 ? '0% (Empty)' : `${step.arrivalSoC}%`}</span>
               </div>
               <div class="stop-metric-box">
                 <span class="stop-metric-lbl">Charge Needed</span>
@@ -1075,15 +1075,23 @@ function renderTripBatteryTimeline(route) {
                 <span class="stop-metric-val val-depart">${step.departureSoC}%</span>
               </div>
             </div>
-            ${!step.isSafeArrival ? `
+            ${step.arrivalSoC < 0 ? `
+              <div class="stop-warning-pill" style="background: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #fca5a5;">
+                🚨 Battery Depleted: Battery runs out before reaching this charger (short by ~${Math.round(Math.abs(step.arrivalSoC) * (batteryState.efficiency || 0.85))} km). Add an earlier charging stop!
+              </div>
+            ` : (!step.isSafeArrival ? `
               <div class="stop-warning-pill">
                 ⚠️ Low Battery Arrival Warning: Arriving at ${step.arrivalSoC}% (below ${batteryState.safetyReservePct}% safety buffer).
               </div>
-            ` : ''}
+            ` : '')}
           </div>
         </div>
       `;
     } else if (step.type === 'CUSTOM_STOP') {
+      const isShortfall = step.arrivalSoC < 0;
+      const shortfallKm = isShortfall ? Math.round(Math.abs(step.arrivalSoC) * (batteryState.efficiency || 0.85) * 10) / 10 : 0;
+      const arrivalDisplay = isShortfall ? `0% (Empty • Short by ~${shortfallKm} km)` : `${step.arrivalSoC}% SoC`;
+
       html += `
         <div class="timeline-step timeline-step-custom-stop">
           <div class="step-icon-col">
@@ -1093,17 +1101,21 @@ function renderTripBatteryTimeline(route) {
             <div class="step-title-row">
               <span class="step-title">${step.name || 'Intermediate Waypoint'}</span>
               <span class="badge-soc ${step.isSafeArrival ? 'badge-soc-dest-safe' : 'badge-soc-dest-warn'}">
-                Arrival: ${step.arrivalSoC}% SoC
+                Arrival: ${arrivalDisplay}
               </span>
             </div>
             <div class="step-sub">
-              <span>📍 Intermediate Waypoint • Estimated Remaining Battery: ${step.arrivalSoC}%</span>
+              <span>📍 Intermediate Waypoint • Estimated Remaining Battery: ${step.arrivalSoC < 0 ? '0% (Empty)' : `${step.arrivalSoC}%`}</span>
               ${!step.isSafeArrival ? `<div style="color: #ef4444; font-weight: 700; margin-top: 3px;">⚠️ Battery falls below safety reserve before reaching this stop. Please add an intermediate charging stop!</div>` : ''}
             </div>
           </div>
         </div>
       `;
     } else if (step.type === 'DESTINATION') {
+      const isShortfall = step.arrivalSoC < 0;
+      const shortfallKm = isShortfall ? Math.round(Math.abs(step.arrivalSoC) * (batteryState.efficiency || 0.85) * 10) / 10 : 0;
+      const arrivalDisplay = isShortfall ? `0% (Empty • Short by ~${shortfallKm} km)` : `${step.arrivalSoC}% SoC`;
+
       html += `
         <div class="timeline-step timeline-step-dest">
           <div class="step-icon-col">
@@ -1113,11 +1125,17 @@ function renderTripBatteryTimeline(route) {
             <div class="step-title-row">
               <span class="step-title">${step.name}</span>
               <span class="badge-soc ${step.isSafe ? 'badge-soc-dest-safe' : 'badge-soc-dest-warn'}">
-                Final Arrival: ${step.arrivalSoC}% SoC
+                Final Arrival: ${arrivalDisplay}
               </span>
             </div>
             <div class="step-sub">
-              ${step.isSafe ? `✅ Safe Arrival! ${step.arrivalSoC}% battery reserve remaining at destination.` : `⚠️ Range Alert: Battery reaches ${step.arrivalSoC}%. Please add an intermediate charging stop!`}
+              ${step.isSafe
+                ? `✅ Safe Arrival! ${step.arrivalSoC}% battery reserve remaining at destination.`
+                : (isShortfall
+                    ? `🚨 Range Shortfall: Battery will run out completely ~${shortfallKm} km before destination (short by ${Math.abs(step.arrivalSoC)}% battery). Please add an intermediate charging stop!`
+                    : `⚠️ Reserve Alert: Battery reaches ${step.arrivalSoC}%, which is below your ${batteryState.safetyReservePct}% safety reserve buffer.`
+                  )
+              }
             </div>
           </div>
         </div>
@@ -1186,7 +1204,16 @@ function updateRouteMetrics(route) {
 
     const totalBatNeeded = Math.ceil(route.distanceKm / eff);
     if (batNeedEl) batNeedEl.textContent = `${totalBatNeeded}%`;
-    if (batArrivalEl) batArrivalEl.textContent = `${tripPlan.finalArrivalSoC}%`;
+
+    if (batArrivalEl) {
+      if (tripPlan.finalArrivalSoC < 0) {
+        batArrivalEl.textContent = '0% (Empty)';
+        batArrivalEl.style.color = '#ef4444';
+      } else {
+        batArrivalEl.textContent = `${tripPlan.finalArrivalSoC}%`;
+        batArrivalEl.style.color = '';
+      }
+    }
 
     if (statusBanner) {
       let criticalStep = null;
@@ -1228,7 +1255,15 @@ function updateRouteMetrics(route) {
     if (distEl) distEl.textContent = `${route.distanceKm} km`;
     if (timeEl) timeEl.textContent = Utilities.formatMinutes(route.durationMins);
     if (batNeedEl) batNeedEl.textContent = `${evalMetrics.batteryNeededPct}%`;
-    if (batArrivalEl) batArrivalEl.textContent = `${evalMetrics.batteryAtArrivalPct}%`;
+    if (batArrivalEl) {
+      if (evalMetrics.batteryAtArrivalPct < 0) {
+        batArrivalEl.textContent = '0% (Empty)';
+        batArrivalEl.style.color = '#ef4444';
+      } else {
+        batArrivalEl.textContent = `${evalMetrics.batteryAtArrivalPct}%`;
+        batArrivalEl.style.color = '';
+      }
+    }
 
     if (statusBanner) {
       statusBanner.className = `status-banner ${evalMetrics.statusClass}`;
