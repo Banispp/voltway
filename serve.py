@@ -2,6 +2,9 @@ import http.server
 import socketserver
 import os
 import sys
+import json
+import urllib.parse
+import urllib.request
 
 # Ensure UTF-8 output on Windows
 if sys.platform == 'win32':
@@ -26,6 +29,30 @@ class VoltWayHandler(http.server.SimpleHTTPRequestHandler):
         super().send_error(code, message, explain)
 
     def do_GET(self):
+        # API: Resolve Google Maps short links (maps.app.goo.gl / goo.gl/maps)
+        if self.path.startswith('/api/resolve-maps-url'):
+            parsed_query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            target_url = parsed_query.get('url', [''])[0]
+            if target_url:
+                try:
+                    req = urllib.request.Request(
+                        target_url,
+                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                    )
+                    with urllib.request.urlopen(req, timeout=6) as response:
+                        final_url = response.geturl()
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json; charset=utf-8')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'success': True, 'resolved_url': final_url}).encode('utf-8'))
+                        return
+                except Exception as e:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': str(e), 'url': target_url}).encode('utf-8'))
+                    return
+
         # Remove conditional headers from incoming request to prevent SimpleHTTPRequestHandler from sending 304
         if 'If-Modified-Since' in self.headers:
             del self.headers['If-Modified-Since']

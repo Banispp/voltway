@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSyncModal();
   setupSunlightToggle();
   setupSearchAutocomplete();
+  setupGoogleMapsImporter();
+  checkSharedRouteParams();
 
   // 6. Listen to State Changes
   BatteryEngine.subscribe(onBatteryStateChange);
@@ -52,7 +54,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=3.9')
+      navigator.serviceWorker.register('./sw.js?v=4.0')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -361,6 +363,85 @@ function onBatteryStateChange(state) {
 // --- Route Planner ---
 let originPoint = null;
 let destinationPoint = null;
+let intermediateCustomStops = []; // Array of { id, name, lat, lng, isCustomStop: true }
+
+function renderIntermediateStops() {
+  const container = document.getElementById('intermediate-stops-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  intermediateCustomStops.forEach((stop, index) => {
+    const charCode = String.fromCharCode(66 + index); // Stop B, Stop C, etc.
+    const row = document.createElement('div');
+    row.className = 'intermediate-stop-row';
+    row.innerHTML = `
+      <div class="stop-row-top">
+        <span class="stop-badge">📍 Stop ${charCode} (ഇടയിലെ സ്റ്റോപ്പ്)</span>
+        <div class="stop-row-actions">
+          ${index > 0 ? `<button type="button" class="btn-stop-ctrl btn-stop-up" title="Move Up">↑</button>` : ''}
+          ${index < intermediateCustomStops.length - 1 ? `<button type="button" class="btn-stop-ctrl btn-stop-down" title="Move Down">↓</button>` : ''}
+          <button type="button" class="btn-stop-ctrl btn-stop-delete" title="Remove Stop">&times;</button>
+        </div>
+      </div>
+      <div class="autocomplete-wrapper">
+        <input type="text" class="input-text input-stop-text" placeholder="Type intermediate stop (e.g. Aluva, Thrissur...)" value="${stop.name || ''}" autocomplete="off">
+        <div class="autocomplete-dropdown"></div>
+      </div>
+    `;
+
+    const inputEl = row.querySelector('.input-stop-text');
+    const dropdownEl = row.querySelector('.autocomplete-dropdown');
+
+    // Attach autocomplete
+    attachLocationAutocomplete(inputEl, dropdownEl, (point) => {
+      stop.lat = point.lat;
+      stop.lng = point.lng;
+      stop.name = point.name;
+      inputEl.value = point.name;
+      const map = MapEngine.getMap();
+      if (map) map.setView([point.lat, point.lng], 13, { animate: true });
+    });
+
+    inputEl.addEventListener('input', (e) => {
+      stop.name = e.target.value;
+      stop.lat = null;
+      stop.lng = null;
+    });
+
+    // Move Up
+    const btnUp = row.querySelector('.btn-stop-up');
+    if (btnUp) {
+      btnUp.addEventListener('click', () => {
+        const temp = intermediateCustomStops[index - 1];
+        intermediateCustomStops[index - 1] = intermediateCustomStops[index];
+        intermediateCustomStops[index] = temp;
+        renderIntermediateStops();
+      });
+    }
+
+    // Move Down
+    const btnDown = row.querySelector('.btn-stop-down');
+    if (btnDown) {
+      btnDown.addEventListener('click', () => {
+        const temp = intermediateCustomStops[index + 1];
+        intermediateCustomStops[index + 1] = intermediateCustomStops[index];
+        intermediateCustomStops[index] = temp;
+        renderIntermediateStops();
+      });
+    }
+
+    // Delete
+    const btnDel = row.querySelector('.btn-stop-delete');
+    if (btnDel) {
+      btnDel.addEventListener('click', () => {
+        intermediateCustomStops.splice(index, 1);
+        renderIntermediateStops();
+      });
+    }
+
+    container.appendChild(row);
+  });
+}
 
 function setupRoutePlanner() {
   const originInput = document.getElementById('input-origin');
@@ -370,6 +451,26 @@ function setupRoutePlanner() {
   const btnClearRoute = document.getElementById('btn-clear-route');
   const btnStartFullGmaps = document.getElementById('btn-start-gmaps-full');
   const btnNavNextCharger = document.getElementById('btn-nav-next-charger');
+  const btnAddIntermediateStop = document.getElementById('btn-add-intermediate-stop');
+
+  // Add intermediate stop button handler
+  if (btnAddIntermediateStop) {
+    btnAddIntermediateStop.addEventListener('click', () => {
+      intermediateCustomStops.push({
+        id: 'stop_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        name: '',
+        lat: null,
+        lng: null,
+        isCustomStop: true
+      });
+      renderIntermediateStops();
+      // Focus on the newly added input
+      const inputs = document.querySelectorAll('.input-stop-text');
+      if (inputs.length > 0) {
+        inputs[inputs.length - 1].focus();
+      }
+    });
+  }
 
   // Attach rich autocomplete to Starting Point (A)
   attachLocationAutocomplete(originInput, document.getElementById('origin-suggestions'), (point) => {
@@ -465,12 +566,31 @@ function setupRoutePlanner() {
         }
       }
 
+      // Geocode any custom intermediate stops if needed
+      for (let i = 0; i < intermediateCustomStops.length; i++) {
+        const s = intermediateCustomStops[i];
+        if (s.name && (s.lat == null || s.lng == null)) {
+          const res = await Utilities.searchPlace(s.name);
+          if (res && res.length > 0) {
+            s.lat = res[0].lat;
+            s.lng = res[0].lng;
+            s.name = res[0].name;
+          }
+        }
+      }
+
+      const validCustomStops = intermediateCustomStops.filter(s => s.lat != null && s.lng != null);
+
+      // Merge with any added chargers
+      const existingChargers = (RouteEngine.getWaypoints() || []).filter(w => w.network || w.type);
+      const combinedWaypoints = [...validCustomStops, ...existingChargers];
+
       btnPlanRoute.disabled = true;
       btnPlanRoute.textContent = 'Calculating Routes...';
 
       try {
         window.__isNewRouteCalculation = true;
-        const route = await RouteEngine.calculateRoute(originPoint, destinationPoint);
+        const route = await RouteEngine.calculateRoute(originPoint, destinationPoint, combinedWaypoints);
         const evalMetrics = BatteryEngine.evaluateTrip(route.distanceKm);
 
         if (evalMetrics.status !== 'SAFE') {
@@ -491,6 +611,8 @@ function setupRoutePlanner() {
       RouteEngine.clearRoute();
       originPoint = null;
       destinationPoint = null;
+      intermediateCustomStops = [];
+      renderIntermediateStops();
       if (originInput) originInput.value = '';
       if (destInput) destInput.value = '';
       const summaryCard = document.getElementById('route-summary-card');
@@ -894,6 +1016,26 @@ function renderTripBatteryTimeline(route) {
                 ⚠️ Low Battery Arrival Warning: Arriving at ${step.arrivalSoC}% (below ${batteryState.safetyReservePct}% safety buffer).
               </div>
             ` : ''}
+          </div>
+        </div>
+      `;
+    } else if (step.type === 'CUSTOM_STOP') {
+      html += `
+        <div class="timeline-step timeline-step-custom-stop">
+          <div class="step-icon-col">
+            <div class="step-dot dot-custom-stop">📍</div>
+          </div>
+          <div class="step-content">
+            <div class="step-title-row">
+              <span class="step-title">${step.name || 'Intermediate Waypoint'}</span>
+              <span class="badge-soc ${step.isSafeArrival ? 'badge-soc-dest-safe' : 'badge-soc-dest-warn'}">
+                Arrival: ${step.arrivalSoC}% SoC
+              </span>
+            </div>
+            <div class="step-sub">
+              <span>📍 Intermediate Waypoint • Estimated Remaining Battery: ${step.arrivalSoC}%</span>
+              ${!step.isSafeArrival ? `<div style="color: #ef4444; font-weight: 700; margin-top: 3px;">⚠️ Battery falls below safety reserve before reaching this stop. Please add an intermediate charging stop!</div>` : ''}
+            </div>
           </div>
         </div>
       `;
@@ -1328,4 +1470,171 @@ function updateSyncModalStatus() {
 
 function onSyncStateChange() {
   updateFilterBadges();
+}
+
+// --- Google Maps Route Importer & Android Share Target ---
+function setupGoogleMapsImporter() {
+  const triggerBtn = document.getElementById('btn-import-gmaps-trigger');
+  const modal = document.getElementById('modal-import-gmaps');
+  const closeBtn = document.getElementById('btn-close-import-gmaps');
+  const pasteBtn = document.getElementById('btn-paste-clipboard');
+  const textarea = document.getElementById('input-gmaps-paste');
+  const executeBtn = document.getElementById('btn-execute-import-gmaps');
+  const statusMsg = document.getElementById('import-status-msg');
+
+  if (!modal) return;
+
+  if (triggerBtn) {
+    triggerBtn.addEventListener('click', () => {
+      modal.classList.add('open');
+      if (statusMsg) statusMsg.style.display = 'none';
+      if (textarea) {
+        textarea.value = '';
+        setTimeout(() => textarea.focus(), 150);
+      }
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      modal.classList.remove('open');
+    });
+  }
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.classList.remove('open');
+  });
+
+  if (pasteBtn && textarea) {
+    pasteBtn.addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const clipText = await navigator.clipboard.readText();
+          if (clipText) {
+            textarea.value = clipText;
+            if (statusMsg) {
+              statusMsg.style.display = 'block';
+              statusMsg.style.background = 'rgba(0, 230, 118, 0.12)';
+              statusMsg.style.color = '#00E676';
+              statusMsg.style.border = '1px solid rgba(0, 230, 118, 0.35)';
+              statusMsg.textContent = '📋 Link pasted from clipboard!';
+            }
+          }
+        } else {
+          alert('Clipboard permission not granted. Please paste directly into the box.');
+        }
+      } catch (err) {
+        alert('Please press Ctrl+V or long-press to paste into the box.');
+      }
+    });
+  }
+
+  if (executeBtn) {
+    executeBtn.addEventListener('click', async () => {
+      const raw = textarea ? textarea.value.trim() : '';
+      if (!raw) {
+        if (statusMsg) {
+          statusMsg.style.display = 'block';
+          statusMsg.style.background = 'rgba(239, 68, 68, 0.12)';
+          statusMsg.style.color = '#f87171';
+          statusMsg.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+          statusMsg.textContent = 'Please paste a Google Maps link or shared text.';
+        }
+        return;
+      }
+
+      executeBtn.disabled = true;
+      executeBtn.textContent = 'Extracting Route Points...';
+
+      try {
+        const parsed = await NavigationEngine.parseGoogleMapsInput(raw);
+        if (!parsed.success) {
+          throw new Error(parsed.error || 'Could not parse route from link.');
+        }
+
+        // Set Origin
+        if (parsed.origin) {
+          if (parsed.origin.lat != null && parsed.origin.lng != null) {
+            originPoint = parsed.origin;
+          } else if (parsed.origin.name) {
+            const res = await Utilities.searchPlace(parsed.origin.name);
+            originPoint = res && res.length > 0 ? res[0] : { name: parsed.origin.name };
+          }
+          const origInput = document.getElementById('input-origin');
+          if (origInput && originPoint) origInput.value = originPoint.name || 'Start Point';
+        }
+
+        // Set Destination
+        if (parsed.destination) {
+          if (parsed.destination.lat != null && parsed.destination.lng != null) {
+            destinationPoint = parsed.destination;
+          } else if (parsed.destination.name) {
+            const res = await Utilities.searchPlace(parsed.destination.name);
+            destinationPoint = res && res.length > 0 ? res[0] : { name: parsed.destination.name };
+          }
+          const destInput = document.getElementById('input-destination');
+          if (destInput && destinationPoint) destInput.value = destinationPoint.name || 'Destination';
+        }
+
+        // Set Intermediate Stops
+        intermediateCustomStops = [];
+        if (parsed.intermediateStops && parsed.intermediateStops.length > 0) {
+          for (let i = 0; i < parsed.intermediateStops.length; i++) {
+            const s = parsed.intermediateStops[i];
+            let stopPoint = s;
+            if (s.name && (s.lat == null || s.lng == null)) {
+              const res = await Utilities.searchPlace(s.name);
+              if (res && res.length > 0) stopPoint = res[0];
+            }
+            intermediateCustomStops.push({
+              id: 'stop_import_' + i + '_' + Date.now(),
+              name: stopPoint.name || `Stop ${String.fromCharCode(66 + i)}`,
+              lat: stopPoint.lat,
+              lng: stopPoint.lng,
+              isCustomStop: true
+            });
+          }
+        }
+        renderIntermediateStops();
+
+        modal.classList.remove('open');
+        activateTabSilently('route');
+
+        // Automatically trigger route calculation
+        const btnPlan = document.getElementById('btn-plan-route');
+        if (btnPlan) {
+          setTimeout(() => btnPlan.click(), 300);
+        }
+      } catch (err) {
+        if (statusMsg) {
+          statusMsg.style.display = 'block';
+          statusMsg.style.background = 'rgba(239, 68, 68, 0.12)';
+          statusMsg.style.color = '#f87171';
+          statusMsg.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+          statusMsg.textContent = '❌ ' + err.message;
+        }
+      } finally {
+        executeBtn.disabled = false;
+        executeBtn.textContent = '⚡ Import Route & Plan EV Charging';
+      }
+    });
+  }
+}
+
+// Android Web Share Target auto-detection
+function checkSharedRouteParams() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const sharedText = urlParams.get('text') || urlParams.get('url') || urlParams.get('title');
+  if (sharedText) {
+    console.log('[VoltWay] Detected shared route params from Android Share Target:', sharedText);
+    const modal = document.getElementById('modal-import-gmaps');
+    const textarea = document.getElementById('input-gmaps-paste');
+    if (modal && textarea) {
+      textarea.value = sharedText;
+      const executeBtn = document.getElementById('btn-execute-import-gmaps');
+      if (executeBtn) {
+        setTimeout(() => executeBtn.click(), 500);
+      }
+    }
+  }
 }

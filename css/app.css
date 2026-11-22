@@ -2172,3 +2172,143 @@ html, body {
   transform: translateX(3px);
   opacity: 1;
 }
+
+/* --- Intermediate Custom Stops & Google Maps Importer UI --- */
+.route-stops-action-bar {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 10px 0;
+}
+
+.btn-action-pill {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-pill-add-stop {
+  flex: 1;
+  background: #090d16;
+  border: 1.5px dashed rgba(56, 189, 248, 0.45);
+  color: #38bdf8;
+}
+
+.btn-pill-add-stop:hover {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: #38bdf8;
+}
+
+.btn-pill-import-gmaps {
+  background: #090d16;
+  border: 1.5px solid rgba(0, 230, 118, 0.4);
+  color: #00E676;
+  white-space: nowrap;
+}
+
+.btn-pill-import-gmaps:hover {
+  background: rgba(0, 230, 118, 0.12);
+  border-color: #00E676;
+}
+
+.intermediate-stops-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.intermediate-stop-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #090d16;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  animation: fadeIn 0.2s ease;
+}
+
+.stop-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stop-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stop-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-stop-ctrl {
+  background: #1e293b;
+  border: 1px solid var(--border-color);
+  color: #cbd5e1;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-stop-ctrl:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.btn-stop-delete {
+  color: #f87171;
+}
+
+.btn-stop-delete:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+}
+
+.import-help-box {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #cbd5e1;
+}
+
+/* Timeline Custom Stop Styling */
+.dot-custom-stop {
+  background: #0284c7;
+  color: #ffffff;
+  border: 2px solid #38bdf8;
+  font-size: 0.8rem;
+}
+
+.timeline-step-custom-stop {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #090d16;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: var(--radius-md);
+  margin-bottom: 6px;
+}
