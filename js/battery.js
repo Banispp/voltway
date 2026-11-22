@@ -78,6 +78,7 @@ const BatteryEngine = (function () {
     ridingMode: 'RIDE',
     efficiency: 0.85, // km per 1%
     safetyReservePct: 15, // safety buffer %
+    targetChargePct: 80, // Target Fast Charge limit % (typically 80% to protect battery)
     isCustomEfficiency: false
   };
 
@@ -176,6 +177,12 @@ const BatteryEngine = (function () {
     save();
   }
 
+  function setTargetChargePct(targetPct) {
+    targetPct = Math.max(50, Math.min(100, parseInt(targetPct, 10) || 80));
+    state.targetChargePct = targetPct;
+    save();
+  }
+
   /**
    * Reachable Distance (km) = (Current Battery % - Reserve %) * Efficiency
    */
@@ -252,6 +259,7 @@ const BatteryEngine = (function () {
     setRidingMode,
     setCustomEfficiency,
     setSafetyReserve,
+    setTargetChargePct,
     calculateReachableSafeKm,
     calculateAbsoluteMaxKm,
     evaluateTrip,

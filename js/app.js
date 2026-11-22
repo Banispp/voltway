@@ -52,7 +52,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=3.5')
+      navigator.serviceWorker.register('./sw.js?v=3.6')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -160,7 +160,9 @@ function setupFilterChips() {
   const chipBoltSlow = document.getElementById('chip-bolt-slow');
 
   if (chipAther) {
-    chipAther.addEventListener('click', () => {
+    chipAther.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
       const active = chipAther.classList.toggle('active');
       MapEngine.setFilter('atherFast', active);
       syncRouteFilterBtn('atherFast', active);
@@ -168,7 +170,9 @@ function setupFilterChips() {
   }
 
   if (chipBoltFast) {
-    chipBoltFast.addEventListener('click', () => {
+    chipBoltFast.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
       const active = chipBoltFast.classList.toggle('active');
       MapEngine.setFilter('boltFast', active);
       syncRouteFilterBtn('boltFast', active);
@@ -176,7 +180,9 @@ function setupFilterChips() {
   }
 
   if (chipBoltSlow) {
-    chipBoltSlow.addEventListener('click', () => {
+    chipBoltSlow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
       const active = chipBoltSlow.classList.toggle('active');
       MapEngine.setFilter('boltSlow', active);
       syncRouteFilterBtn('boltSlow', active);
@@ -268,8 +274,45 @@ function setupBatteryControls() {
       const val = parseInt(e.target.value, 10);
       reserveVal.textContent = `${val}%`;
       BatteryEngine.setSafetyReserve(val);
+      const route = RouteEngine.getActiveRoute();
+      if (route) {
+        onRouteStateChange({ activeRoute: route, corridorChargers: RouteEngine.getCorridorChargers(), waypoints: RouteEngine.getWaypoints() });
+      }
     });
   }
+
+  // Fast Charge Target SoC Limit (User Configurable)
+  const targetChargeSlider = document.getElementById('target-charge-slider');
+  const targetChargeVal = document.getElementById('target-charge-val');
+  const targetPresets = document.querySelectorAll('.btn-target-preset');
+
+  if (targetChargeSlider && targetChargeVal) {
+    targetChargeSlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      targetChargeVal.textContent = `${val}%`;
+      targetPresets.forEach(b => b.classList.toggle('active', parseInt(b.getAttribute('data-pct'), 10) === val));
+      BatteryEngine.setTargetChargePct(val);
+      const route = RouteEngine.getActiveRoute();
+      if (route) {
+        onRouteStateChange({ activeRoute: route, corridorChargers: RouteEngine.getCorridorChargers(), waypoints: RouteEngine.getWaypoints() });
+      }
+    });
+  }
+
+  targetPresets.forEach(btn => {
+    btn.addEventListener('click', () => {
+      targetPresets.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const val = parseInt(btn.getAttribute('data-pct'), 10);
+      if (targetChargeSlider) targetChargeSlider.value = val;
+      if (targetChargeVal) targetChargeVal.textContent = `${val}%`;
+      BatteryEngine.setTargetChargePct(val);
+      const route = RouteEngine.getActiveRoute();
+      if (route) {
+        onRouteStateChange({ activeRoute: route, corridorChargers: RouteEngine.getCorridorChargers(), waypoints: RouteEngine.getWaypoints() });
+      }
+    });
+  });
 }
 
 function onBatteryStateChange(state) {
@@ -408,6 +451,7 @@ function setupRoutePlanner() {
       btnPlanRoute.textContent = 'Calculating Routes...';
 
       try {
+        window.__isNewRouteCalculation = true;
         const route = await RouteEngine.calculateRoute(originPoint, destinationPoint);
         const evalMetrics = BatteryEngine.evaluateTrip(route.distanceKm);
 
@@ -598,7 +642,9 @@ function onRouteStateChange(routeState) {
   }
 
   // 1. Render all alternative routes on map with active selected highlight
-  MapEngine.renderRoute(route, allRoutes, selectedRouteIndex);
+  const shouldFit = window.__isNewRouteCalculation === true;
+  window.__isNewRouteCalculation = false;
+  MapEngine.renderRoute(route, allRoutes, selectedRouteIndex, shouldFit);
 
   // 2. Render Google Maps Style Route Alternative Selector Pills
   if (routeSelectorContainer && routeSelectorPills) {
@@ -643,7 +689,153 @@ function onRouteStateChange(routeState) {
   }
 
   updateRouteMetrics(route);
+  renderTripBatteryTimeline(route);
   renderCorridorChargersList(corridorChargers, waypoints);
+}
+
+function renderTripBatteryTimeline(route) {
+  const timelineSection = document.getElementById('trip-battery-timeline-section');
+  const timelineContainer = document.getElementById('trip-battery-timeline-container');
+  const targetBadge = document.getElementById('timeline-target-badge');
+  if (!timelineSection || !timelineContainer || !route) return;
+
+  const batteryState = BatteryEngine.getState();
+  const tripPlan = RouteEngine.calculateTripTimeline(route, batteryState);
+  if (!tripPlan || !tripPlan.timeline) {
+    timelineSection.style.display = 'none';
+    return;
+  }
+
+  timelineSection.style.display = 'block';
+  if (targetBadge) {
+    targetBadge.textContent = `Fast Target: ${tripPlan.targetChargePct}% SoC`;
+  }
+
+  let html = `
+    <div class="trip-plan-header-summary">
+      <div class="trip-plan-stat">
+        <span class="stat-label">Driving Time</span>
+        <span class="stat-val">${Utilities.formatMinutes(tripPlan.totalDrivingMins)}</span>
+      </div>
+      <div class="trip-plan-stat">
+        <span class="stat-label">Charging Time</span>
+        <span class="stat-val stat-charge">${tripPlan.totalChargingMins > 0 ? `+${Utilities.formatMinutes(tripPlan.totalChargingMins)}` : '0 min'}</span>
+      </div>
+      <div class="trip-plan-stat">
+        <span class="stat-label">Total Duration</span>
+        <span class="stat-val stat-total">${Utilities.formatMinutes(tripPlan.totalTripDurationMins)}</span>
+      </div>
+      <div class="trip-plan-stat">
+        <span class="stat-label">Dest. Arrival</span>
+        <span class="stat-val ${tripPlan.finalArrivalSoC >= batteryState.safetyReservePct ? 'stat-safe' : 'stat-warn'}">${tripPlan.finalArrivalSoC}%</span>
+      </div>
+    </div>
+    <div class="timeline-nodes-list">
+  `;
+
+  tripPlan.timeline.forEach((step, idx) => {
+    if (step.type === 'ORIGIN') {
+      html += `
+        <div class="timeline-step timeline-step-origin">
+          <div class="step-icon-col">
+            <div class="step-dot dot-origin">🚩</div>
+            <div class="step-stem"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-title-row">
+              <span class="step-title">${step.name}</span>
+              <span class="badge-soc badge-soc-start">Start: ${step.departureSoC}% SoC</span>
+            </div>
+            <div class="step-sub">Initial Departure Battery Charge</div>
+          </div>
+        </div>
+      `;
+    } else if (step.type === 'LEG') {
+      html += `
+        <div class="timeline-step timeline-step-leg">
+          <div class="step-icon-col">
+            <div class="step-stem"></div>
+          </div>
+          <div class="step-content leg-content">
+            <div class="leg-pill">
+              <span>🛣️ ${step.distanceKm} km</span>
+              <span>•</span>
+              <span>⏱️ ${Utilities.formatMinutes(step.durationMins)}</span>
+              <span>•</span>
+              <span class="leg-bat-used">⚡ -${step.batteryUsedPct}% battery</span>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (step.type === 'CHARGER_STOP') {
+      const isFast = step.isFast;
+      const isAther = step.station?.network === 'ATHER_GRID';
+      const netName = isAther ? 'Ather Grid Fast ⚡' : (isFast ? 'Bolt.Earth Fast ⚡' : 'Bolt.Earth 15A 🔌');
+      const badgeClass = isAther ? 'badge-ather' : (isFast ? 'badge-bolt-fast' : 'badge-bolt-slow');
+
+      html += `
+        <div class="timeline-step timeline-step-stop">
+          <div class="step-icon-col">
+            <div class="step-dot dot-stop ${isFast ? 'dot-fast' : 'dot-slow'}">
+              ${isFast ? '⚡' : '🔌'}
+            </div>
+            <div class="step-stem"></div>
+          </div>
+          <div class="step-content stop-card">
+            <div class="step-title-row">
+              <span class="step-title">${step.station?.name || `Stop ${step.index}`}</span>
+              <span class="badge-net ${badgeClass}">${netName}</span>
+            </div>
+            <div class="stop-metrics-grid">
+              <div class="stop-metric-box">
+                <span class="stop-metric-lbl">Arrival SoC</span>
+                <span class="stop-metric-val ${step.isSafeArrival ? 'val-safe' : 'val-warn'}">${step.arrivalSoC}%</span>
+              </div>
+              <div class="stop-metric-box">
+                <span class="stop-metric-lbl">Charge Needed</span>
+                <span class="stop-metric-val val-charge">+${step.chargeNeededPct}%</span>
+              </div>
+              <div class="stop-metric-box">
+                <span class="stop-metric-lbl">Charge Time</span>
+                <span class="stop-metric-val val-time">${step.chargeTimeMins > 0 ? `~${step.chargeTimeMins} min` : '0 min'}</span>
+              </div>
+              <div class="stop-metric-box">
+                <span class="stop-metric-lbl">Depart SoC</span>
+                <span class="stop-metric-val val-depart">${step.departureSoC}%</span>
+              </div>
+            </div>
+            ${!step.isSafeArrival ? `
+              <div class="stop-warning-pill">
+                ⚠️ Low Battery Arrival Warning: Arriving at ${step.arrivalSoC}% (below ${batteryState.safetyReservePct}% safety buffer).
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    } else if (step.type === 'DESTINATION') {
+      html += `
+        <div class="timeline-step timeline-step-dest">
+          <div class="step-icon-col">
+            <div class="step-dot dot-dest">🏁</div>
+          </div>
+          <div class="step-content">
+            <div class="step-title-row">
+              <span class="step-title">${step.name}</span>
+              <span class="badge-soc ${step.isSafe ? 'badge-soc-dest-safe' : 'badge-soc-dest-warn'}">
+                Final Arrival: ${step.arrivalSoC}% SoC
+              </span>
+            </div>
+            <div class="step-sub">
+              ${step.isSafe ? `✅ Safe Arrival! ${step.arrivalSoC}% battery reserve remaining at destination.` : `⚠️ Range Alert: Battery reaches ${step.arrivalSoC}%. Please add an intermediate charging stop!`}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  });
+
+  html += '</div>';
+  timelineContainer.innerHTML = html;
 }
 
 function activateTabSilently(tabTarget) {

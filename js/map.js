@@ -84,35 +84,35 @@ const MapEngine = (function () {
   }
 
   /**
-   * Custom HTML Pin Icons
+   * Custom HTML Pin Icons with Crisp Vector SVGs (Fixes broken question marks / corrupted symbols)
    */
   function createPinIcon(charger) {
     let pinClass = 'pin-ather';
-    let iconChar = '⚡';
-    let label = 'Ather';
+    let iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
+    let label = 'Ather Fast';
 
     if (charger.network === 'ATHER_GRID') {
       pinClass = 'pin-ather';
-      iconChar = '⚡';
-      label = 'Ather';
+      iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
+      label = 'Ather Fast';
     } else if (charger.network === 'BOLT_EARTH') {
       if (charger.type === 'FAST') {
         pinClass = 'pin-bolt-fast';
-        iconChar = '⚡';
+        iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
         label = 'Bolt Fast';
       } else {
         pinClass = 'pin-bolt-slow';
-        iconChar = '🔌';
-        label = '15A';
+        iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 7V3h-2v4h-4V3H8v4a6 6 0 0 0 5 5.91V19h-2v2h6v-2h-2v-6.09A6 6 0 0 0 16 7z"/></svg>';
+        label = '15A Socket';
       }
     }
 
     const html = `
       <div class="custom-pin ${pinClass}" data-id="${charger.id}">
         <div class="pin-badge">
-          <span class="pin-icon">${iconChar}</span>
-          <span class="pin-tag">${label}</span>
+          <span class="pin-icon">${iconSvg}</span>
         </div>
+        <span class="pin-label">${label}</span>
         <div class="pin-pulse"></div>
       </div>
     `;
@@ -120,9 +120,9 @@ const MapEngine = (function () {
     return L.divIcon({
       className: 'custom-pin-container',
       html: html,
-      iconSize: [44, 44],
-      iconAnchor: [22, 42],
-      popupAnchor: [0, -38]
+      iconSize: [52, 48],
+      iconAnchor: [26, 38],
+      popupAnchor: [0, -36]
     });
   }
 
@@ -173,22 +173,29 @@ const MapEngine = (function () {
       activeCandidates.push(c);
     }
 
-    // 2. Spatial viewport culling
+    // 2. High-Performance Viewport Marker Culling
     let visibleChargers = [];
-    if (zoom < 9) {
-      // Zoomed out country/state level: sample up to 80 representative fast chargers
-      // to avoid dumping thousands of DOM nodes on low-power devices
-      const step = Math.max(1, Math.floor(activeCandidates.length / 80));
-      for (let i = 0; i < activeCandidates.length; i += step) {
-        visibleChargers.push(activeCandidates[i]);
+    if (zoom < 8) {
+      // National level (Zoom < 8): Sample up to 300 high-priority Fast Chargers
+      const fastOnly = activeCandidates.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID');
+      const step = Math.max(1, Math.floor(fastOnly.length / 300));
+      for (let i = 0; i < fastOnly.length; i += step) {
+        visibleChargers.push(fastOnly[i]);
+      }
+    } else if (zoom < 10) {
+      // State / Regional level (Zoom 8-9): Show up to 600 Fast + Slow Chargers
+      const inState = activeCandidates.filter(c => bounds.contains([c.lat, c.lng]));
+      const step = Math.max(1, Math.floor(inState.length / 600));
+      for (let i = 0; i < inState.length; i += step) {
+        visibleChargers.push(inState[i]);
       }
     } else {
-      // Zoomed in city / street level: strictly chargers within visible viewport bounds
+      // City / Street level (Zoom >= 10): Show 100% of all chargers within the visible viewport bounds
       for (let i = 0; i < activeCandidates.length; i++) {
         const c = activeCandidates[i];
         if (bounds.contains([c.lat, c.lng])) {
           visibleChargers.push(c);
-          if (visibleChargers.length >= 130) break; // Hard cap for 60 FPS guarantee
+          if (visibleChargers.length >= 750) break; // Generous ceiling for smooth rendering
         }
       }
     }
@@ -422,7 +429,15 @@ const MapEngine = (function () {
    * The selected route is rendered with glowing cyan/green;
    * Alternative routes are rendered with clickable slate lines!
    */
-  function renderRoute(activeRoute, allRoutes = [], selectedIndex = 0) {
+  /**
+   * Render calculated routes on map
+   * Alternative routes are rendered with clickable slate lines!
+   * @param {Object} activeRoute Active selected route
+   * @param {Array} allRoutes All candidate alternative routes
+   * @param {number} selectedIndex Index of active route
+   * @param {boolean} shouldFitBounds Only fit bounds when explicitly planning a new route
+   */
+  function renderRoute(activeRoute, allRoutes = [], selectedIndex = 0, shouldFitBounds = false) {
     if (!map || !routeLayer || !waypointsLayer) return;
 
     routeLayer.clearLayers();
@@ -508,8 +523,10 @@ const MapEngine = (function () {
       icon: createWaypointPinIcon(destLetter, '#FF3D71')
     }).bindPopup(`<b>Destination (${destLetter})</b><br>${activeRoute.destination.name || 'Destination'}`).addTo(waypointsLayer);
 
-    // Fit bounds to show route
-    map.fitBounds(mainLine.getBounds(), { padding: [50, 50] });
+    // Fit bounds to show route ONLY when requested (preserves user map position when filtering!)
+    if (shouldFitBounds && mainLine) {
+      map.fitBounds(mainLine.getBounds(), { padding: [50, 50] });
+    }
 
     updateSafeRangeOverlay(activeRoute.origin);
   }

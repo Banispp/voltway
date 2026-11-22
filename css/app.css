@@ -409,57 +409,71 @@ html, body {
 }
 
 .pin-badge {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   border: 2px solid #ffffff;
+  transition: transform 0.15s ease;
 }
 
 .pin-icon {
-  font-size: 16px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
 }
 
 .pin-label {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 800;
-  padding: 1px 5px;
-  border-radius: 4px;
+  padding: 1px 6px;
+  border-radius: 9999px;
   margin-top: 2px;
   white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  background: #0b0f19;
+  letter-spacing: 0.3px;
 }
 
 /* Ather Fast Pin */
 .pin-ather .pin-badge {
-  background: #00a844;
+  background: #00E676;
+  color: #052e16;
+  border-color: #ffffff;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.6);
 }
 .pin-ather .pin-label {
-  background: #007b33;
-  color: #ffffff;
+  color: #00E676;
+  border: 1px solid rgba(0, 230, 118, 0.5);
 }
 
 /* Bolt Fast Pin */
 .pin-bolt-fast .pin-badge {
-  background: #e65100;
+  background: #FF9100;
+  color: #3b1400;
+  border-color: #ffffff;
+  box-shadow: 0 0 10px rgba(255, 145, 0, 0.6);
 }
 .pin-bolt-fast .pin-label {
-  background: #bf360c;
-  color: #ffffff;
+  color: #FF9100;
+  border: 1px solid rgba(255, 145, 0, 0.5);
 }
 
 /* Bolt Slow 15A Pin */
 .pin-bolt-slow .pin-badge {
-  background: #0288d1;
+  background: #00B0FF;
+  color: #002244;
+  border-color: #ffffff;
+  box-shadow: 0 0 10px rgba(0, 176, 255, 0.5);
 }
 .pin-bolt-slow .pin-label {
-  background: #01579b;
-  color: #ffffff;
+  color: #00B0FF;
+  border: 1px solid rgba(0, 176, 255, 0.5);
 }
 
 /* Waypoint Letter Pins */
@@ -1345,4 +1359,413 @@ html, body {
   font-weight: 800;
   cursor: pointer;
   padding: 2px 6px;
+}
+
+/* --- Fast Charge Target Presets --- */
+.btn-target-preset {
+  background: #151e2e;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-target-preset:hover {
+  background: #1e293b;
+  color: var(--text-primary);
+}
+
+.btn-target-preset.active {
+  background: rgba(0, 230, 118, 0.15);
+  border-color: #00E676;
+  color: #00E676;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.3);
+}
+
+/* --- Trip Battery & Charging Plan Timeline --- */
+.battery-timeline-section {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.trip-plan-header-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: #090d16;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.trip-plan-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+}
+
+.trip-plan-stat .stat-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.trip-plan-stat .stat-val {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.trip-plan-stat .stat-charge {
+  color: #FF9100;
+}
+
+.trip-plan-stat .stat-total {
+  color: #38bdf8;
+}
+
+.trip-plan-stat .stat-safe {
+  color: #00E676;
+}
+
+.trip-plan-stat .stat-warn {
+  color: #f59e0b;
+}
+
+.timeline-nodes-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.timeline-step {
+  display: flex;
+  position: relative;
+  min-height: 38px;
+}
+
+.step-icon-col {
+  width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.step-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.dot-origin {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.dot-dest {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.dot-stop.dot-fast {
+  background: #00E676;
+  color: #052e16;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.6);
+}
+
+.dot-stop.dot-slow {
+  background: #00B0FF;
+  color: #002244;
+  box-shadow: 0 0 10px rgba(0, 176, 255, 0.5);
+}
+
+.step-stem {
+  position: absolute;
+  top: 22px;
+  bottom: -4px;
+  width: 2px;
+  background: #243044;
+  z-index: 1;
+}
+
+.timeline-step-leg .step-stem {
+  top: 0;
+  bottom: 0;
+}
+
+.step-content {
+  flex: 1;
+  padding-left: 10px;
+  padding-bottom: 12px;
+}
+
+.step-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.step-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.leg-content {
+  padding-top: 2px;
+  padding-bottom: 8px;
+}
+
+.leg-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #090d16;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.leg-bat-used {
+  color: #f59e0b;
+  font-weight: 700;
+}
+
+.stop-card {
+  background: #090d16;
+  border: 1px solid rgba(0, 230, 118, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stop-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  background: #111827;
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin-top: 2px;
+}
+
+.stop-metric-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+}
+
+.stop-metric-lbl {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.stop-metric-val {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.val-safe {
+  color: #00E676;
+}
+
+.val-warn {
+  color: #ef4444;
+}
+
+.val-charge {
+  color: #FF9100;
+}
+
+.val-time {
+  color: #38bdf8;
+}
+
+.val-depart {
+  color: #00E676;
+}
+
+.stop-warning-pill {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 0.7rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.badge-soc {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.badge-soc-start {
+  background: rgba(2, 132, 199, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(2, 132, 199, 0.4);
+}
+
+.badge-soc-dest-safe {
+  background: rgba(0, 230, 118, 0.2);
+  color: #00E676;
+  border: 1px solid rgba(0, 230, 118, 0.4);
+}
+
+.badge-soc-dest-warn {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+/* --- Premium Automotive Navigation Cards --- */
+.nav-buttons-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.btn-gmaps-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-gmaps-card:active {
+  transform: scale(0.98);
+}
+
+/* Start Full Multi-Stop Trip Card (Google Maps Deep Blue / Cyan Accent) */
+.btn-gmaps-full {
+  background: linear-gradient(135deg, #1e3a8a 0%, #0369a1 100%);
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(2, 132, 199, 0.35);
+}
+
+.btn-gmaps-full:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #0284c7 100%);
+  box-shadow: 0 6px 25px rgba(2, 132, 199, 0.5);
+  border-color: #7dd3fc;
+}
+
+.nav-icon-gmaps {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+/* Navigate to Next Charger Stop Card (Emerald / Lime Accent) */
+.btn-gmaps-next {
+  background: linear-gradient(135deg, #064e3b 0%, #047857 100%);
+  border-color: #00E676;
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 230, 118, 0.3);
+}
+
+.btn-gmaps-next:hover {
+  background: linear-gradient(135deg, #065f46 0%, #059669 100%);
+  box-shadow: 0 6px 25px rgba(0, 230, 118, 0.45);
+  border-color: #6ee7b7;
+}
+
+.nav-icon-charger {
+  background: rgba(0, 230, 118, 0.2);
+  color: #00E676;
+}
+
+.nav-btn-icon-wrapper {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.nav-btn-text-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-btn-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  line-height: 1.25;
+}
+
+.nav-btn-subtitle {
+  font-size: 0.72rem;
+  opacity: 0.88;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.nav-btn-arrow {
+  font-size: 1.1rem;
+  font-weight: 800;
+  opacity: 0.75;
+  transition: transform 0.2s ease;
+}
+
+.btn-gmaps-card:hover .nav-btn-arrow {
+  transform: translateX(3px);
+  opacity: 1;
 }

@@ -418,6 +418,177 @@ const RouteEngine = (function () {
     return { ...routeFilters };
   }
 
+  /**
+   * Calculates comprehensive stop-by-stop charging, arrival SoC, required charge %,
+   * and charging durations for every waypoint along the active route.
+   */
+  function calculateTripTimeline(route, batteryState) {
+    if (!route) return null;
+    const batState = batteryState || (window.BatteryEngine ? window.BatteryEngine.getState() : {
+      currentBatteryPct: 85,
+      efficiency: 0.85,
+      safetyReservePct: 15,
+      targetChargePct: 80
+    });
+
+    const eff = batState.efficiency || 0.85;
+    const startBat = batState.currentBatteryPct || 85;
+    const targetCharge = batState.targetChargePct || 80;
+    const minReserve = batState.safetyReservePct || 15;
+
+    const waypoints = route.waypoints || [];
+    const legs = route.legs || [];
+
+    let currentSoC = startBat;
+    const timeline = [];
+    let totalChargingTimeMins = 0;
+    let totalEnergyChargedPct = 0;
+
+    // Node 0: Starting Origin
+    timeline.push({
+      type: 'ORIGIN',
+      name: route.origin?.name || 'Starting Point',
+      lat: route.origin?.lat,
+      lng: route.origin?.lng,
+      departureSoC: currentSoC
+    });
+
+    // If no waypoints, single direct leg to destination
+    if (waypoints.length === 0) {
+      const distKm = route.distanceKm;
+      const batUsed = Math.round((distKm / eff) * 10) / 10;
+      const arrivalSoC = Math.round((currentSoC - batUsed) * 10) / 10;
+      const isSafe = arrivalSoC >= minReserve;
+
+      timeline.push({
+        type: 'LEG',
+        distanceKm: distKm,
+        durationMins: route.durationMins,
+        batteryUsedPct: batUsed
+      });
+
+      timeline.push({
+        type: 'DESTINATION',
+        name: route.destination?.name || 'Destination',
+        lat: route.destination?.lat,
+        lng: route.destination?.lng,
+        arrivalSoC: arrivalSoC,
+        isSafe: isSafe,
+        isCritical: arrivalSoC < 0
+      });
+
+      return {
+        timeline,
+        totalDrivingMins: route.durationMins,
+        totalChargingMins: 0,
+        totalTripDurationMins: route.durationMins,
+        totalChargingStops: 0,
+        totalEnergyChargedPct: 0,
+        finalArrivalSoC: arrivalSoC,
+        targetChargePct: targetCharge
+      };
+    }
+
+    // Process each intermediate stop
+    for (let i = 0; i < waypoints.length; i++) {
+      const wp = waypoints[i];
+      const legDist = (legs[i] && legs[i].distance) ? Math.round((legs[i].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
+      const legDur = (legs[i] && legs[i].duration) ? Math.round(legs[i].duration / 60) : Math.round(legDist * 1.8);
+      const batUsed = Math.round((legDist / eff) * 10) / 10;
+      const arrivalSoC = Math.round((currentSoC - batUsed) * 10) / 10;
+      const isSafeArrival = arrivalSoC >= minReserve;
+      const isCriticalArrival = arrivalSoC < 0;
+
+      // Charge needed up to target charge %
+      let chargeNeeded = 0;
+      let departureSoC = arrivalSoC;
+      let chargeTimeMins = 0;
+
+      if (arrivalSoC < targetCharge) {
+        chargeNeeded = Math.round((targetCharge - Math.max(0, arrivalSoC)) * 10) / 10;
+        departureSoC = targetCharge;
+      } else {
+        chargeNeeded = 0;
+        departureSoC = arrivalSoC;
+      }
+
+      // Calculate charging duration
+      const isFast = wp.network === 'ATHER_GRID' || wp.type === 'FAST';
+      if (chargeNeeded > 0) {
+        if (isFast) {
+          // Fast DC: ~1.4% SoC per minute up to 80%, ~0.45%/min above 80% (taper)
+          const upTo80 = Math.max(0, Math.min(80, targetCharge) - Math.min(80, Math.max(0, arrivalSoC)));
+          const above80 = Math.max(0, targetCharge - Math.max(80, arrivalSoC));
+          chargeTimeMins = Math.round((upTo80 / 1.4) + (above80 / 0.45));
+        } else {
+          // Slow 15A: ~0.33% SoC per minute
+          chargeTimeMins = Math.round(chargeNeeded / 0.33);
+        }
+      }
+
+      totalChargingTimeMins += chargeTimeMins;
+      totalEnergyChargedPct += chargeNeeded;
+
+      timeline.push({
+        type: 'LEG',
+        distanceKm: legDist,
+        durationMins: legDur,
+        batteryUsedPct: batUsed
+      });
+
+      timeline.push({
+        type: 'CHARGER_STOP',
+        index: i + 1,
+        station: wp,
+        isFast,
+        arrivalSoC,
+        isSafeArrival,
+        isCriticalArrival,
+        targetChargeSoC: targetCharge,
+        chargeNeededPct: chargeNeeded,
+        chargeTimeMins,
+        departureSoC
+      });
+
+      currentSoC = departureSoC;
+    }
+
+    // Final Leg to Destination
+    const lastLegIdx = waypoints.length;
+    const finalLegDist = (legs[lastLegIdx] && legs[lastLegIdx].distance) ? Math.round((legs[lastLegIdx].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
+    const finalLegDur = (legs[lastLegIdx] && legs[lastLegIdx].duration) ? Math.round(legs[lastLegIdx].duration / 60) : Math.round(finalLegDist * 1.8);
+    const finalBatUsed = Math.round((finalLegDist / eff) * 10) / 10;
+    const destArrivalSoC = Math.round((currentSoC - finalBatUsed) * 10) / 10;
+
+    timeline.push({
+      type: 'LEG',
+      distanceKm: finalLegDist,
+      durationMins: finalLegDur,
+      batteryUsedPct: finalBatUsed
+    });
+
+    timeline.push({
+      type: 'DESTINATION',
+      name: route.destination?.name || 'Destination',
+      lat: route.destination?.lat,
+      lng: route.destination?.lng,
+      arrivalSoC: destArrivalSoC,
+      isSafe: destArrivalSoC >= minReserve,
+      isCritical: destArrivalSoC < 0
+    });
+
+    return {
+      timeline,
+      totalDrivingMins: route.durationMins,
+      totalChargingMins: totalChargingTimeMins,
+      totalTripDurationMins: route.durationMins + totalChargingTimeMins,
+      totalChargingStops: waypoints.length,
+      totalEnergyChargedPct: Math.round(totalEnergyChargedPct * 10) / 10,
+      finalArrivalSoC: destArrivalSoC,
+      targetChargePct: targetCharge
+    };
+  }
+
   function clearRoute() {
     activeRoute = null;
     allRoutes = [];
@@ -432,6 +603,7 @@ const RouteEngine = (function () {
     selectRoute,
     findCorridorChargers,
     autoSuggestChargingStops,
+    calculateTripTimeline,
     addWaypoint,
     removeWaypoint,
     clearRoute,

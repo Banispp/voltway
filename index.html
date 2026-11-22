@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=3.5">
+  <link rel="stylesheet" href="css/app.css?v=3.6">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -52,13 +52,13 @@
       </div>
       <div class="header-actions">
         <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="⚡ Sync Latest EV Chargers (Ather & Bolt)">
-          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">4,727</span>)
+          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">7,819</span>)
         </button>
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action" title="Clear Cache & Force Refresh" style="font-size: 0.72rem; padding: 5px 8px; background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 9999px; cursor: pointer;">
-          v3.5
+          v3.6
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -77,17 +77,17 @@
 
       <!-- Filter Chips Bar (Sticky) -->
       <div class="filter-chips-bar">
-        <button id="chip-ather-fast" class="filter-chip chip-ather active" title="Toggle Ather Grid DC Fast Chargers">
+        <button type="button" id="chip-ather-fast" class="filter-chip chip-ather active" title="Toggle Ather Grid DC Fast Chargers">
           <span>⚡ Ather Grid (Fast)</span>
           <span id="count-ather-fast" class="chip-badge">3,572</span>
         </button>
-        <button id="chip-bolt-fast" class="filter-chip chip-bolt-fast active" title="Toggle Bolt.Earth Fast Chargers">
+        <button type="button" id="chip-bolt-fast" class="filter-chip chip-bolt-fast active" title="Toggle Bolt.Earth Fast Chargers">
           <span>⚡ Bolt.Earth (Fast)</span>
-          <span id="count-bolt-fast" class="chip-badge">262</span>
+          <span id="count-bolt-fast" class="chip-badge">783</span>
         </button>
-        <button id="chip-bolt-slow" class="filter-chip chip-bolt-slow active" title="Toggle Bolt.Earth 15A Sockets">
+        <button type="button" id="chip-bolt-slow" class="filter-chip chip-bolt-slow active" title="Toggle Bolt.Earth 15A Sockets">
           <span>🔌 Bolt 15A (Slow Socket)</span>
-          <span id="count-bolt-slow" class="chip-badge">893</span>
+          <span id="count-bolt-slow" class="chip-badge">3,464</span>
         </button>
       </div>
     </div>
@@ -223,14 +223,44 @@
               Trip ready to evaluate
             </div>
 
-            <!-- Native Google Maps Turn-by-Turn Voice Navigation Buttons -->
+            <!-- Native Google Maps Turn-by-Turn Voice Navigation Buttons (Automotive Cards) -->
             <div class="nav-buttons-cluster">
-              <button id="btn-start-gmaps-full" class="btn-gmaps-full" style="display: none;">
-                🚀 Start Full Trip in Google Maps (Multi-Stop)
+              <button id="btn-start-gmaps-full" class="btn-gmaps-card btn-gmaps-full" style="display: none;">
+                <div class="nav-btn-icon-wrapper nav-icon-gmaps">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                  </svg>
+                </div>
+                <div class="nav-btn-text-wrapper">
+                  <span class="nav-btn-title">Start Full Multi-Stop Trip in Google Maps</span>
+                  <span class="nav-btn-subtitle">🎙️ Turn-by-Turn Voice Navigation with all Stops</span>
+                </div>
+                <span class="nav-btn-arrow">➔</span>
               </button>
-              <button id="btn-nav-next-charger" class="btn-gmaps-next" style="display: none;">
-                🧭 Navigate to Next Charger Stop
+
+              <button id="btn-nav-next-charger" class="btn-gmaps-card btn-gmaps-next" style="display: none;">
+                <div class="nav-btn-icon-wrapper nav-icon-charger">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/>
+                  </svg>
+                </div>
+                <div class="nav-btn-text-wrapper">
+                  <span class="nav-btn-title">Navigate to Next Charger Stop</span>
+                  <span class="nav-btn-subtitle">⚡ Direct Voice Guidance to Upcoming Station</span>
+                </div>
+                <span class="nav-btn-arrow">➔</span>
               </button>
+            </div>
+
+            <!-- Trip Battery & Stop-by-Stop Charging Plan Timeline -->
+            <div id="trip-battery-timeline-section" class="battery-timeline-section" style="display: none;">
+              <div class="section-title">
+                <span>🔋 Trip Battery & Charging Plan</span>
+                <span id="timeline-target-badge" style="font-size: 0.72rem; color: var(--color-ather); background: rgba(0, 230, 118, 0.1); padding: 2px 6px; border-radius: 9999px; border: 1px solid rgba(0, 230, 118, 0.3);">Target: 80% SoC</span>
+              </div>
+              <div id="trip-battery-timeline-container" class="battery-timeline-container">
+                <!-- Dynamically populated leg-by-leg timeline -->
+              </div>
             </div>
 
             <!-- Discovered Chargers Along Corridor (2-3 km) -->
@@ -299,11 +329,34 @@
             <!-- Safety Reserve Margin -->
             <div class="slider-container">
               <div class="slider-header">
-                <span class="input-label">Safety Reserve Buffer</span>
+                <span class="input-label">Safety Reserve Buffer (Arrival Buffer)</span>
                 <span id="reserve-val" style="font-weight: 700; color: var(--color-warning);">15%</span>
               </div>
               <input type="range" id="reserve-slider" class="battery-slider" min="5" max="30" value="15" style="accent-color: var(--color-warning);">
-              <span style="font-size: 0.72rem; color: var(--text-muted);">The app protects you from battery exhaustion by keeping this safety reserve intact.</span>
+              <span style="font-size: 0.72rem; color: var(--text-muted);">Minimum battery remaining upon arrival at any charging stop.</span>
+            </div>
+
+            <!-- Fast Charge Target SoC Limit (User Configurable) -->
+            <div class="slider-container" style="border: 1px solid rgba(0, 230, 118, 0.25); background: rgba(0, 230, 118, 0.04); border-radius: 10px; padding: 12px; margin-top: 4px;">
+              <div class="slider-header">
+                <div>
+                  <span class="input-label" style="color: var(--color-ather); margin: 0; font-size: 0.85rem;">⚡ Fast Charge Target Limit</span>
+                  <span style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 2px;">Charge up to this % at fast chargers</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <span id="target-charge-val" style="font-weight: 800; font-size: 1.15rem; color: var(--color-ather);">80%</span>
+                </div>
+              </div>
+              <input type="range" id="target-charge-slider" class="battery-slider" min="50" max="100" value="80" style="accent-color: var(--color-ather); margin-top: 8px;">
+              <div class="target-charge-presets" style="display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;">
+                <button type="button" class="btn-target-preset active" data-pct="80">80% (Rapid ⚡)</button>
+                <button type="button" class="btn-target-preset" data-pct="85">85%</button>
+                <button type="button" class="btn-target-preset" data-pct="90">90%</button>
+                <button type="button" class="btn-target-preset" data-pct="100">100% (Full 🔋)</button>
+              </div>
+              <span style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-top: 6px; line-height: 1.35;">
+                💡 2W EV batteries charge rapidly up to 80%. Above 80%, charging automatically slows down to preserve cell lifespan.
+              </span>
             </div>
 
             <!-- Live Range Radius Metrics -->
@@ -396,7 +449,7 @@
 
         <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px;">
           <div class="metric-box">
-            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">4,727</span>
+            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">7,819</span>
             <span class="metric-label">Total Active Stations</span>
           </div>
           <div class="metric-box">
@@ -408,7 +461,7 @@
             <span class="metric-label">Ather Grid Fast</span>
           </div>
           <div class="metric-box">
-            <span id="modal-bolt-count" class="metric-val">1,155</span>
+            <span id="modal-bolt-count" class="metric-val">4,247</span>
             <span class="metric-label">Bolt.Earth Stations</span>
           </div>
         </div>
@@ -433,16 +486,16 @@
 
   </div>
 
-  <!-- Pre-bundled 4,727 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=3.5"></script>
+  <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
+  <script src="chargers_db.js?v=3.6"></script>
 
-  <!-- Application Engine Scripts with Version 3.5 Cache Buster -->
-  <script src="js/battery.js?v=3.5"></script>
-  <script src="js/sync.js?v=3.5"></script>
-  <script src="js/navigator.js?v=3.5"></script>
-  <script src="js/router.js?v=3.5"></script>
-  <script src="js/utilities.js?v=3.5"></script>
-  <script src="js/map.js?v=3.5"></script>
-  <script src="js/app.js?v=3.5"></script>
+  <!-- Application Engine Scripts with Version 3.6 Cache Buster -->
+  <script src="js/battery.js?v=3.6"></script>
+  <script src="js/sync.js?v=3.6"></script>
+  <script src="js/navigator.js?v=3.6"></script>
+  <script src="js/router.js?v=3.6"></script>
+  <script src="js/utilities.js?v=3.6"></script>
+  <script src="js/map.js?v=3.6"></script>
+  <script src="js/app.js?v=3.6"></script>
 </body>
 </html>

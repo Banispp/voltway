@@ -1,4 +1,4 @@
-// VoltWay 2W Service Worker - Version 3.5 (Fresh Network-First)
+// VoltWay 2W Service Worker - Version 3.6 (Fresh Network-First)
 // Enables zero-server EV Route Planning with live network-first updates
 
 const CACHE_NAME = 'voltway-2w-v3-fresh';
@@ -6,15 +6,15 @@ const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css?v=3.5',
-  './js/app.js?v=3.5',
-  './js/map.js?v=3.5',
-  './js/router.js?v=3.5',
-  './js/battery.js?v=3.5',
-  './js/navigator.js?v=3.5',
-  './js/sync.js?v=3.5',
-  './js/utilities.js?v=3.5',
-  './chargers_db.js?v=3.5',
+  './css/app.css?v=3.6',
+  './js/app.js?v=3.6',
+  './js/map.js?v=3.6',
+  './js/router.js?v=3.6',
+  './js/battery.js?v=3.6',
+  './js/navigator.js?v=3.6',
+  './js/sync.js?v=3.6',
+  './js/utilities.js?v=3.6',
+  './chargers_db.js?v=3.6',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
