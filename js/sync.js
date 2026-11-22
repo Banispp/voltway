@@ -1,6 +1,7 @@
 /**
- * VoltWay 2W - Charger Database & Zero-Server Sync Engine
- * Handles local IndexedDB storage, bundled offline data, and live sync with Bolt.Earth & GitHub
+ * VoltWay 2W - Charger Database & Zero-Server Automatic Sync Engine
+ * Handles local IndexedDB storage, bundled offline data, and automatic background
+ * syncing with live Bolt.Earth API & Ather GitHub streams (100% zero manual effort)
  */
 
 const SyncEngine = (function () {
@@ -43,7 +44,7 @@ const SyncEngine = (function () {
   async function loadInitialChargers() {
     await initDB();
 
-    // Check if IndexedDB already has chargers
+    // 1. Fast load from local IndexedDB or pre-bundled script
     let stored = [];
     if (db) {
       stored = await getAllFromDB();
@@ -55,12 +56,10 @@ const SyncEngine = (function () {
     } else if (window.BUNDLED_CHARGERS && window.BUNDLED_CHARGERS.length > 0) {
       console.log(`[VoltWay] Loaded ${window.BUNDLED_CHARGERS.length} bundled chargers`);
       inMemoryChargers = window.BUNDLED_CHARGERS;
-      // Asynchronously populate IndexedDB
       if (db) {
         saveBatchToDB(inMemoryChargers).catch(err => console.warn('Could not cache to IndexedDB:', err));
       }
     } else {
-      // Fallback: try fetching chargers_db.json
       try {
         const resp = await fetch('chargers_db.json');
         if (resp.ok) {
@@ -74,6 +73,19 @@ const SyncEngine = (function () {
     }
 
     notify();
+
+    // 2. AUTOMATIC BACKGROUND SYNC:
+    // Check for newly added chargers automatically whenever the app is opened online!
+    setTimeout(() => {
+      checkAndSyncRemoteUpdates();
+    }, 1500);
+
+    // Auto-sync whenever internet connectivity is restored
+    window.addEventListener('online', () => {
+      console.log('[VoltWay Sync] Network connected. Checking for new chargers automatically...');
+      checkAndSyncRemoteUpdates();
+    });
+
     return inMemoryChargers;
   }
 
@@ -110,11 +122,42 @@ const SyncEngine = (function () {
   }
 
   /**
-   * Live Query Bolt.Earth API for chargers in a bounding box
-   * Automatically classifies 2W Fast vs 15A Slow and excludes 4W CCS2
+   * AUTOMATIC BACKGROUND SYNC:
+   * Checks the latest online database for any newly opened Ather Grid or Bolt.Earth chargers
+   * and merges them directly into the phone's database with ZERO manual work from the user!
+   */
+  async function checkAndSyncRemoteUpdates() {
+    if (!navigator.onLine) return;
+
+    try {
+      console.log('[VoltWay Sync] Auto-checking for newly added Ather & Bolt chargers in background...');
+      // Fetch latest database with cache-busting timestamp
+      const resp = await fetch('chargers_db.json?v=' + Date.now(), { cache: 'no-store' });
+      if (!resp.ok) return;
+
+      const remoteChargers = await resp.json();
+      if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) return;
+
+      const added = mergeChargers(remoteChargers);
+      if (added > 0) {
+        console.log(`[VoltWay Sync] ✨ AUTOMATICALLY ADDED ${added} NEW CHARGERS!`);
+        showAutoUpdateToast(`✨ ${added} New EV Chargers Added Automatically!`);
+        localStorage.setItem('voltway_last_sync', new Date().toISOString());
+      } else {
+        console.log('[VoltWay Sync] All chargers up-to-date.');
+      }
+    } catch (e) {
+      console.warn('[VoltWay Sync] Background auto-sync skipped:', e);
+    }
+  }
+
+  /**
+   * LIVE VIEWPORT QUERY FOR BOLT.EARTH:
+   * As the user navigates, pans, or zooms the map, this automatically fetches
+   * live chargers directly from Bolt.Earth's public discovery API!
    */
   async function fetchLiveBoltInBounds(bounds) {
-    if (!bounds) return [];
+    if (!bounds || !navigator.onLine) return [];
     const { south, west, north, east } = bounds;
     const url = `https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom=${south}&lng_right=${east}&lat_top=${north}&lng_left=${west}&zoom=14`;
 
@@ -135,7 +178,7 @@ const SyncEngine = (function () {
 
         const modelId = (item.model?.modelId || '').toUpperCase();
 
-        // Filter out car-exclusive high-power CCS2 or GB/T
+        // Automatic exclusion of 4-wheeler high-power car guns
         if (modelId.includes('CCS') || modelId.includes('GB/T') || modelId.includes('CHADEMO')) {
           return;
         }
@@ -147,7 +190,7 @@ const SyncEngine = (function () {
         const addr = item.station?.address || '';
         const name = `Bolt.Earth ${isFast ? 'Fast' : '15A'} - ${cid}`;
 
-        const standardized = {
+        newItems.push({
           id: cid,
           name,
           network: 'BOLT_EARTH',
@@ -161,23 +204,24 @@ const SyncEngine = (function () {
           source: 'Bolt.Earth Live API',
           is_2w: true,
           status: 'OPERATIONAL'
-        };
-
-        newItems.push(standardized);
+        });
       });
 
       if (newItems.length > 0) {
-        mergeChargers(newItems);
+        const addedCount = mergeChargers(newItems);
+        if (addedCount > 0) {
+          console.log(`[VoltWay Live] Auto-discovered ${addedCount} new Bolt.Earth points in viewport!`);
+          showAutoUpdateToast(`⚡ ${addedCount} Live Bolt.Earth Points Added!`);
+        }
       }
       return newItems;
     } catch (e) {
-      console.warn('Live Bolt query error (offline or network blocked):', e);
       return [];
     }
   }
 
   /**
-   * Sync chargers from online sources (Bolt.Earth, GitHub raw repo, or Overpass)
+   * Manual or scheduled full multi-corridor sync
    */
   async function performFullSync(onProgress) {
     if (isSyncing) return;
@@ -187,7 +231,11 @@ const SyncEngine = (function () {
     if (onProgress) onProgress({ status: 'Starting sync...', percent: 10 });
 
     try {
-      // 1. Fetch live Bolt chargers for major corridors in India
+      // 1. Check remote JSON stream for new Ather & Bolt points
+      if (onProgress) onProgress({ status: 'Checking for newly opened Ather Grid & Bolt chargers...', percent: 30 });
+      await checkAndSyncRemoteUpdates();
+
+      // 2. Fetch live Bolt chargers for major corridors in India
       const keyCorridors = [
         { name: 'Bangalore & Karnataka', lat_bottom: 12.5, lng_left: 77.0, lat_top: 13.4, lng_right: 77.9 },
         { name: 'Kerala (Kochi, Calicut, TVM)', lat_bottom: 8.5, lng_left: 75.5, lat_top: 11.5, lng_right: 77.0 },
@@ -197,59 +245,88 @@ const SyncEngine = (function () {
         { name: 'Delhi NCR', lat_bottom: 28.3, lng_left: 76.9, lat_top: 28.8, lng_right: 77.4 }
       ];
 
-      let addedCount = 0;
       for (let i = 0; i < keyCorridors.length; i++) {
         const c = keyCorridors[i];
         if (onProgress) {
           onProgress({
             status: `Querying live Bolt.Earth API: ${c.name}...`,
-            percent: 20 + Math.floor((i / keyCorridors.length) * 60)
+            percent: 40 + Math.floor((i / keyCorridors.length) * 55)
           });
         }
-        const found = await fetchLiveBoltInBounds({
+        await fetchLiveBoltInBounds({
           south: c.lat_bottom,
           west: c.lng_left,
           north: c.lat_top,
           east: c.lng_right
         });
-        addedCount += found.length;
       }
 
-      // Record last sync time
       localStorage.setItem('voltway_last_sync', new Date().toISOString());
 
       if (onProgress) {
         onProgress({
-          status: `Sync complete! Refreshed live points. Total active: ${inMemoryChargers.length}`,
+          status: `Sync complete! Active chargers: ${inMemoryChargers.length}`,
           percent: 100
         });
       }
     } catch (err) {
       console.error('Sync failed:', err);
-      if (onProgress) onProgress({ status: 'Sync encountered error, using cached data.', percent: 100, error: true });
+      if (onProgress) onProgress({ status: 'Sync error, continuing with local database.', percent: 100, error: true });
     } finally {
       isSyncing = false;
       notify();
     }
   }
 
+  /**
+   * Merges an array of chargers into inMemoryChargers and IndexedDB
+   * Returns count of newly inserted chargers
+   */
   function mergeChargers(newChargers) {
+    if (!newChargers || newChargers.length === 0) return 0;
     const existingMap = new Map();
     inMemoryChargers.forEach(c => existingMap.set(c.id, c));
 
-    let updated = false;
+    let addedCount = 0;
+    const toAdd = [];
+
     newChargers.forEach(c => {
       if (!existingMap.has(c.id)) {
         existingMap.set(c.id, c);
-        updated = true;
+        toAdd.push(c);
+        addedCount++;
       }
     });
 
-    if (updated) {
+    if (addedCount > 0) {
       inMemoryChargers = Array.from(existingMap.values());
-      if (db) saveBatchToDB(newChargers);
+      if (db) saveBatchToDB(toAdd);
       notify();
+      if (window.MapEngine) {
+        window.MapEngine.renderChargers(inMemoryChargers);
+      }
     }
+
+    return addedCount;
+  }
+
+  /**
+   * Floating Toast Notification for Automatic Sync
+   */
+  function showAutoUpdateToast(message) {
+    let toast = document.getElementById('voltway-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'voltway-toast';
+      toast.className = 'auto-sync-toast';
+      document.body.appendChild(toast);
+    }
+    toast.innerHTML = `<span>⚡</span> <span>${message}</span>`;
+    toast.classList.add('visible');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => {
+      toast.classList.remove('visible');
+    }, 4500);
   }
 
   function getChargers() {
@@ -299,8 +376,10 @@ const SyncEngine = (function () {
     getStats,
     fetchLiveBoltInBounds,
     performFullSync,
-    subscribe,
-    mergeChargers
+    checkAndSyncRemoteUpdates,
+    mergeChargers,
+    showAutoUpdateToast,
+    subscribe
   };
 })();
 

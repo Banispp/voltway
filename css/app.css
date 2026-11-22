@@ -1188,3 +1188,33 @@ html, body {
   color: var(--text-muted);
   font-size: 0.85rem;
 }
+
+/* Floating Toast Notification for Automatic Charger Sync */
+.auto-sync-toast {
+  position: fixed;
+  top: 74px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-30px);
+  background: rgba(14, 28, 20, 0.96);
+  border: 1.5px solid var(--color-ather);
+  color: var(--color-ather);
+  box-shadow: 0 8px 24px rgba(0, 230, 118, 0.35);
+  backdrop-filter: blur(12px);
+  padding: 10px 18px;
+  border-radius: var(--radius-full);
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.auto-sync-toast.visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
