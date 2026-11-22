@@ -229,25 +229,52 @@ const SyncEngine = (function () {
         const modelId = (item.model?.modelId || '').toUpperCase();
         const cidUpper = String(cid).toUpperCase();
 
-        // Automatic exclusion of 4-wheeler high-power car guns
-        if (modelId.includes('CCS') || modelId.includes('GB/T') || modelId.includes('CHADEMO')) {
-          return;
+        // 1. STRICT 4-WHEELER CAR EXCLUSION (4W CARS MUST NEVER BE ADDED)
+        const isCar = modelId.includes('LEVEL_2') ||
+                      modelId.includes('LEVEL_3') ||
+                      modelId.includes('OCPP_LEVEL_2') ||
+                      modelId.includes('OCPP_LEVEL_3') ||
+                      modelId.includes('OCPI') ||
+                      modelId.includes('CCS') ||
+                      modelId.includes('TYPE2') ||
+                      modelId.includes('GB/T') ||
+                      modelId.includes('CHADEMO') ||
+                      cidUpper.startsWith('L200') ||
+                      cidUpper.startsWith('L300') ||
+                      cidUpper.startsWith('ST') ||
+                      ['TN00', 'MH00', 'TS00', 'HR00', 'GJ01', 'DL00', 'HR01', 'KL00', 'KA01', 'MH04'].some(p => cidUpper.startsWith(p));
+
+        if (isCar) {
+          return; // Strictly reject all 4-wheeler car chargers!
         }
 
-        // Precision 2W Fast Charger detection (L1DC, 2WFC, Type 6, Type 7, Level 2 Fast AC)
-        const isFast = cidUpper.startsWith('L1DC') ||
-                       modelId.includes('2WFC') ||
-                       modelId.includes('FAST') ||
-                       modelId.includes('TYPE6') ||
-                       modelId.includes('TYPE7') ||
-                       modelId.includes('LEVEL_2') ||
-                       modelId.includes('LEVEL_3');
+        // 2. Verified 2-Wheeler Fast Charger (Ather Gun IS 17017 Type 7 LEV DC / Type 6)
+        const is2WFast = cidUpper.startsWith('L1DC') ||
+                         modelId.includes('2WFC') ||
+                         modelId.includes('TYPE7') ||
+                         modelId.includes('TYPE6');
 
-        const ctype = isFast ? 'FAST' : 'SLOW';
-        const connName = isFast ? 'Bolt.Earth Fast Charger (DC / Fast AC)' : 'Standard 15A / 3-Pin AC Socket';
-        const powerKw = isFast ? 3.3 : 1.5;
+        // 3. Verified 2-Wheeler 15A/16A Universal Socket
+        const is2WSlow = modelId.includes('BOLT_16A') ||
+                         modelId.includes('BOLT_LITE') ||
+                         modelId.includes('OAKTER') ||
+                         modelId.includes('LEVAC') ||
+                         modelId.includes('OCPP_LEVEL_1') ||
+                         cidUpper.startsWith('L100') ||
+                         cidUpper.startsWith('L1OC') ||
+                         cidUpper.startsWith('BOLT_');
+
+        if (!is2WFast && !is2WSlow) {
+          return; // Unknown or non-2W device - drop!
+        }
+
+        const ctype = is2WFast ? 'FAST' : 'SLOW';
+        const connName = is2WFast ? 'Ather Gun (IS 17017 Type 7 LEV DC Fast) ⚡' : 'Standard 15A / 3-Pin AC Socket (Requires Ather Portable Charger) 🔌';
+        const compat = is2WFast ? '100% Direct Plug-in (Ather 450X/Rizta/Apex)' : 'Requires Portable Charger Cable';
+        const powerKw = is2WFast ? 3.3 : 1.5;
         const addr = item.station?.address || '';
-        const name = `Bolt.Earth ${isFast ? 'Fast' : '15A'} - ${cid}`;
+        const cleanAddr = addr.split(',')[0].trim();
+        const name = is2WFast ? `Bolt Fast (Ather Gun ⚡) - ${cleanAddr || cid}` : `Bolt.Earth 15A Socket - ${cleanAddr || cid}`;
 
         newItems.push({
           id: cid,
@@ -256,6 +283,8 @@ const SyncEngine = (function () {
           type: ctype,
           model_id: modelId,
           connector: connName,
+          is_ather_gun: is2WFast,
+          ather_compatibility: compat,
           power_kw: powerKw,
           lat: Math.round(lat * 1000000) / 1000000,
           lng: Math.round(lng * 1000000) / 1000000,

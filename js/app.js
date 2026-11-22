@@ -214,9 +214,10 @@ function updateFilterBadges() {
   if (countAther) countAther.textContent = stats.atherFast.toLocaleString();
   if (countBoltFast) countBoltFast.textContent = stats.boltFast.toLocaleString();
   if (countBoltSlow) countBoltSlow.textContent = stats.boltSlow.toLocaleString();
-  if (headerCountEl) headerCountEl.textContent = stats.total.toLocaleString();
-  if (btnNetworkPill) {
-    btnNetworkPill.innerHTML = `<span class="live-status-dot"></span> 🔄 Sync (${stats.total.toLocaleString()})`;
+  if (headerCountEl) {
+    headerCountEl.textContent = stats.total.toLocaleString();
+  } else if (btnNetworkPill) {
+    btnNetworkPill.innerHTML = `<span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">${stats.total.toLocaleString()}</span>)`;
   }
 }
 

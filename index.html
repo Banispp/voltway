@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=4.0">
+  <link rel="stylesheet" href="css/app.css?v=4.1">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -29,7 +29,7 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v4-0-fresh') {
+            if (name !== 'voltway-2w-v4-1-fresh') {
               caches.delete(name);
             }
           });
@@ -52,13 +52,13 @@
       </div>
       <div class="header-actions">
         <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="⚡ Sync Latest EV Chargers (Ather & Bolt)">
-          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">8,420</span>)
+          <span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">7,274</span>)
         </button>
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action" title="Clear Cache & Force Refresh" style="font-size: 0.72rem; padding: 5px 8px; background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 9999px; cursor: pointer;">
-          v4.0
+          v4.1
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -83,11 +83,11 @@
         </button>
         <button type="button" id="chip-bolt-fast" class="filter-chip chip-bolt-fast active" title="Toggle Bolt.Earth Fast Chargers">
           <span>⚡ Bolt.Earth (Fast)</span>
-          <span id="count-bolt-fast" class="chip-badge">783</span>
+          <span id="count-bolt-fast" class="chip-badge">398</span>
         </button>
         <button type="button" id="chip-bolt-slow" class="filter-chip chip-bolt-slow active" title="Toggle Bolt.Earth 15A Sockets">
           <span>🔌 Bolt 15A (Slow Socket)</span>
-          <span id="count-bolt-slow" class="chip-badge">3,464</span>
+          <span id="count-bolt-slow" class="chip-badge">3,304</span>
         </button>
       </div>
     </div>
@@ -476,7 +476,7 @@
         <!-- Overall Network Sync Summary -->
         <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;">
           <div class="metric-box">
-            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">7,819</span>
+            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">7,274</span>
             <span class="metric-label">Total Verified Stations</span>
           </div>
           <div class="metric-box">
@@ -503,7 +503,7 @@
           <div class="sync-net-item sync-item-bolt-fast">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-bolt-fast">⚡ BOLT.EARTH FAST</span>
-              <span id="modal-bolt-fast-count" class="sync-item-count">1,558</span>
+              <span id="modal-bolt-fast-count" class="sync-item-count">398</span>
             </div>
             <div class="sync-item-sub">
               <span>🔌 <strong>Connector:</strong> Ather Gun (IS 17017 Type 7 LEV DC)</span>
@@ -515,7 +515,7 @@
           <div class="sync-net-item sync-item-bolt-slow">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-bolt-slow">🔌 BOLT.EARTH 15A</span>
-              <span id="modal-bolt-slow-count" class="sync-item-count">3,290</span>
+              <span id="modal-bolt-slow-count" class="sync-item-count">3,304</span>
             </div>
             <div class="sync-item-sub">
               <span>🔌 <strong>Connector:</strong> Standard 15A AC 3-Pin Socket</span>
@@ -583,15 +583,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=4.0"></script>
+  <script src="chargers_db.js?v=4.1"></script>
 
-  <!-- Application Engine Scripts with Version 4.0 Cache Buster -->
-  <script src="js/battery.js?v=4.0"></script>
-  <script src="js/sync.js?v=4.0"></script>
-  <script src="js/navigator.js?v=4.0"></script>
-  <script src="js/router.js?v=4.0"></script>
-  <script src="js/utilities.js?v=4.0"></script>
-  <script src="js/map.js?v=4.0"></script>
-  <script src="js/app.js?v=4.0"></script>
+  <!-- Application Engine Scripts with Version 4.1 Cache Buster -->
+  <script src="js/battery.js?v=4.1"></script>
+  <script src="js/sync.js?v=4.1"></script>
+  <script src="js/navigator.js?v=4.1"></script>
+  <script src="js/router.js?v=4.1"></script>
+  <script src="js/utilities.js?v=4.1"></script>
+  <script src="js/map.js?v=4.1"></script>
+  <script src="js/app.js?v=4.1"></script>
 </body>
 </html>
