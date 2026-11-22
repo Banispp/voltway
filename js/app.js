@@ -54,7 +54,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=4.0')
+      navigator.serviceWorker.register('./sw.js?v=4.8')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
