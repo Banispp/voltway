@@ -54,7 +54,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.3')
+      navigator.serviceWorker.register('./sw.js?v=5.4')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -1478,13 +1478,12 @@ function setupSOSModule() {
   const btnSosHeader = document.getElementById('btn-sos-header');
   const btnSosTrigger = document.getElementById('btn-trigger-sos');
 
-  function runSos() {
+  async function runSos() {
     // Switch to SOS tab
     const sosTabBtn = document.querySelector('[data-tab="sos"]');
     if (sosTabBtn) sosTabBtn.click();
 
-    MapEngine.locateUser(true);
-    const userCoords = MapEngine.getUserCoords();
+    const userCoords = await MapEngine.locateUser(true) || MapEngine.getUserCoords();
 
     if (!userCoords) {
       alert('Requesting GPS location... please allow location access on your phone.');

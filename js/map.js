@@ -835,6 +835,9 @@ const MapEngine = (function () {
       return coords;
     } else {
       console.warn('[VoltWay Location] Could not determine user GPS location.');
+      if (panTo) {
+        alert('Could not determine GPS location. Please make sure Location (GPS) is turned ON in your phone settings and permission is allowed.');
+      }
       return null;
     }
   }
