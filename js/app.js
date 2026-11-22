@@ -1316,12 +1316,14 @@ function updateSyncModalStatus() {
   const stats = SyncEngine.getStats();
   const totalEl = document.getElementById('sync-total-chargers');
   const atherEl = document.getElementById('modal-ather-count');
-  const boltEl = document.getElementById('modal-bolt-count');
+  const boltFastEl = document.getElementById('modal-bolt-fast-count');
+  const boltSlowEl = document.getElementById('modal-bolt-slow-count');
   const lastSyncEl = document.getElementById('sync-last-timestamp');
 
   if (totalEl) totalEl.textContent = stats.total.toLocaleString();
   if (atherEl) atherEl.textContent = stats.atherFast.toLocaleString();
-  if (boltEl) boltEl.textContent = (stats.boltFast + stats.boltSlow).toLocaleString();
+  if (boltFastEl) boltFastEl.textContent = stats.boltFast.toLocaleString();
+  if (boltSlowEl) boltSlowEl.textContent = stats.boltSlow.toLocaleString();
   if (lastSyncEl) {
     lastSyncEl.textContent = stats.lastSync
       ? `🟢 Synced (${new Date(stats.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`

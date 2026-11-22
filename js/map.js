@@ -173,29 +173,32 @@ const MapEngine = (function () {
       activeCandidates.push(c);
     }
 
-    // 2. High-Performance Viewport Marker Culling
+    // 2. High-Performance Viewport Marker Culling (FAST CHARGERS ALWAYS PRIORITIZED 100%)
     let visibleChargers = [];
+    const inBounds = activeCandidates.filter(c => bounds.contains([c.lat, c.lng]));
+
+    // ALWAYS include ALL Fast Chargers (both Ather Grid and Bolt Fast) in the viewport!
+    const fastInBounds = inBounds.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID');
+    const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID');
+
     if (zoom < 8) {
-      // National level (Zoom < 8): Sample up to 300 high-priority Fast Chargers
-      const fastOnly = activeCandidates.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID');
-      const step = Math.max(1, Math.floor(fastOnly.length / 300));
-      for (let i = 0; i < fastOnly.length; i += step) {
-        visibleChargers.push(fastOnly[i]);
-      }
-    } else if (zoom < 10) {
-      // State / Regional level (Zoom 8-9): Show up to 600 Fast + Slow Chargers
-      const inState = activeCandidates.filter(c => bounds.contains([c.lat, c.lng]));
-      const step = Math.max(1, Math.floor(inState.length / 600));
-      for (let i = 0; i < inState.length; i += step) {
-        visibleChargers.push(inState[i]);
+      // National level: Show up to 350 Fast Chargers
+      const step = Math.max(1, Math.floor(fastInBounds.length / 350));
+      for (let i = 0; i < fastInBounds.length; i += step) {
+        visibleChargers.push(fastInBounds[i]);
       }
     } else {
-      // City / Street level (Zoom >= 10): Show 100% of all chargers within the visible viewport bounds
-      for (let i = 0; i < activeCandidates.length; i++) {
-        const c = activeCandidates[i];
-        if (bounds.contains([c.lat, c.lng])) {
-          visibleChargers.push(c);
-          if (visibleChargers.length >= 750) break; // Generous ceiling for smooth rendering
+      // Regional & City level (Zoom >= 8): Show 100% of all Fast Chargers!
+      visibleChargers.push(...fastInBounds);
+
+      // Fill remaining slots with 15A slow sockets up to 850 total markers
+      const remainingSlots = Math.max(0, 850 - visibleChargers.length);
+      if (slowInBounds.length <= remainingSlots) {
+        visibleChargers.push(...slowInBounds);
+      } else {
+        const step = Math.max(1, Math.floor(slowInBounds.length / remainingSlots));
+        for (let i = 0; i < slowInBounds.length && visibleChargers.length < 850; i += step) {
+          visibleChargers.push(slowInBounds[i]);
         }
       }
     }
@@ -254,20 +257,28 @@ const MapEngine = (function () {
     const waypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
     const isAlreadyWaypoint = waypoints.some(w => w.id === charger.id);
 
+    const isAtherGun = isFast || charger.is_ather_gun;
+
     return `
       <div class="popup-card">
         <div class="popup-header">
           <span class="popup-badge ${networkBadgeClass}">${networkName}</span>
-          <span class="popup-type">${isFast ? '⚡ DC Fast (2W)' : '🔌 15A Socket'}</span>
+          <span class="popup-type">${isFast ? '⚡ Ather Gun Fast' : '🔌 15A Socket'}</span>
         </div>
         <div class="popup-title">${charger.name}</div>
+
+        <!-- Ather Gun Compatibility Banner -->
+        <div class="popup-ather-compat ${isAtherGun ? 'compat-direct' : 'compat-socket'}">
+          ${isAtherGun ? '⚡ 100% Ather Gun Compatible (Direct Plug-in, No Adapter)' : '🔌 15A Socket (Requires Ather Portable Charger Cable)'}
+        </div>
+
         <div class="popup-detail">
           <span class="detail-label">Connector:</span>
-          <span class="detail-val">${charger.connector}</span>
+          <span class="detail-val" style="font-weight: 800; color: ${isFast ? '#00E676' : '#38bdf8'};">${charger.connector}</span>
         </div>
         <div class="popup-detail">
           <span class="detail-label">Power Output:</span>
-          <span class="detail-val">${charger.power_kw} kW • ${isFast ? '~1 km/min' : '~18% / hr'}</span>
+          <span class="detail-val">${charger.power_kw} kW • ${isFast ? '~1.5 km/min (Fast DC)' : '~0.3 km/min (15A Socket)'}</span>
         </div>
         <div class="popup-detail">
           <span class="detail-label">Est. Charge Time:</span>
