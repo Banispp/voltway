@@ -170,23 +170,6 @@
     "status": "OPERATIONAL"
   },
   {
-    "id": "VIDA_357",
-    "name": "Vida Grid Fast (Ather Gun ⚡) - Nagshanti Motors pvt ltd (PB Road)",
-    "network": "VIDA_GRID",
-    "type": "FAST",
-    "model_id": "HERO_VIDA_FAST_LEVDC",
-    "connector": "Hero VIDA Official DC Fast Gun (IS 17017-2-7 / Type 7 LEV DC) ⚡",
-    "is_ather_gun": true,
-    "ather_compatibility": "100% Direct Plug-in (Official Hero VIDA Fast Gun)",
-    "power_kw": 3.3,
-    "lat": 15.84997,
-    "lng": 74.52139,
-    "address": "Nagshanti Motors pvt ltd (PB Road) , No 3999/A Old Pune Bangalore Road, Fort Rd, beside Pai Petrol Pump, Belagavi, Karnataka 590016",
-    "source": "Hero VIDA Official",
-    "is_2w": true,
-    "status": "OPERATIONAL"
-  },
-  {
     "id": "VIDA_23",
     "name": "Vida Grid Fast (Ather Gun ⚡) - ORION Rajaji MALL",
     "network": "VIDA_GRID",

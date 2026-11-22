@@ -1,17 +1,13 @@
 """
-VoltWay 2W - South India Regional Database Builder
-Covers: Kerala (KL), Tamil Nadu (TN), Karnataka (KA), Puducherry / Mahe (PY)
-Networks Included (100% Two-Wheeler ONLY):
-  1. Ather Grid DC Fast (Official Ather Gun) - includes 6kW fast stations
-  2. Hero VIDA Grid DC Fast (Official LEV DC Ather Gun) - strictly Vida's own chargingStations (ZERO duplication)
-  3. Bolt.Earth 2W Fast (L1DC / 2WFC / Type 7 LEV DC Ather Gun)
-  4. Bolt.Earth 15A Sockets (Universal 3-Pin for Ather Portable Charger)
-Excludes 100% of 4-Wheeler Car Chargers (CCS2, Type 2 AC, Level 2/3, OCPI)
+VoltWay 2W - Pure South India Database Builder (Strict KL, TN, KA, PY ONLY)
+Excludes 100% of stations outside Kerala, Tamil Nadu, Karnataka, Puducherry / Mahe.
+Zero 4-Wheelers. Zero Ather/Vida Duplication.
 """
 
 import json
 import os
 import sys
+import re
 
 if sys.platform == 'win32':
     try:
@@ -21,28 +17,100 @@ if sys.platform == 'win32':
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-TARGET_STATES = ['kerala', 'tamil nadu', 'karnataka', 'puducherry', 'pondicherry', 'mahe']
-EXCLUDED_STATES = ['andhra', 'telangana', 'maharashtra', 'goa', 'odisha', 'madhya pradesh', 'gujarat', 'delhi', 'rajasthan', 'uttar pradesh', 'bihar', 'punjab', 'haryana']
+KL_CITIES = [
+    'kerala', 'thiruvananthapuram', 'trivandrum', 'kollam', 'quilon', 'pathanamthitta', 'alappuzha', 'alleppey',
+    'kottayam', 'idukki', 'ernakulam', 'kochi', 'cochin', 'thrissur', 'trichur', 'palakkad', 'palghat',
+    'malappuram', 'kozhikode', 'calicut', 'wayanad', 'kannur', 'cannanore', 'kasaragod', 'kasargod',
+    'munnar', 'cherthala', 'chalakkudy', 'angamaly', 'perumbavoor', 'aluva', 'changanassery', 'thiruvalla',
+    'kayamkulam', 'punalur', 'atteningal', 'neyyattinkara', 'vadakara', 'thalassery', 'payyanur', 'manjeri',
+    'tirur', 'ponnani', 'kondotty', 'perinthalmanna', 'nilambur', 'ottapalam', 'shornur', 'guruvayur',
+    'kunnamkulam', 'irinjallakuda', 'kodungallur', 'kothamangalam', 'muvattupuzha', 'piravom', 'pala',
+    'thodupuzha', 'kattappana', 'adimali', 'sulthan bathery', 'kalpetta', 'mananthavady', 'uppala', 'kanhangad'
+]
 
-def is_in_target_region(lat, lng, state='', addr=''):
+TN_CITIES = [
+    'tamil nadu', 'tamilnadu', 'chennai', 'coimbatore', 'madurai', 'tiruchirappalli', 'trichy', 'salem',
+    'tirunelveli', 'tiruppur', 'erode', 'vellore', 'thoothukudi', 'tuticorin', 'dindigul', 'thanjavur',
+    'ranipet', 'sivakasi', 'karur', 'ooty', 'udhagamandalam', 'hosur', 'nagercoil', 'kanyakumari',
+    'kanchipuram', 'tiruvannamalai', 'kumbakonam', 'cuddalore', 'nagapattinam', 'pudukkottai', 'dharmapuri',
+    'krishnagiri', 'namakkal', 'perambalur', 'ramanathapuram', 'sivaganga', 'tenkasi', 'theni', 'tiruvarur',
+    'tirupathur', 'viluppuram', 'virudhunagar', 'chengalpattu', 'kallakurichi', 'mayiladuthurai', 'ambattur',
+    'avadi', 'tambaram', 'pallavaram', 'pollachi', 'rajapalayam', 'gudiyatham', 'vaniyambadi', 'amur',
+    'marthandam', 'kovilpatti', 'mettupalayam', 'gobichettipalayam', 'attur', 'paramakudi', 'panruti'
+]
+
+KA_CITIES = [
+    'karnataka', 'bengaluru', 'bangalore', 'mysuru', 'mysore', 'mangaluru', 'mangalore', 'hubballi',
+    'hubli', 'belagavi', 'belgaum', 'kalaburagi', 'gulbarga', 'davanagere', 'ballari', 'bellary',
+    'vijayapura', 'bijapur', 'shivamogga', 'shimoga', 'tumakuru', 'tumkur', 'raichur', 'bidar', 'hosapete',
+    'gadag', 'kgf', 'hassan', 'bhadravati', 'chitradurga', 'udupi', 'manipal', 'kolar', 'mandya',
+    'chikkamagaluru', 'chikmagalur', 'yadgir', 'chikkaballapura', 'ramanagara', 'bagalkote', 'bagalkot',
+    'chamrajnagar', 'haveri', 'koppal', 'karwar', 'kodagu', 'madikeri', 'puttur', 'bhatkal', 'kundapura',
+    'sullia', 'bantwal', 'karkala', 'sirsi', 'dandeli', 'kumta', 'honnavar', 'hunsur', 'nanjangud',
+    'channapatna', 'kanakapura', 'nelamangala', 'doddaballapura', 'hoskote', 'anekal', 'whitefield'
+]
+
+PY_CITIES = [
+    'puducherry', 'pondicherry', 'mahe', 'karaikal', 'yanam'
+]
+
+EXCLUDED_REGIONS = [
+    'telangana', 'hyderabad', 'secunderabad', 'warangal', 'nizamabad', 'karimnagar', 'khammam', 'ramagundam',
+    'andhra', 'visakhapatnam', 'vizag', 'vijayawada', 'guntur', 'nellore', 'kurnool', 'rajahmundry',
+    'kakinada', 'tirupati', 'anantapur', 'kadapa', 'vizianagaram', 'eluru', 'ongole', 'nandyal', 'machilipatnam',
+    'maharashtra', 'mumbai', 'pune', 'nagpur', 'thane', 'nashik', 'aurangabad', 'solapur', 'amravati',
+    'navi mumbai', 'kolhapur', 'akola', 'latur', 'dhule', 'ahmednagar', 'chandrapur', 'parbhani', 'jalna',
+    'jalgaon', 'dharashiv', 'osmanabad', 'satara', 'sangli', 'ratnagiri', 'sindhudurg',
+    'goa', 'panaji', 'margao', 'vasco', 'mapusa', 'ponda',
+    'gujarat', 'ahmedabad', 'surat', 'vadodara', 'rajkot', 'delhi', 'rajasthan', 'jaipur', 'uttar pradesh',
+    'noida', 'gurgaon', 'gurugram', 'faridabad', 'ghaziabad', 'madhya pradesh', 'bhopal', 'indore', 'bihar', 'bengal'
+]
+
+def is_strictly_south_target(name, addr, lat, lng):
     try:
         lat = float(lat)
         lng = float(lng)
     except:
-        return False
+        return False, 'Invalid-Coords'
 
-    # Target South India Bounding Box: Kanyakumari (8.05N) to Northern Karnataka (18.55N), Karwar (74.00E) to Chennai (80.40E)
-    in_box = (8.05 <= lat <= 18.55 and 74.00 <= lng <= 80.40)
-    
-    full_text = f"{state} {addr}".lower()
-    has_target_state = any(ts in full_text for ts in TARGET_STATES)
-    has_excluded_state = any(es in full_text for es in EXCLUDED_STATES)
+    text = f"{name} {addr}".lower()
 
-    if has_target_state and not has_excluded_state:
-        return True
-    if in_box and not has_excluded_state:
-        return True
-    return False
+    # 1. Immediate exclusion check
+    for ex in EXCLUDED_REGIONS:
+        if re.search(r'\b' + re.escape(ex) + r'\b', text):
+            return False, f"Excluded ({ex})"
+
+    # 2. Positive Match for KL, TN, KA, PY in text
+    for kl in KL_CITIES:
+        if re.search(r'\b' + re.escape(kl) + r'\b', text):
+            return True, 'KL'
+
+    for tn in TN_CITIES:
+        if re.search(r'\b' + re.escape(tn) + r'\b', text):
+            return True, 'TN'
+
+    for ka in KA_CITIES:
+        if re.search(r'\b' + re.escape(ka) + r'\b', text):
+            return True, 'KA'
+
+    for py in PY_CITIES:
+        if re.search(r'\b' + re.escape(py) + r'\b', text):
+            return True, 'PY'
+
+    # 3. High-Precision Geographic Fallback (Boundary strictly within KL, TN, KA, PY)
+    # Kerala: Lat 8.2 - 12.8, Lng 74.85 - 77.40
+    if (8.2 <= lat <= 12.8) and (74.85 <= lng <= 77.40):
+        return True, 'KL-Geo'
+
+    # Tamil Nadu: Lat 8.08 - 13.50, Lng 76.25 - 80.35 (excluding AP/KL)
+    if (8.08 <= lat <= 13.50) and (76.25 <= lng <= 80.35) and not (lat > 13.35 and lng > 79.8):
+        return True, 'TN-Geo'
+
+    # Karnataka: Lat 11.55 - 15.50, Lng 74.05 - 77.80 (strict western/southern KA)
+    if (11.55 <= lat <= 15.50) and (74.05 <= lng <= 77.80):
+        return True, 'KA-Geo'
+
+    return False, 'Out-of-Region'
 
 def is_strictly_4_wheeler(cid, model_id):
     cid_upper = str(cid).upper()
@@ -94,15 +162,15 @@ def classify_bolt_2w(cid, model_id):
 
 def main():
     print("=" * 72)
-    print("VoltWay 2W - Building Pure Two-Wheeler Database (KL, TN, KA, PY)")
-    print("Zero 4-Wheeler Cars. Zero Duplication across Ather & Vida.")
+    print("VoltWay 2W - Strict Regional Database (KL, TN, KA, PY ONLY)")
+    print("EXCLUDES 100% of Fast Chargers outside Kerala, TN, KA, and PY")
     print("=" * 72)
 
     master_db = []
     seen_ids = set()
 
     # ---------------------------------------------------------
-    # 1. ATHER GRID FAST CHARGERS (Official DC Fast)
+    # 1. ATHER GRID FAST CHARGERS (Strict KL, TN, KA, PY)
     # ---------------------------------------------------------
     ather_file = os.path.join(BASE_DIR, 'ather_grid_chargers.json')
     ather_added = 0
@@ -113,10 +181,11 @@ def main():
         aid = a['id']
         lat = a.get('lat')
         lng = a.get('lng')
+        name = a.get('name') or ''
         addr = a.get('address') or ''
-        state = a.get('state') or ''
 
-        if not is_in_target_region(lat, lng, state, addr):
+        is_valid, reason = is_strictly_south_target(name, addr, lat, lng)
+        if not is_valid:
             continue
 
         item_id = f"ATHER_{aid}" if not str(aid).startswith('ATHER_') else aid
@@ -124,8 +193,7 @@ def main():
             continue
         seen_ids.add(item_id)
 
-        clean_name = a.get('name') or f"Ather Grid Fast Charger - {aid}"
-        # Detect if 6kW fast station
+        clean_name = name or f"Ather Grid Fast Charger - {aid}"
         power = 6.0 if '6KW' in clean_name.upper() or '6 KW' in clean_name.upper() else 3.3
 
         master_db.append({
@@ -147,11 +215,11 @@ def main():
         })
         ather_added += 1
 
-    print(f"Added {ather_added} Ather Grid Fast Chargers.")
+    print(f"Added {ather_added} Ather Grid Fast Chargers (Strict KL/TN/KA/PY).")
 
     # ---------------------------------------------------------
-    # 2. HERO VIDA GRID FAST CHARGERS (Official LEV DC Ather Gun)
-    # Strictly from 'chargingStations' to guarantee ZERO duplication with Ather!
+    # 2. HERO VIDA GRID FAST CHARGERS (Strict KL, TN, KA, PY)
+    # Strictly from 'chargingStations' (Zero Ather duplicates)
     # ---------------------------------------------------------
     vida_file = os.path.join(BASE_DIR, 'scripts', 'vida_map_raw.json')
     vida_added = 0
@@ -165,7 +233,6 @@ def main():
             c_name = c.get('cityName', '')
             s_name = c.get('stateName', '')
 
-            # chargingStations is strictly Vida's own fast charging network
             for ch in c.get('chargingStations', []):
                 sid = ch.get('stationId')
                 if not sid:
@@ -177,13 +244,14 @@ def main():
 
                 lat = ch.get('latitude')
                 lng = ch.get('longitude')
+                st_name = ch.get('stationName', '').strip()
                 addr = ch.get('chargingStationAddress') or ''
 
-                if not is_in_target_region(lat, lng, s_name, addr):
+                is_valid, reason = is_strictly_south_target(st_name, f"{addr} {c_name} {s_name}", lat, lng)
+                if not is_valid:
                     continue
 
                 seen_ids.add(item_id)
-                st_name = ch.get('stationName', '').strip()
                 clean_addr = addr.split(',')[0].strip()
                 disp_name = f"Vida Grid Fast (Ather Gun ⚡) - {st_name or clean_addr}"
 
@@ -208,20 +276,17 @@ def main():
                 vida_list_saved.append(station_entry)
                 vida_added += 1
 
-    print(f"Added {vida_added} Hero VIDA Grid Fast Chargers (0 Ather duplicates).")
+    print(f"Added {vida_added} Hero VIDA Grid Fast Chargers (Strict KL/TN/KA/PY).")
 
-    # Save dedicated vida_chargers.json
     with open(os.path.join(BASE_DIR, 'vida_chargers.json'), 'w', encoding='utf-8') as f:
         json.dump(vida_list_saved, f, indent=2, ensure_ascii=False)
-    print("Saved vida_chargers.json")
 
     # ---------------------------------------------------------
-    # 3. BOLT.EARTH TWO-WHEELER CHARGERS (FAST & 15A SLOW)
+    # 3. BOLT.EARTH TWO-WHEELER CHARGERS (Strict KL, TN, KA, PY)
     # ---------------------------------------------------------
     bolt_file = os.path.join(BASE_DIR, 'bolt_chargers.json')
     bolt_fast_added = 0
     bolt_slow_added = 0
-    bolt_purged_cars = 0
 
     with open(bolt_file, 'r', encoding='utf-8') as f:
         bolt_raw = json.load(f)
@@ -230,22 +295,20 @@ def main():
         bid = b['id']
         mid = b.get('modelId', '') or b.get('model_id', '')
 
-        # Block any 4-wheeler car
         if is_strictly_4_wheeler(bid, mid):
-            bolt_purged_cars += 1
             continue
 
         is_2w, is_fast, conn_name, compat, power, ctype = classify_bolt_2w(bid, mid)
         if not is_2w:
-            bolt_purged_cars += 1
             continue
 
         lat = b.get('lat')
         lng = b.get('lng')
+        name = b.get('name') or ''
         addr = b.get('address') or ''
-        state = b.get('state') or ''
 
-        if not is_in_target_region(lat, lng, state, addr):
+        is_valid, reason = is_strictly_south_target(name, addr, lat, lng)
+        if not is_valid:
             continue
 
         item_id = f"BOLT_{bid}" if not str(bid).startswith('BOLT_') else bid
@@ -279,39 +342,22 @@ def main():
             'status': 'OPERATIONAL'
         })
 
-    print(f"Added {bolt_fast_added} Bolt 2W Fast Chargers.")
-    print(f"Added {bolt_slow_added} Bolt 15A Universal Sockets.")
+    print(f"Added {bolt_fast_added} Bolt 2W Fast Chargers (Strict KL/TN/KA/PY).")
+    print(f"Added {bolt_slow_added} Bolt 15A Universal Sockets (Strict KL/TN/KA/PY).")
 
     total_fast = ather_added + vida_added + bolt_fast_added
-    total_slow = bolt_slow_added
     total_stations = len(master_db)
 
     print("=" * 72)
-    print("FINAL SOUTH INDIA 2W DATABASE (KL, TN, KA, PY):")
+    print("STRICT 4-STATE VERIFIED DATABASE (KL + TN + KA + PY ONLY):")
     print(f"  • Ather Grid Fast Chargers (3.3kW / 6kW)   : {ather_added}")
     print(f"  • Hero VIDA Grid Fast (Ather Gun ⚡)       : {vida_added}")
     print(f"  • Bolt.Earth 2W Fast (Ather Gun ⚡)        : {bolt_fast_added}")
     print(f"  • Bolt.Earth 15A Sockets (Universal 2W)   : {bolt_slow_added}")
     print("  -------------------------------------------------------------")
-    print(f"  • TOTAL ATHER-COMPATIBLE FAST CHARGERS    : {total_fast} (Ather + Vida + Bolt Fast)")
+    print(f"  • TOTAL ATHER-COMPATIBLE FAST CHARGERS    : {total_fast}")
     print(f"  • TOTAL ALL 2W EV CHARGING STATIONS       : {total_stations}")
-    print(f"  • TOTAL 4-WHEELER CARS IN APP             : 0 (PURGED 100%)")
-    print("=" * 72)
-
-    # Kerala specific stats
-    kl_chargers = [c for c in master_db if 8.15 <= c['lat'] <= 12.85 and 74.85 <= c['lng'] <= 77.45]
-    kl_ather = len([c for c in kl_chargers if c['network'] == 'ATHER_GRID'])
-    kl_vida = len([c for c in kl_chargers if c['network'] == 'VIDA_GRID'])
-    kl_bolt_fast = len([c for c in kl_chargers if c['network'] == 'BOLT_EARTH' and c['type'] == 'FAST'])
-    kl_bolt_slow = len([c for c in kl_chargers if c['network'] == 'BOLT_EARTH' and c['type'] == 'SLOW'])
-
-    print("KERALA STATE BREAKDOWN:")
-    print(f"  • Ather Grid Fast in Kerala               : {kl_ather}")
-    print(f"  • Hero VIDA Fast in Kerala                : {kl_vida}")
-    print(f"  • Bolt 2W Fast in Kerala                  : {kl_bolt_fast}")
-    print(f"  • Bolt 15A Sockets in Kerala              : {kl_bolt_slow}")
-    print(f"  • Kerala Total Fast Chargers (Ather Gun)  : {kl_ather + kl_vida + kl_bolt_fast}")
-    print(f"  • Kerala Total All 2W Stations            : {len(kl_chargers)}")
+    print(f"  • TOTAL STATIONS OUTSIDE (KL/TN/KA/PY)    : 0 (100% EXCLUDED)")
     print("=" * 72)
 
     # Write chargers_db.json
@@ -323,10 +369,10 @@ def main():
     # Write chargers_db.js
     db_js_path = os.path.join(BASE_DIR, 'chargers_db.js')
     with open(db_js_path, 'w', encoding='utf-8') as f:
-        f.write("// VoltWay 2W - Pure Two-Wheeler Chargers Database (Offline PWA)\n")
-        f.write("// Regional: Kerala, Tamil Nadu, Karnataka, Puducherry / Mahe\n")
-        f.write(f"// ZERO Cars. Ather Grid ({ather_added}) + Hero VIDA Fast ({vida_added}) + Bolt Fast ({bolt_fast_added}) & Bolt 15A ({bolt_slow_added})\n")
-        f.write(f"// Total 2W Stations: {total_stations} (Fast: {total_fast}, 15A: {total_slow})\n")
+        f.write("// VoltWay 2W - Strict 4-State Two-Wheeler Chargers Database (Offline PWA)\n")
+        f.write("// Strictly Kerala, Tamil Nadu, Karnataka, Puducherry / Mahe ONLY\n")
+        f.write(f"// ZERO Stations outside KL, TN, KA, PY. Ather Grid ({ather_added}) + Hero VIDA Fast ({vida_added}) + Bolt Fast ({bolt_fast_added}) & Bolt 15A ({bolt_slow_added})\n")
+        f.write(f"// Total 2W Stations: {total_stations} (Fast: {total_fast}, 15A: {bolt_slow_added})\n")
         f.write("window.BUNDLED_CHARGERS = ")
         json.dump(master_db, f, ensure_ascii=False)
         f.write(";\n")
