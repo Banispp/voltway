@@ -1,20 +1,20 @@
-// VoltWay 2W Service Worker
-// Enables 100% offline functionality for zero-server EV Route Planning
+// VoltWay 2W Service Worker - Version 3.2 (Fresh Network-First)
+// Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v1';
+const CACHE_NAME = 'voltway-2w-v3-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css',
-  './js/app.js',
-  './js/map.js',
-  './js/router.js',
-  './js/battery.js',
-  './js/navigator.js',
-  './js/sync.js',
-  './js/utilities.js',
-  './chargers_db.js',
+  './css/app.css?v=3.2',
+  './js/app.js?v=3.2',
+  './js/map.js?v=3.2',
+  './js/router.js?v=3.2',
+  './js/battery.js?v=3.2',
+  './js/navigator.js?v=3.2',
+  './js/sync.js?v=3.2',
+  './js/utilities.js?v=3.2',
+  './chargers_db.js?v=3.2',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -25,36 +25,43 @@ const ASSETS_TO_CACHE = [
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
 
+// Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
+  console.log('[VoltWay SW] Installing fresh v3.2 service worker...');
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[VoltWay SW] Pre-caching offline app shell and assets');
       return cache.addAll(ASSETS_TO_CACHE).catch(err => {
-        console.warn('[VoltWay SW] Pre-cache partial fail (offline fallback still works):', err);
+        console.warn('[VoltWay SW] Pre-cache non-blocking warning:', err);
       });
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
+// Activate: delete ALL old caches immediately & claim clients
 self.addEventListener('activate', (event) => {
+  console.log('[VoltWay SW] Activating fresh v3.2 service worker...');
   event.waitUntil(
     caches.keys().then((keyList) => {
       return Promise.all(
         keyList.map((key) => {
           if (key !== CACHE_NAME) {
-            console.log('[VoltWay SW] Removing old cache version:', key);
+            console.log('[VoltWay SW] Purging old stale cache:', key);
             return caches.delete(key);
           }
         })
       );
-    }).then(() => self.clients.claim())
+    }).then(() => {
+      return self.clients.claim();
+    })
   );
 });
 
+// Fetch: NETWORK-FIRST strategy for local files (always loads fresh updates)
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
 
-  // For external dynamic APIs (OSRM routing, Bolt live sync, Nominatim search), try network first, fallback to offline error
+  // For external dynamic APIs (OSRM routing, Bolt live sync, Nominatim search): Network-only with JSON offline fallback
   if (url.includes('project-osrm.org') || url.includes('api.bolt.earth') || url.includes('nominatim.openstreetmap.org')) {
     event.respondWith(
       fetch(event.request).catch(() => {
@@ -66,25 +73,28 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first strategy for app shell and map tiles
+  // Network-First for HTML, JS, CSS, and app data
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-          return networkResponse;
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
         }
-        // Cache external assets like Leaflet or tiles
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
         return networkResponse;
-      }).catch((err) => {
-        console.warn('[VoltWay SW] Fetch error, returning fallback:', err);
-      });
-    })
+      })
+      .catch(() => {
+        // Only if network fails (offline), fallback to cache
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          if (event.request.mode === 'navigate') {
+            return caches.match('./index.html');
+          }
+        });
+      })
   );
 });

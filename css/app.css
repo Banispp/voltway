@@ -694,7 +694,7 @@ html, body {
 /* Tab Panes */
 .sheet-content {
   overflow-y: auto;
-  padding: 16px;
+  padding: 16px 16px 220px;
   display: flex;
   flex-direction: column;
   gap: 14px;

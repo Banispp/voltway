@@ -39,13 +39,43 @@ document.addEventListener('DOMContentLoaded', async () => {
   console.log('[VoltWay 2W] Ready. Total chargers active:', chargers.length);
 });
 
-// --- Service Worker Registration ---
+// --- Service Worker & Auto-Refresh Management ---
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        console.log('[VoltWay SW] New controller active - auto-reloading page for user!');
+        window.location.reload();
+      }
+    });
+
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then((reg) => console.log('[VoltWay SW] Registered successfully with scope:', reg.scope))
+      navigator.serviceWorker.register('./sw.js?v=3.2')
+        .then((reg) => {
+          console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
+          reg.update();
+        })
         .catch((err) => console.warn('[VoltWay SW] Registration failed:', err));
+    });
+  }
+
+  // Hook up manual fresh reload button
+  const btnRefresh = document.getElementById('btn-force-refresh');
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', async () => {
+      btnRefresh.textContent = '🔄 Updating...';
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      localStorage.clear();
+      window.location.reload(true);
     });
   }
 }
@@ -386,75 +416,100 @@ function setupRoutePlanner() {
 }
 
 /**
- * Universal Autocomplete Handler for Location Input Fields
+ * Universal Autocomplete Handler for Location Input Fields (Instant 0ms Local + OSM)
  */
 function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
   if (!inputEl || !dropdownEl) return;
   let timer = null;
 
-  inputEl.addEventListener('input', () => {
-    clearTimeout(timer);
-    const query = inputEl.value.trim();
-    if (query.length < 2) {
+  const renderDropdown = (query, places, chargers) => {
+    if (places.length === 0 && chargers.length === 0) {
       dropdownEl.style.display = 'none';
       dropdownEl.innerHTML = '';
       return;
     }
 
-    timer = setTimeout(async () => {
-      const allChargers = SyncEngine.getChargers();
-      const qLower = query.toLowerCase();
-      const matchedChargers = allChargers.filter(c =>
-        c.name.toLowerCase().includes(qLower) || (c.address && c.address.toLowerCase().includes(qLower))
-      ).slice(0, 4);
-
-      const osmPlaces = await Utilities.searchPlace(query);
-
-      if (matchedChargers.length === 0 && osmPlaces.length === 0) {
-        dropdownEl.style.display = 'none';
-        return;
-      }
-
-      let html = '';
-      if (osmPlaces.length > 0) {
-        html += '<div class="dropdown-header">📍 Recommended Places & Cities</div>';
-        osmPlaces.forEach(p => {
-          html += `
-            <div class="dropdown-item" data-type="place" data-lat="${p.lat}" data-lng="${p.lng}" data-name="${p.name.replace(/"/g, '&quot;')}">
-              <div class="item-title">${highlightMatch(p.name, query)}</div>
-              <div class="item-sub">${p.fullName}</div>
-            </div>
-          `;
-        });
-      }
-
-      if (matchedChargers.length > 0) {
-        html += '<div class="dropdown-header">⚡ EV Chargers</div>';
-        matchedChargers.forEach(c => {
-          html += `
-            <div class="dropdown-item" data-type="charger" data-id="${c.id}" data-lat="${c.lat}" data-lng="${c.lng}" data-name="${c.name.replace(/"/g, '&quot;')}">
-              <div class="item-title">${highlightMatch(c.name, query)}</div>
-              <div class="item-sub">${c.network === 'ATHER_GRID' ? 'Ather Grid Fast' : c.connector} • ${c.address || ''}</div>
-            </div>
-          `;
-        });
-      }
-
-      dropdownEl.innerHTML = html;
-      dropdownEl.style.display = 'block';
-
-      dropdownEl.querySelectorAll('.dropdown-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const lat = parseFloat(item.getAttribute('data-lat'));
-          const lng = parseFloat(item.getAttribute('data-lng'));
-          const name = item.getAttribute('data-name');
-          inputEl.value = name;
-          dropdownEl.style.display = 'none';
-          onSelect({ lat, lng, name });
-        });
+    let html = '';
+    if (places.length > 0) {
+      html += '<div class="dropdown-header">📍 Recommended Places & Cities</div>';
+      places.forEach(p => {
+        html += `
+          <div class="dropdown-item" data-type="place" data-lat="${p.lat}" data-lng="${p.lng}" data-name="${p.name.replace(/"/g, '&quot;')}">
+            <div class="item-title">${highlightMatch(p.name, query)}</div>
+            <div class="item-sub">${p.fullName}</div>
+          </div>
+        `;
       });
-    }, 280);
+    }
+
+    if (chargers.length > 0) {
+      html += '<div class="dropdown-header">⚡ EV Chargers</div>';
+      chargers.forEach(c => {
+        html += `
+          <div class="dropdown-item" data-type="charger" data-id="${c.id}" data-lat="${c.lat}" data-lng="${c.lng}" data-name="${c.name.replace(/"/g, '&quot;')}">
+            <div class="item-title">${highlightMatch(c.name, query)}</div>
+            <div class="item-sub">${c.network === 'ATHER_GRID' ? 'Ather Grid Fast' : c.connector} • ${c.address || ''}</div>
+          </div>
+        `;
+      });
+    }
+
+    dropdownEl.innerHTML = html;
+    dropdownEl.style.display = 'block';
+
+    dropdownEl.querySelectorAll('.dropdown-item').forEach(item => {
+      const handleSelect = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const lat = parseFloat(item.getAttribute('data-lat'));
+        const lng = parseFloat(item.getAttribute('data-lng'));
+        const name = item.getAttribute('data-name');
+        inputEl.value = name;
+        dropdownEl.style.display = 'none';
+        onSelect({ lat, lng, name });
+      };
+      item.addEventListener('click', handleSelect);
+      item.addEventListener('touchend', handleSelect);
+    });
+  };
+
+  const executeSearch = (query) => {
+    if (query.length < 1) {
+      dropdownEl.style.display = 'none';
+      dropdownEl.innerHTML = '';
+      return;
+    }
+
+    const qLower = query.toLowerCase();
+
+    // 1. Instant local results (0ms)
+    const localPlaces = Utilities.getLocalPlaces ? Utilities.getLocalPlaces(query) : [];
+    const allChargers = SyncEngine.getChargers();
+    const matchedChargers = allChargers.filter(c =>
+      c.name.toLowerCase().includes(qLower) || (c.address && c.address.toLowerCase().includes(qLower))
+    ).slice(0, 5);
+
+    renderDropdown(query, localPlaces, matchedChargers);
+
+    // 2. Query OSM geocoder in background if query is >= 2 letters
+    if (query.length >= 2) {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const fullPlaces = await Utilities.searchPlace(query);
+        renderDropdown(query, fullPlaces, matchedChargers);
+      }, 200);
+    }
+  };
+
+  inputEl.addEventListener('input', () => {
+    executeSearch(inputEl.value.trim());
+  });
+
+  inputEl.addEventListener('focus', () => {
+    const val = inputEl.value.trim();
+    if (val.length >= 1 && val !== 'Current Location (GPS)') {
+      executeSearch(val);
+    }
   });
 
   document.addEventListener('click', (e) => {
