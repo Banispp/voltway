@@ -496,6 +496,14 @@ function renderIntermediateStops() {
   });
 }
 
+window.removeWaypointSync = function (id) {
+  intermediateCustomStops = intermediateCustomStops.filter(s => s.id !== id);
+  renderIntermediateStops();
+  if (window.RouteEngine) {
+    window.RouteEngine.removeWaypoint(id);
+  }
+};
+
 function setupRoutePlanner() {
   const originInput = document.getElementById('input-origin');
   const destInput = document.getElementById('input-destination');
@@ -539,7 +547,7 @@ function setupRoutePlanner() {
     if (map) map.setView([point.lat, point.lng], 14, { animate: true });
   });
 
-  // Setup Route Planner Charger Filter Pills (Ather Fast, Bolt Fast, Bolt Slow)
+  // Setup Route Planner Charger Filter Pills (Ather Fast, VIDA Fast, Bolt Fast, Bolt Slow)
   const routeFilterBtns = document.querySelectorAll('.route-filter-btn');
   routeFilterBtns.forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -547,6 +555,13 @@ function setupRoutePlanner() {
       const isActive = btn.classList.toggle('active');
 
       const currentFilters = RouteEngine.getRouteFilters();
+      const currentlyActive = Object.values(currentFilters).filter(Boolean).length;
+      if (!isActive && currentlyActive <= 1) {
+        // Prevent disabling all filters
+        btn.classList.add('active');
+        return;
+      }
+
       currentFilters[filterKey] = isActive;
       RouteEngine.setRouteFilters(currentFilters);
 
@@ -576,6 +591,24 @@ function setupRoutePlanner() {
     });
   });
 
+  if (originInput) {
+    originInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (btnPlanRoute) btnPlanRoute.click();
+      }
+    });
+  }
+
+  if (destInput) {
+    destInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (btnPlanRoute) btnPlanRoute.click();
+      }
+    });
+  }
+
   if (btnUseGps) {
     btnUseGps.addEventListener('click', () => {
       MapEngine.locateUser(true);
@@ -598,14 +631,23 @@ function setupRoutePlanner() {
 
   if (btnPlanRoute) {
     btnPlanRoute.addEventListener('click', async () => {
-      if (!originPoint) {
-        const userC = MapEngine.getUserCoords();
-        originPoint = userC ? { ...userC, name: 'Current Location' } : { lat: 12.9716, lng: 77.5946, name: 'MG Road, Bangalore' };
-        if (originInput) originInput.value = originPoint.name;
+      const origQuery = originInput ? originInput.value.trim() : '';
+      if (!originPoint || (origQuery && origQuery !== 'Current Location (GPS)' && originPoint.name !== origQuery)) {
+        if (origQuery && origQuery !== 'Current Location (GPS)') {
+          const results = await Utilities.searchPlace(origQuery);
+          if (results && results.length > 0) {
+            originPoint = results[0];
+          }
+        }
+        if (!originPoint) {
+          const userC = MapEngine.getUserCoords();
+          originPoint = userC ? { ...userC, name: 'Current Location' } : { lat: 12.9716, lng: 77.5946, name: 'MG Road, Bangalore' };
+          if (originInput) originInput.value = originPoint.name;
+        }
       }
 
-      if (!destinationPoint) {
-        const destQuery = destInput ? destInput.value.trim() : '';
+      const destQuery = destInput ? destInput.value.trim() : '';
+      if (!destinationPoint || (destQuery && destinationPoint.name !== destQuery)) {
         if (destQuery) {
           const results = await Utilities.searchPlace(destQuery);
           if (results && results.length > 0) {
@@ -892,7 +934,7 @@ function onRouteStateChange(routeState) {
           <div class="trip-waypoint-item">
             <span class="trip-waypoint-badge">Stop ${letter}</span>
             <span class="trip-waypoint-title">${wp.name}</span>
-            <button class="btn-remove-waypoint" onclick="RouteEngine.removeWaypoint('${wp.id}')" title="Remove Stop">❌</button>
+            <button class="btn-remove-waypoint" onclick="removeWaypointSync('${wp.id}')" title="Remove Stop">❌</button>
           </div>
         `;
       }).join('');
@@ -1289,7 +1331,7 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
   if (!container) return;
 
   if (corridorChargers.length === 0) {
-    container.innerHTML = `<div class="empty-state">No 2W chargers found directly along this route corridor (within 2.5 km).</div>`;
+    container.innerHTML = `<div class="empty-state">No 2W chargers found along this route corridor.</div>`;
     return;
   }
 
@@ -1321,7 +1363,7 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
         <div class="corridor-card-actions">
           <button class="btn-sm btn-nav" onclick="MapEngine.focusCharger(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">🔍 Show on Map</button>
           ${isWp
-            ? `<button class="btn-sm btn-remove-stop" onclick="RouteEngine.removeWaypoint('${c.id}')">❌ Remove Stop</button>`
+            ? `<button class="btn-sm btn-remove-stop" onclick="removeWaypointSync('${c.id}')">❌ Remove Stop</button>`
             : `<button class="btn-sm btn-add-stop" onclick="RouteEngine.addWaypoint(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">➕ Add Stop</button>`
           }
         </div>

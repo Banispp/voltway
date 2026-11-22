@@ -152,7 +152,7 @@ const RouteEngine = (function () {
     }
 
     if (manualWaypoints !== null) {
-      intermediateWaypoints = manualWaypoints;
+      intermediateWaypoints = sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
     }
 
     const points = [origin, ...intermediateWaypoints, destination];
@@ -260,6 +260,14 @@ const RouteEngine = (function () {
       // Discover chargers along the selected route corridor
       findCorridorChargers(activeRoute.coordinates);
 
+      // Precompute exact kmFromOrigin for all intermediate waypoints along the route polyline
+      if (intermediateWaypoints.length > 0 && activeRoute.coordinates) {
+        intermediateWaypoints.forEach(wp => {
+          wp.kmFromOrigin = calculateKmAlongRoute(wp.lat, wp.lng, activeRoute.coordinates);
+        });
+        intermediateWaypoints.sort((a, b) => (a.kmFromOrigin || 0) - (b.kmFromOrigin || 0));
+      }
+
       notify();
       return activeRoute;
     } catch (err) {
@@ -297,12 +305,21 @@ const RouteEngine = (function () {
   /**
    * User selects one of the alternative routes (Google Maps Style)
    */
-  function selectRoute(index) {
+  async function selectRoute(index) {
     if (index < 0 || index >= allRoutes.length) return;
     selectedRouteIndex = index;
     activeRoute = allRoutes[index];
     findCorridorChargers(activeRoute.coordinates);
     notify();
+
+    // If selected route exceeds safe range and has no manual waypoints, auto-suggest charging stops along it
+    const batState = window.BatteryEngine ? window.BatteryEngine.getState() : null;
+    if (batState && intermediateWaypoints.length === 0) {
+      const evalMetrics = window.BatteryEngine.evaluateTrip(activeRoute.distanceKm);
+      if (evalMetrics && evalMetrics.status !== 'SAFE') {
+        await autoSuggestChargingStops(evalMetrics);
+      }
+    }
   }
 
   /**
@@ -507,12 +524,42 @@ const RouteEngine = (function () {
     if (suggestedWaypoints.length > 0) {
       // Merge custom stops and suggested chargers in order along the route
       const merged = [...existingCustomStops, ...suggestedWaypoints];
-      merged.sort((a, b) => (a.kmFromOrigin || 0) - (b.kmFromOrigin || 0));
-      intermediateWaypoints = merged;
+      intermediateWaypoints = sortWaypointsSequentially(merged, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
       await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
     }
 
     return suggestedWaypoints;
+  }
+
+  /**
+   * Sorts intermediate waypoints in forward geometric sequence from origin to destination.
+   * If route polyline is available, uses precise road distance; otherwise projects onto direct vector.
+   */
+  function sortWaypointsSequentially(waypoints, origin, destination, routeCoords = null) {
+    if (!waypoints || waypoints.length <= 1) return waypoints || [];
+
+    if (routeCoords && routeCoords.length >= 2) {
+      return [...waypoints].sort((a, b) => {
+        const kmA = (a.kmFromOrigin != null) ? a.kmFromOrigin : calculateKmAlongRoute(a.lat, a.lng, routeCoords);
+        const kmB = (b.kmFromOrigin != null) ? b.kmFromOrigin : calculateKmAlongRoute(b.lat, b.lng, routeCoords);
+        a.kmFromOrigin = kmA;
+        b.kmFromOrigin = kmB;
+        return kmA - kmB;
+      });
+    }
+
+    if (!origin || !destination) return waypoints;
+
+    // Direct vector projection sorting
+    const dLat = destination.lat - origin.lat;
+    const dLng = destination.lng - origin.lng;
+    const lenSq = dLat * dLat + dLng * dLng || 1;
+
+    return [...waypoints].sort((a, b) => {
+      const projA = ((a.lat - origin.lat) * dLat + (a.lng - origin.lng) * dLng) / lenSq;
+      const projB = ((b.lat - origin.lat) * dLat + (b.lng - origin.lng) * dLng) / lenSq;
+      return projA - projB;
+    });
   }
 
   /**
@@ -564,7 +611,7 @@ const RouteEngine = (function () {
         charger.kmFromOrigin = calculateKmAlongRoute(charger.lat, charger.lng, activeRoute.coordinates);
       }
       intermediateWaypoints.push(charger);
-      intermediateWaypoints.sort((a, b) => (a.kmFromOrigin || 0) - (b.kmFromOrigin || 0));
+      intermediateWaypoints = sortWaypointsSequentially(intermediateWaypoints, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
       calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
     } else {
       intermediateWaypoints.push(charger);
