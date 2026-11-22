@@ -87,26 +87,39 @@ let deferredInstallPrompt = null;
 function setupInstallPrompt() {
   const installBtn = document.getElementById('btn-install-app');
 
+  if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+      if (deferredInstallPrompt) {
+        try {
+          deferredInstallPrompt.prompt();
+          const { outcome } = await deferredInstallPrompt.userChoice;
+          console.log('[VoltWay PWA] User install choice:', outcome);
+          if (outcome === 'accepted') {
+            installBtn.style.display = 'none';
+          }
+          deferredInstallPrompt = null;
+        } catch (err) {
+          console.warn('[VoltWay PWA] Prompt error:', err);
+          alert('To install on your phone:\nTap Chrome menu (⋮) at the top right and choose "Add to Home screen".');
+        }
+      } else {
+        alert('To install on your phone:\nTap Chrome menu (⋮) at the top right and select "Add to Home screen" (or "Install app").');
+      }
+    });
+  }
+
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
     if (installBtn) {
       installBtn.style.display = 'inline-flex';
-      installBtn.addEventListener('click', async () => {
-        if (deferredInstallPrompt) {
-          deferredInstallPrompt.prompt();
-          const { outcome } = await deferredInstallPrompt.userChoice;
-          console.log('[VoltWay PWA] User install choice:', outcome);
-          deferredInstallPrompt = null;
-          installBtn.style.display = 'none';
-        }
-      });
     }
   });
 
   window.addEventListener('appinstalled', () => {
-    console.log('[VoltWay PWA] App installed on device!');
+    console.log('[VoltWay PWA] App successfully installed on device!');
     if (installBtn) installBtn.style.display = 'none';
+    deferredInstallPrompt = null;
   });
 }
 
