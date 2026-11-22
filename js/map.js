@@ -296,9 +296,38 @@ const MapEngine = (function () {
           <button class="btn-popup-nav" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary);" onclick="MapEngine.handleNavigateToCharger('${charger.id}')">
             🧭 Open in Google Maps
           </button>
+          <button class="btn-sm" style="background: rgba(0, 176, 255, 0.1); border: 1px solid var(--color-bolt-slow); color: var(--color-bolt-slow); padding: 7px;" onclick="MapEngine.handleOpenOfficialApp('${charger.network}', '${charger.id}')">
+            📱 Check Live Socket Status in ${isAther ? 'Ather' : 'Bolt'} App
+          </button>
         </div>
       </div>
     `;
+  }
+
+  function handleOpenOfficialApp(network, chargerId) {
+    if (network === 'ATHER_GRID') {
+      // Ather App deep link / intent
+      const isAndroid = /android/i.test(navigator.userAgent);
+      if (isAndroid) {
+        window.location.href = 'intent://atherenergy.com/#Intent;package=com.atherenergy.app;scheme=https;end';
+        setTimeout(() => {
+          window.open('https://play.google.com/store/apps/details?id=com.atherenergy.app', '_blank');
+        }, 1200);
+      } else {
+        window.open('https://play.google.com/store/apps/details?id=com.atherenergy.app', '_blank');
+      }
+    } else {
+      // Bolt.Earth App deep link
+      const isAndroid = /android/i.test(navigator.userAgent);
+      if (isAndroid) {
+        window.location.href = `intent://bolt.earth/charger/${chargerId}#Intent;package=com.revos.bolt.android;scheme=https;end`;
+        setTimeout(() => {
+          window.open('https://play.google.com/store/apps/details?id=com.revos.bolt.android', '_blank');
+        }, 1200);
+      } else {
+        window.open('https://play.google.com/store/apps/details?id=com.revos.bolt.android', '_blank');
+      }
+    }
   }
 
   function handleNavigateToCharger(chargerId) {
@@ -563,7 +592,8 @@ const MapEngine = (function () {
     handleAddWaypoint,
     handleRemoveWaypoint,
     handleSetAsOrigin,
-    handleSetAsDest
+    handleSetAsDest,
+    handleOpenOfficialApp
   };
 })();
 
