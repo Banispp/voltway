@@ -52,7 +52,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=3.6')
+      navigator.serviceWorker.register('./sw.js?v=3.8')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -913,11 +913,6 @@ function renderTripBatteryTimeline(route) {
             <div class="step-sub">
               ${step.isSafe ? `✅ Safe Arrival! ${step.arrivalSoC}% battery reserve remaining at destination.` : `⚠️ Range Alert: Battery reaches ${step.arrivalSoC}%. Please add an intermediate charging stop!`}
             </div>
-          </div>
-        </div>
-      `;
-    }
-  });
           </div>
         </div>
       `;
