@@ -406,10 +406,20 @@ const RouteEngine = (function () {
   async function autoSuggestChargingStops(batteryEvaluation) {
     if (!activeRoute || !batteryEvaluation) return [];
 
-    const safeRange = batteryEvaluation.safeMaxKm || 60;
+    const batState = window.BatteryEngine ? window.BatteryEngine.getState() : {};
+    const eff = batState.efficiency || 0.85;
+    const minReserve = batState.safetyReservePct || 15;
+    const startBat = batState.currentBatteryPct || 85;
+    const targetCharge = batState.targetChargePct || 80;
+
+    // First leg safe range based on current starting battery SoC
+    const firstLegSafeRange = Math.max(15, Math.round((startBat - minReserve) * eff * 10) / 10);
+    // Intermediate legs safe range based on charging to target limit (e.g. 80%)
+    const intermediateSafeRange = Math.max(20, Math.round((Math.max(targetCharge, 80) - minReserve) * eff * 10) / 10);
+
     const totalDist = activeRoute.distanceKm;
 
-    if (totalDist <= safeRange || corridorChargers.length === 0) {
+    if (totalDist <= firstLegSafeRange || corridorChargers.length === 0) {
       return [];
     }
 
@@ -421,7 +431,8 @@ const RouteEngine = (function () {
     let attempts = 0;
     const maxAttempts = 35; // Supports up to 1,000+ km cross-state journeys
 
-    while (currentCoveredKm + safeRange < totalDist && attempts < maxAttempts) {
+    while (currentCoveredKm + (attempts === 0 ? firstLegSafeRange : intermediateSafeRange) < totalDist && attempts < maxAttempts) {
+      const safeRange = (attempts === 0) ? firstLegSafeRange : intermediateSafeRange;
       attempts++;
 
       // Ideal target zone: between 45% and 95% of safe range ahead of current covered km
@@ -505,15 +516,58 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Add a charger to intermediate waypoints (Trip Planner)
+   * Calculates the exact road kilometer distance along the active route polyline
+   */
+  function calculateKmAlongRoute(lat, lng, routeCoords) {
+    if (!routeCoords || routeCoords.length < 2) return 0;
+    const cumDists = new Float64Array(routeCoords.length);
+    cumDists[0] = 0;
+    for (let i = 1; i < routeCoords.length; i++) {
+      cumDists[i] = cumDists[i - 1] + haversineDistance(
+        routeCoords[i - 1][0], routeCoords[i - 1][1],
+        routeCoords[i][0], routeCoords[i][1]
+      );
+    }
+    const totalPolyDist = cumDists[cumDists.length - 1] || 1;
+    const routeDist = (activeRoute && activeRoute.distanceKm) ? activeRoute.distanceKm : totalPolyDist;
+    const distScale = routeDist / totalPolyDist;
+
+    const p = [lat, lng];
+    let minDistance = Infinity;
+    let closestSegmentIndex = 0;
+    let closestT = 0;
+
+    for (let s = 0; s < routeCoords.length - 1; s++) {
+      const res = distToSegment(p, routeCoords[s], routeCoords[s + 1]);
+      if (res.distance < minDistance) {
+        minDistance = res.distance;
+        closestSegmentIndex = s;
+        closestT = res.t;
+      }
+      if (minDistance <= 0.05) break;
+    }
+
+    const segDist = cumDists[closestSegmentIndex] + closestT * (cumDists[closestSegmentIndex + 1] - cumDists[closestSegmentIndex]);
+    return Math.round(segDist * distScale * 10) / 10;
+  }
+
+  /**
+   * Add a charger or custom point to intermediate waypoints (Trip Planner)
+   * Automatically sorts waypoints in geometric route order so no doubling back or zig-zag occurs
    */
   function addWaypoint(charger) {
     if (!charger) return;
     if (intermediateWaypoints.some(w => w.id === charger.id)) return;
-    intermediateWaypoints.push(charger);
-    if (activeRoute) {
+
+    if (activeRoute && activeRoute.coordinates) {
+      if (charger.kmFromOrigin == null) {
+        charger.kmFromOrigin = calculateKmAlongRoute(charger.lat, charger.lng, activeRoute.coordinates);
+      }
+      intermediateWaypoints.push(charger);
+      intermediateWaypoints.sort((a, b) => (a.kmFromOrigin || 0) - (b.kmFromOrigin || 0));
       calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
     } else {
+      intermediateWaypoints.push(charger);
       notify();
     }
   }

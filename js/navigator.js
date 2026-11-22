@@ -27,8 +27,18 @@ const NavigationEngine = (function () {
     let url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originParam)}&destination=${encodeURIComponent(destParam)}&travelmode=driving`;
 
     if (waypoints && waypoints.length > 0) {
+      // Google Maps Universal URL API supports up to 9 intermediate waypoints
+      let exportWaypoints = waypoints;
+      if (exportWaypoints.length > 9) {
+        const step = (exportWaypoints.length - 1) / 8;
+        const sampled = [];
+        for (let i = 0; i < 9; i++) {
+          sampled.push(exportWaypoints[Math.min(exportWaypoints.length - 1, Math.round(i * step))]);
+        }
+        exportWaypoints = sampled;
+      }
       // Pipe-separated list of coordinates: lat,lng|lat,lng
-      const wpParam = waypoints
+      const wpParam = exportWaypoints
         .map(wp => `${wp.lat},${wp.lng}`)
         .join('|');
       url += `&waypoints=${encodeURIComponent(wpParam)}`;

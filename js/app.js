@@ -832,6 +832,15 @@ function onRouteStateChange(routeState) {
     if (waypointsSection) waypointsSection.style.display = 'none';
     if (btnStartFullGmaps) btnStartFullGmaps.style.display = 'none';
     if (btnNavNextCharger) btnNavNextCharger.style.display = 'none';
+    const timelineSection = document.getElementById('trip-battery-timeline-section');
+    if (timelineSection) timelineSection.style.display = 'none';
+    const corridorContainer = document.getElementById('corridor-chargers-list');
+    if (corridorContainer) corridorContainer.innerHTML = '';
+    const corridorCount = document.getElementById('corridor-count');
+    if (corridorCount) corridorCount.textContent = '0';
+    if (window.MapEngine && window.MapEngine.renderRoute) {
+      window.MapEngine.renderRoute(null);
+    }
     return;
   }
 
