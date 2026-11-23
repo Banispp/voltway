@@ -20,10 +20,10 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <!-- Leaflet 360 Full Map Rotation & Touch Gestures Plugin -->
-  <script src="js/leaflet-rotate.js?v=5.14"></script>
+  <script src="js/leaflet-rotate.js?v=5.15"></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=5.14">
+  <link rel="stylesheet" href="css/app.css?v=5.15">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -31,15 +31,15 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v5-14-fresh') {
+            if (name !== 'voltway-2w-v5-15-fresh') {
               caches.delete(name);
             }
           });
         });
       }
       try {
-        if (localStorage.getItem('voltway_installed_ver') !== 'voltway-2w-v5-14-fresh') {
-          localStorage.setItem('voltway_installed_ver', 'voltway-2w-v5-14-fresh');
+        if (localStorage.getItem('voltway_installed_ver') !== 'voltway-2w-v5-15-fresh') {
+          localStorage.setItem('voltway_installed_ver', 'voltway-2w-v5-15-fresh');
           localStorage.setItem('voltway_state_filter', 'all');
         }
       } catch (e) {}
@@ -66,7 +66,7 @@
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action btn-version-pill" title="Clear Cache & Force Refresh" style="font-size: 0.72rem; padding: 5px 8px; background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; border-radius: 9999px; cursor: pointer;">
-          v5.13
+          v5.15
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -74,16 +74,8 @@
       </div>
     </header>
 
-    <!-- Sticky Top Search & Filter Chips Bar -->
+    <!-- Sticky Top Filter Chips Bar -->
     <div class="map-top-bar">
-      <!-- Location & Charger Search Bar -->
-      <div class="search-box-container">
-        <input type="text" id="search-places-input" class="search-input" placeholder="Search location, town, or paste link..." autocomplete="off">
-        <button type="button" id="btn-paste-search" class="btn-search-paste" title="Paste location from clipboard">📋</button>
-        <span class="search-icon">🔍</span>
-        <div id="search-dropdown" class="search-dropdown"></div>
-      </div>
-
       <!-- State Regional Filter Bar (Ultra-Fast 60FPS Optimization) -->
       <div class="state-chips-bar" id="state-chips-bar">
         <span class="state-filter-pill-label">📍 State:</span>
@@ -117,11 +109,18 @@
         </button>
       </div>
 
-      <!-- Floating Route Corridor Buffer Pill on Map (Visible when Route is Active) -->
+      <!-- Floating Route Corridor Buffer Dropdown Pill on Map (Visible when Route is Active) -->
       <div id="map-route-corridor-pill" class="map-route-corridor-pill" style="display: none;">
         <span class="pill-corridor-icon">🛣️</span>
-        <span class="pill-corridor-text">Route Corridor: <strong id="map-corridor-val">5 km</strong></span>
-        <button type="button" id="btn-cycle-map-corridor" class="btn-pill-cycle" title="Tap to change route corridor buffer distance">Change ▾</button>
+        <span class="pill-corridor-text">Corridor:</span>
+        <select id="select-map-corridor" class="select-corridor-dropdown" title="Select route corridor buffer distance">
+          <option value="2">Within 2 km</option>
+          <option value="5" selected>Within 5 km</option>
+          <option value="10">Within 10 km</option>
+          <option value="15">Within 15 km</option>
+          <option value="25">Within 25 km</option>
+          <option value="all">All in View</option>
+        </select>
       </div>
     </div>
 
@@ -224,13 +223,23 @@
 
         <!-- ==================== TAB 1: ROUTE PLANNER ==================== -->
         <div id="pane-route" class="tab-pane active">
-          <!-- Origin & Destination Inputs with Autocomplete -->
-          <div class="input-group">
-            <span class="input-label">Starting Point</span>
+          <!-- Search Area: Find Town or EV Charger (No floating map box) -->
+          <div class="input-group search-area-group">
+            <span class="input-label">🔍 Search Area / Place / Charger</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="input-origin" class="input-text" placeholder="Starting point, GPS, or paste link..." value="Current Location (GPS)" autocomplete="off">
-                <button type="button" id="btn-paste-origin" class="btn-addon btn-paste-addon" title="Paste location link">📋</button>
+                <input type="text" id="search-places-input" class="input-text" placeholder="Search city, town, charger, or paste link..." autocomplete="off">
+              </div>
+              <div id="search-dropdown" class="autocomplete-dropdown"></div>
+            </div>
+          </div>
+
+          <!-- Origin & Destination Inputs with Autocomplete -->
+          <div class="input-group">
+            <span class="input-label">Starting Point (A)</span>
+            <div class="autocomplete-wrapper">
+              <div class="input-row">
+                <input type="text" id="input-origin" class="input-text" placeholder="Starting town, GPS, or paste Google Maps link..." value="Current Location (GPS)" autocomplete="off">
                 <button id="btn-use-gps-origin" class="btn-addon" title="Use Current GPS Location">📍 GPS</button>
               </div>
               <div id="origin-suggestions" class="autocomplete-dropdown"></div>
@@ -240,22 +249,18 @@
           <!-- Dynamic Intermediate Custom Stops Container -->
           <div id="intermediate-stops-list" class="intermediate-stops-list"></div>
 
-          <!-- Add Intermediate Stop & Google Maps Route Import Buttons -->
+          <!-- Add Intermediate Stop Button -->
           <div class="route-stops-action-bar">
             <button type="button" id="btn-add-intermediate-stop" class="btn-action-pill btn-pill-add-stop" title="Add intermediate stop / city between start and destination">
               ➕ Add Stop
             </button>
-            <button type="button" id="btn-import-gmaps-trigger" class="btn-action-pill btn-pill-import-gmaps" title="Import route or stops from Google Maps">
-              📥 Import Route
-            </button>
           </div>
 
           <div class="input-group">
-            <span class="input-label">Final Destination</span>
+            <span class="input-label">Final Destination (D)</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="input-destination" class="input-text" placeholder="Destination town or paste link..." autocomplete="off">
-                <button type="button" id="btn-paste-dest" class="btn-addon btn-paste-addon" title="Paste location link">📋</button>
+                <input type="text" id="input-destination" class="input-text" placeholder="Destination town or paste Google Maps link..." autocomplete="off">
               </div>
               <div id="dest-suggestions" class="autocomplete-dropdown"></div>
             </div>
@@ -399,14 +404,16 @@
 
               <!-- Route Corridor Distance Buffer Selector -->
               <div class="corridor-buffer-control" id="corridor-buffer-control">
-                <div class="corridor-buffer-sub">🛣️ Maximum Detour from Route:</div>
-                <div class="corridor-dist-chips" id="corridor-dist-chips">
-                  <button type="button" class="btn-corridor-dist" data-dist="2">2 km</button>
-                  <button type="button" class="btn-corridor-dist active" data-dist="5">5 km</button>
-                  <button type="button" class="btn-corridor-dist" data-dist="10">10 km</button>
-                  <button type="button" class="btn-corridor-dist" data-dist="15">15 km</button>
-                  <button type="button" class="btn-corridor-dist" data-dist="25">25 km</button>
-                  <button type="button" class="btn-corridor-dist" data-dist="all">All in View</button>
+                <div class="corridor-buffer-header" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                  <span class="corridor-buffer-sub" style="margin: 0; font-size: 0.8rem; font-weight: 700; color: #94a3b8;">🛣️ Route Search Buffer:</span>
+                  <select id="select-drawer-corridor" class="select-corridor-dropdown" title="Select corridor buffer distance">
+                    <option value="2">Within 2 km (Strict)</option>
+                    <option value="5" selected>Within 5 km (Recommended)</option>
+                    <option value="10">Within 10 km</option>
+                    <option value="15">Within 15 km</option>
+                    <option value="25">Within 25 km</option>
+                    <option value="all">All Chargers in View</option>
+                  </select>
                 </div>
               </div>
 
@@ -636,56 +643,18 @@
       </div>
     </div>
 
-    <!-- Google Maps Route Importer Modal -->
-    <div id="modal-import-gmaps" class="modal-overlay">
-      <div class="modal-card">
-        <div class="modal-header">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 1.3rem;">📥</span>
-            <div>
-              <div class="modal-title" style="font-size: 1.05rem;">Import Google Maps Route</div>
-              <div style="font-size: 0.72rem; color: var(--text-secondary);">Import multi-stop routes directly from Google Maps</div>
-            </div>
-          </div>
-          <button class="modal-close" id="btn-close-import-gmaps">&times;</button>
-        </div>
-
-        <div class="modal-body" style="display: flex; flex-direction: column; gap: 12px;">
-          <div class="import-help-box">
-            💡 <strong>How to import:</strong> Share route from Google Maps, copy the link, and paste below to automatically import all origin, stops, and destination waypoints.
-          </div>
-
-          <div class="input-group">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <span class="input-label" style="margin: 0;">Google Maps URL or Shared Text:</span>
-              <button type="button" id="btn-paste-clipboard" style="background: none; border: none; color: #00E676; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                📋 Paste from Clipboard
-              </button>
-            </div>
-            <textarea id="input-gmaps-paste" class="input-text" rows="3" placeholder="https://maps.app.goo.gl/... or https://www.google.com/maps/dir/..." style="resize: vertical; font-size: 0.78rem; font-family: monospace;"></textarea>
-          </div>
-
-          <div id="import-status-msg" style="display: none; padding: 9px 12px; border-radius: 6px; font-size: 0.78rem; line-height: 1.4;"></div>
-
-          <button type="button" id="btn-execute-import-gmaps" class="btn-primary-action">
-            ⚡ Import Route & Plan EV Charging
-          </button>
-        </div>
-      </div>
-    </div>
-
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.14"></script>
+  <script src="chargers_db.js?v=5.15"></script>
 
-  <!-- Application Engine Scripts with Version 5.14 Cache Buster -->
-  <script src="js/battery.js?v=5.14"></script>
-  <script src="js/sync.js?v=5.14"></script>
-  <script src="js/navigator.js?v=5.14"></script>
-  <script src="js/router.js?v=5.14"></script>
-  <script src="js/utilities.js?v=5.14"></script>
-  <script src="js/map.js?v=5.14"></script>
-  <script src="js/app.js?v=5.14"></script>
+  <!-- Application Engine Scripts with Version 5.15 Cache Buster -->
+  <script src="js/battery.js?v=5.15"></script>
+  <script src="js/sync.js?v=5.15"></script>
+  <script src="js/navigator.js?v=5.15"></script>
+  <script src="js/router.js?v=5.15"></script>
+  <script src="js/utilities.js?v=5.15"></script>
+  <script src="js/map.js?v=5.15"></script>
+  <script src="js/app.js?v=5.15"></script>
 </body>
 </html>

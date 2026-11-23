@@ -52,9 +52,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.14-release
-          name: "VoltWay 2W Android APK v5.14 (360° Map Rotation, Mobile Nav Action Redesign, Zero Malayalam UI Text)"
-          body: "VoltWay 2W v5.14: Google Maps-style 360-degree full map rotation with two-finger touch gestures, rotating compass needle, and heading-up turn guidance in Drive Mode; redesigned mobile-first stacked secondary navigation buttons (Open in Google Maps & Share Route) with touch-friendly layout and direct Android intent execution; zero Malayalam text across all UI components; 11,443 verified pan-India 2W chargers."
+          tag_name: v5.15-release
+          name: "VoltWay 2W Android APK v5.15 (Turn-by-Turn Voice Navigation, Corridor Dropdown, Clean UI)"
+          body: "VoltWay 2W v5.15: Spoken turn-by-turn audio voice guidance in Drive Mode (e.g., In 100 meters, turn right; Destination on right); sleek non-overlapping mobile UI redesign with floating map search box removed; single clean dropdown list for Route Corridor distance buffer; removed confusing icon buttons; universal Google Maps link and directions parsing across all 4 inputs (Start Point, Destination, Intermediate Stops, and Search Area); 11,443 verified pan-India 2W chargers."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

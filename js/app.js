@@ -618,8 +618,7 @@ function renderIntermediateStops() {
       </div>
       <div class="autocomplete-wrapper">
         <div class="input-row">
-          <input type="text" class="input-text input-stop-text" placeholder="Intermediate stop, town, or paste link..." value="${stop.name || ''}" autocomplete="off">
-          <button type="button" class="btn-addon btn-paste-addon btn-paste-stop" title="Paste location link">📋</button>
+          <input type="text" class="input-text input-stop-text" placeholder="Intermediate stop, town, or paste Google Maps link..." value="${stop.name || ''}" autocomplete="off">
         </div>
         <div class="autocomplete-dropdown"></div>
       </div>
@@ -627,28 +626,8 @@ function renderIntermediateStops() {
 
     const inputEl = row.querySelector('.input-stop-text');
     const dropdownEl = row.querySelector('.autocomplete-dropdown');
-    const btnPasteStop = row.querySelector('.btn-paste-stop');
 
-    if (btnPasteStop) {
-      btnPasteStop.addEventListener('click', async () => {
-        await handleClipboardPaste(inputEl, async (val) => {
-          const resolved = await Utilities.resolveLocationInput(val);
-          if (resolved) {
-            stop.lat = resolved.lat;
-            stop.lng = resolved.lng;
-            stop.name = resolved.name;
-            inputEl.value = resolved.name;
-            const map = MapEngine.getMap();
-            if (map) map.setView([resolved.lat, resolved.lng], 13, { animate: true });
-            if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-              window.SyncEngine.showAutoUpdateToast(`📍 Stop ${charCode}: ${resolved.name}`);
-            }
-          }
-        });
-      });
-    }
-
-    // Attach autocomplete
+    // Attach autocomplete and link resolver
     attachLocationAutocomplete(inputEl, dropdownEl, (point) => {
       stop.lat = point.lat;
       stop.lng = point.lng;
@@ -735,55 +714,19 @@ function setupRoutePlanner() {
     });
   }
 
-  // Attach rich autocomplete to Starting Point (A)
+  // Attach rich autocomplete and link resolver to Starting Point (A)
   attachLocationAutocomplete(originInput, document.getElementById('origin-suggestions'), (point) => {
     originPoint = point;
     const map = MapEngine.getMap();
     if (map) map.setView([point.lat, point.lng], 14, { animate: true });
   });
 
-  const btnPasteOrigin = document.getElementById('btn-paste-origin');
-  if (btnPasteOrigin && originInput) {
-    btnPasteOrigin.addEventListener('click', async () => {
-      await handleClipboardPaste(originInput, async (val) => {
-        const resolved = await Utilities.resolveLocationInput(val);
-        if (resolved) {
-          originInput.value = resolved.name;
-          originPoint = resolved;
-          const map = MapEngine.getMap();
-          if (map) map.setView([resolved.lat, resolved.lng], 14, { animate: true });
-          if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-            window.SyncEngine.showAutoUpdateToast(`🚩 Starting Point: ${resolved.name}`);
-          }
-        }
-      });
-    });
-  }
-
-  // Attach rich autocomplete to Final Destination (D)
+  // Attach rich autocomplete and link resolver to Final Destination (D)
   attachLocationAutocomplete(destInput, document.getElementById('dest-suggestions'), (point) => {
     destinationPoint = point;
     const map = MapEngine.getMap();
     if (map) map.setView([point.lat, point.lng], 14, { animate: true });
   });
-
-  const btnPasteDest = document.getElementById('btn-paste-dest');
-  if (btnPasteDest && destInput) {
-    btnPasteDest.addEventListener('click', async () => {
-      await handleClipboardPaste(destInput, async (val) => {
-        const resolved = await Utilities.resolveLocationInput(val);
-        if (resolved) {
-          destInput.value = resolved.name;
-          destinationPoint = resolved;
-          const map = MapEngine.getMap();
-          if (map) map.setView([resolved.lat, resolved.lng], 14, { animate: true });
-          if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-            window.SyncEngine.showAutoUpdateToast(`🏁 Destination: ${resolved.name}`);
-          }
-        }
-      });
-    });
-  }
 
   // Setup Route Planner Charger Filter Pills (Ather Fast, VIDA Fast, Bolt Fast, Bolt Slow)
   const routeFilterBtns = document.querySelectorAll('.route-filter-btn');
@@ -975,7 +918,23 @@ const DriveEngine = (function () {
   let steps = [];
   let currentStepIdx = 0;
   let soundEnabled = true;
+  let voiceEnabled = true;
+  let announced500 = false;
+  let announced100 = false;
+  let announcedTurn = false;
+  let lastStepIdx = -1;
   let lastChimeStepIdx = -1;
+  let voices = [];
+
+  function initVoices() {
+    if ('speechSynthesis' in window) {
+      voices = window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        voices = window.speechSynthesis.getVoices();
+      };
+    }
+  }
+  initVoices();
 
   function playChime() {
     if (!soundEnabled) return;
@@ -995,6 +954,27 @@ const DriveEngine = (function () {
       osc.start();
       osc.stop(ctx.currentTime + 0.35);
     } catch (e) {}
+  }
+
+  function speakVoice(text, priority = false) {
+    if (!soundEnabled || !voiceEnabled || !('speechSynthesis' in window)) return;
+    try {
+      if (priority) {
+        window.speechSynthesis.cancel();
+      }
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.0;
+      utter.pitch = 1.0;
+      utter.lang = 'en-US';
+      if (!voices || voices.length === 0) {
+        voices = window.speechSynthesis.getVoices();
+      }
+      const eng = voices.find(v => v.lang && v.lang.startsWith('en'));
+      if (eng) utter.voice = eng;
+      window.speechSynthesis.speak(utter);
+    } catch (e) {
+      console.warn('[VoltWay Voice] TTS error:', e);
+    }
   }
 
   function getTurnSymbol(type, modifier) {
@@ -1030,7 +1010,11 @@ const DriveEngine = (function () {
 
     active = true;
     currentStepIdx = 0;
+    lastStepIdx = -1;
     lastChimeStepIdx = -1;
+    announced500 = false;
+    announced100 = false;
+    announcedTurn = false;
 
     // Flatten steps across all route legs
     steps = [];
@@ -1084,8 +1068,10 @@ const DriveEngine = (function () {
       }, 100);
     }
 
-    // Play startup chime
+    // Play startup chime and speak welcome guidance
     playChime();
+    const destName = (activeRoute.destination && activeRoute.destination.name) || 'destination';
+    speakVoice(`Starting navigation to ${destName}. Drive safely!`, true);
 
     // Render initial guidance display
     updateHudDisplay(null);
@@ -1094,6 +1080,10 @@ const DriveEngine = (function () {
   function exitDriveMode() {
     active = false;
     document.body.classList.remove('nav-active');
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
 
     const hud = document.getElementById('nav-driving-hud');
     const bottomBar = document.getElementById('nav-bottom-bar');
@@ -1122,8 +1112,14 @@ const DriveEngine = (function () {
     soundEnabled = !soundEnabled;
     const btn = document.getElementById('btn-hud-sound-toggle');
     if (btn) {
-      btn.textContent = soundEnabled ? '🔔' : '🔕';
-      btn.title = soundEnabled ? 'Audio alerts active' : 'Audio alerts muted';
+      btn.innerHTML = soundEnabled ? '🔊' : '🔇';
+      btn.title = soundEnabled ? 'Voice & Audio guidance active' : 'Voice guidance muted';
+    }
+    if (!soundEnabled && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+      window.SyncEngine.showAutoUpdateToast(soundEnabled ? '🔊 Voice navigation active' : '🔇 Voice navigation muted');
     }
   }
 
@@ -1134,10 +1130,56 @@ const DriveEngine = (function () {
 
     const curStep = steps[currentStepIdx] || steps[steps.length - 1];
 
+    if (currentStepIdx !== lastStepIdx) {
+      lastStepIdx = currentStepIdx;
+      announced500 = false;
+      announced100 = false;
+      announcedTurn = false;
+    }
+
+    const t = (curStep.type || 'continue').toLowerCase();
+    const mod = (curStep.modifier || '').replace('_', ' ').toLowerCase();
+    const road = curStep.name && !curStep.name.toLowerCase().includes('unnamed') ? curStep.name : '';
+
+    let turnPhrase = '';
+    if (mod.includes('uturn')) turnPhrase = 'make a U-turn';
+    else if (mod.includes('slight left')) turnPhrase = 'keep slight left';
+    else if (mod.includes('slight right')) turnPhrase = 'keep slight right';
+    else if (mod.includes('sharp left')) turnPhrase = 'take sharp left';
+    else if (mod.includes('sharp right')) turnPhrase = 'take sharp right';
+    else if (mod.includes('left')) turnPhrase = 'turn left';
+    else if (mod.includes('right')) turnPhrase = 'turn right';
+    else turnPhrase = 'continue straight';
+
     let distText = 'In 200 m';
     if (userCoords && curStep && curStep.lat != null && curStep.lng != null && window.Utilities) {
       const dKm = window.Utilities.haversine(userCoords.lat, userCoords.lng, curStep.lat, curStep.lng);
       const dMeters = Math.round(dKm * 1000);
+
+      // Voice announcements based on distance to maneuver
+      if (dMeters <= 500 && dMeters > 200 && !announced500) {
+        announced500 = true;
+        if (t === 'arrive' || t.includes('dest')) {
+          speakVoice('In 500 meters, your destination is on the right');
+        } else {
+          speakVoice(road ? `In 500 meters, ${turnPhrase} onto ${road}` : `In 500 meters, ${turnPhrase}`);
+        }
+      } else if (dMeters <= 150 && dMeters > 45 && !announced100) {
+        announced100 = true;
+        if (t === 'arrive' || t.includes('dest')) {
+          speakVoice('In 100 meters, destination is on the right', true);
+        } else {
+          speakVoice(road ? `In 100 meters, ${turnPhrase} onto ${road}` : `In 100 meters, ${turnPhrase}`, true);
+        }
+      } else if (dMeters <= 40 && !announcedTurn) {
+        announcedTurn = true;
+        playChime();
+        if (t === 'arrive' || t.includes('dest')) {
+          speakVoice('You have arrived at your destination, on the right', true);
+        } else {
+          speakVoice(road ? `${turnPhrase} onto ${road}` : `${turnPhrase} now`, true);
+        }
+      }
 
       // Advance to next maneuver if within 35 meters
       if (dMeters <= 35 && currentStepIdx < steps.length - 1) {
@@ -1243,6 +1285,23 @@ function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
       dropdownEl.style.display = 'block';
 
       try {
+        // Check if user pasted a multi-stop directions route
+        let targetUrl = text;
+        if (text.includes('goo.gl')) {
+          const urlMatch = text.match(/https?:\/\/[^\s]+/i);
+          if (urlMatch) {
+            const exp = await Utilities.unshortenUrl(urlMatch[0]);
+            if (exp) targetUrl = exp;
+          }
+        }
+        const directions = Utilities.parseGoogleMapsDirectionsUrl(targetUrl);
+        if (directions && directions.origin && directions.destination && window.importDirectionsRoute) {
+          dropdownEl.style.display = 'none';
+          dropdownEl.innerHTML = '';
+          await window.importDirectionsRoute(directions);
+          return true;
+        }
+
         const resolved = await Utilities.resolveLocationInput(text);
         if (resolved) {
           inputEl.value = resolved.name;
@@ -1422,18 +1481,17 @@ function onRouteStateChange(routeState) {
     return;
   }
 
-  // Update corridor buffer badges and pill
+  // Update corridor buffer badges and dropdowns
   const curBuffer = (routeState && routeState.corridorBufferKm) || (window.RouteEngine ? window.RouteEngine.getCorridorBufferKm() : 5);
+  const bufferValStr = String(curBuffer);
   const bufferText = curBuffer === 'all' ? 'All in View' : `Within ${curBuffer} km`;
   if (corridorControl) corridorControl.style.display = 'block';
-  if (mapCorridorPill) mapCorridorPill.style.display = 'flex';
-  if (mapCorridorVal) mapCorridorVal.textContent = curBuffer === 'all' ? 'All' : `${curBuffer} km`;
+  if (mapCorridorPill) mapCorridorPill.style.display = 'inline-flex';
   if (corridorBufferBadge) corridorBufferBadge.textContent = bufferText;
-
-  document.querySelectorAll('.btn-corridor-dist').forEach(btn => {
-    const d = btn.getAttribute('data-dist');
-    btn.classList.toggle('active', String(d) === String(curBuffer));
-  });
+  const mapSelect = document.getElementById('select-map-corridor');
+  const drawerSelect = document.getElementById('select-drawer-corridor');
+  if (mapSelect) mapSelect.value = bufferValStr;
+  if (drawerSelect) drawerSelect.value = bufferValStr;
 
   // 1. Render all alternative routes on map with active selected highlight
   const shouldFit = window.__isNewRouteCalculation === true;
@@ -2101,6 +2159,24 @@ function setupSearchAutocomplete() {
     if (query.includes('http') || query.includes('goo.gl') || /(-?\d{1,2}\.\d+)[, ]+(-?\d{1,3}\.\d+)/.test(query)) {
       resultsContainer.innerHTML = '<div class="dropdown-header">🔍 Resolving Location Link / Coordinates...</div>';
       resultsContainer.style.display = 'block';
+
+      // Check if directions URL
+      let targetUrl = query;
+      if (query.includes('goo.gl')) {
+        const urlM = query.match(/https?:\/\/[^\s]+/i);
+        if (urlM) {
+          const exp = await Utilities.unshortenUrl(urlM[0]);
+          if (exp) targetUrl = exp;
+        }
+      }
+      const directions = Utilities.parseGoogleMapsDirectionsUrl(targetUrl);
+      if (directions && directions.origin && directions.destination && window.importDirectionsRoute) {
+        resultsContainer.style.display = 'none';
+        resultsContainer.innerHTML = '';
+        await window.importDirectionsRoute(directions);
+        return;
+      }
+
       const resolved = await Utilities.resolveLocationInput(query);
       if (resolved) {
         searchInput.value = resolved.name;
@@ -2146,13 +2222,6 @@ function setupSearchAutocomplete() {
       handleSearchQuery(searchInput.value.trim());
     }, 180);
   });
-
-  const pasteSearchBtn = document.getElementById('btn-paste-search');
-  if (pasteSearchBtn) {
-    pasteSearchBtn.addEventListener('click', async () => {
-      await handleClipboardPaste(searchInput, (val) => handleSearchQuery(val));
-    });
-  }
 
   // Hide dropdown when clicking outside
   document.addEventListener('click', (e) => {
@@ -2293,219 +2362,109 @@ function onSyncStateChange() {
   updateFilterBadges();
 }
 
-// --- Google Maps Route Importer & Android Share Target ---
-function setupGoogleMapsImporter() {
-  const triggerBtn = document.getElementById('btn-import-gmaps-trigger');
-  const modal = document.getElementById('modal-import-gmaps');
-  const closeBtn = document.getElementById('btn-close-import-gmaps');
-  const pasteBtn = document.getElementById('btn-paste-clipboard');
-  const textarea = document.getElementById('input-gmaps-paste');
-  const executeBtn = document.getElementById('btn-execute-import-gmaps');
-  const statusMsg = document.getElementById('import-status-msg');
-
-  if (!modal) return;
-
-  if (triggerBtn) {
-    triggerBtn.addEventListener('click', () => {
-      modal.classList.add('open');
-      if (statusMsg) statusMsg.style.display = 'none';
-      if (textarea) {
-        textarea.value = '';
-        setTimeout(() => textarea.focus(), 150);
-      }
-    });
+// --- Universal Google Maps Multi-Stop Directions Importer ---
+window.importDirectionsRoute = async function(directions) {
+  if (!directions) return;
+  const originInput = document.getElementById('input-origin');
+  const destInput = document.getElementById('input-destination');
+  if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+    window.SyncEngine.showAutoUpdateToast('🗺️ Importing multi-stop route from Google Maps...');
   }
 
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      modal.classList.remove('open');
-    });
+  // 1. Resolve Origin
+  if (directions.origin) {
+    const origRes = await Utilities.resolveLocationInput(directions.origin);
+    if (origRes) {
+      originPoint = origRes;
+      if (originInput) originInput.value = origRes.name;
+    }
   }
 
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) modal.classList.remove('open');
-  });
-
-  if (pasteBtn && textarea) {
-    pasteBtn.addEventListener('click', async () => {
-      try {
-        if (navigator.clipboard && navigator.clipboard.readText) {
-          const clipText = await navigator.clipboard.readText();
-          if (clipText) {
-            textarea.value = clipText;
-            if (statusMsg) {
-              statusMsg.style.display = 'block';
-              statusMsg.style.background = 'rgba(0, 230, 118, 0.12)';
-              statusMsg.style.color = '#00E676';
-              statusMsg.style.border = '1px solid rgba(0, 230, 118, 0.35)';
-              statusMsg.textContent = '📋 Link pasted from clipboard!';
-            }
-            return;
-          }
-        }
-      } catch (err) {}
-      textarea.focus();
-      if (statusMsg) {
-        statusMsg.style.display = 'block';
-        statusMsg.style.background = 'rgba(56, 189, 248, 0.12)';
-        statusMsg.style.color = '#38bdf8';
-        statusMsg.style.border = '1px solid rgba(56, 189, 248, 0.35)';
-        statusMsg.textContent = '📋 Long-press inside the box and tap "Paste"';
-      }
-    });
+  // 2. Resolve Destination
+  if (directions.destination) {
+    const destRes = await Utilities.resolveLocationInput(directions.destination);
+    if (destRes) {
+      destinationPoint = destRes;
+      if (destInput) destInput.value = destRes.name;
+    }
   }
 
-  if (executeBtn) {
-    executeBtn.addEventListener('click', async () => {
-      const raw = textarea ? textarea.value.trim() : '';
-      if (!raw) {
-        if (statusMsg) {
-          statusMsg.style.display = 'block';
-          statusMsg.style.background = 'rgba(239, 68, 68, 0.12)';
-          statusMsg.style.color = '#f87171';
-          statusMsg.style.border = '1px solid rgba(239, 68, 68, 0.35)';
-          statusMsg.textContent = 'Please paste a Google Maps link or shared text.';
-        }
-        return;
+  // 3. Resolve Intermediate Stops
+  intermediateCustomStops = [];
+  if (directions.waypoints && directions.waypoints.length > 0) {
+    for (let i = 0; i < directions.waypoints.length; i++) {
+      const wp = directions.waypoints[i];
+      const wpRes = await Utilities.resolveLocationInput(wp);
+      if (wpRes) {
+        intermediateCustomStops.push({
+          id: 'stop_import_' + i + '_' + Date.now(),
+          name: wpRes.name || `Stop ${String.fromCharCode(66 + i)}`,
+          lat: wpRes.lat,
+          lng: wpRes.lng,
+          isCustomStop: true
+        });
       }
-
-      executeBtn.disabled = true;
-      executeBtn.textContent = 'Extracting Route Points...';
-
-      try {
-        const parsed = await NavigationEngine.parseGoogleMapsInput(raw);
-        if (!parsed.success) {
-          throw new Error(parsed.error || 'Could not parse route from link.');
-        }
-
-        // Set Origin
-        if (parsed.origin) {
-          if (parsed.origin.lat != null && parsed.origin.lng != null) {
-            originPoint = parsed.origin;
-          } else if (parsed.origin.name) {
-            const res = await Utilities.searchPlace(parsed.origin.name);
-            originPoint = res && res.length > 0 ? res[0] : { name: parsed.origin.name };
-          }
-          const origInput = document.getElementById('input-origin');
-          if (origInput && originPoint) origInput.value = originPoint.name || 'Start Point';
-        }
-
-        // Set Destination
-        if (parsed.destination) {
-          if (parsed.destination.lat != null && parsed.destination.lng != null) {
-            destinationPoint = parsed.destination;
-          } else if (parsed.destination.name) {
-            const res = await Utilities.searchPlace(parsed.destination.name);
-            destinationPoint = res && res.length > 0 ? res[0] : { name: parsed.destination.name };
-          }
-          const destInput = document.getElementById('input-destination');
-          if (destInput && destinationPoint) destInput.value = destinationPoint.name || 'Destination';
-        }
-
-        // Set Intermediate Stops
-        intermediateCustomStops = [];
-        if (parsed.intermediateStops && parsed.intermediateStops.length > 0) {
-          for (let i = 0; i < parsed.intermediateStops.length; i++) {
-            const s = parsed.intermediateStops[i];
-            let stopPoint = s;
-            if (s.name && (s.lat == null || s.lng == null)) {
-              const res = await Utilities.searchPlace(s.name);
-              if (res && res.length > 0) stopPoint = res[0];
-            }
-            intermediateCustomStops.push({
-              id: 'stop_import_' + i + '_' + Date.now(),
-              name: stopPoint.name || `Stop ${String.fromCharCode(66 + i)}`,
-              lat: stopPoint.lat,
-              lng: stopPoint.lng,
-              isCustomStop: true
-            });
-          }
-        }
-        renderIntermediateStops();
-
-        modal.classList.remove('open');
-        activateTabSilently('route');
-
-        // Automatically trigger route calculation
-        const btnPlan = document.getElementById('btn-plan-route');
-        if (btnPlan) {
-          setTimeout(() => btnPlan.click(), 300);
-        }
-      } catch (err) {
-        if (statusMsg) {
-          statusMsg.style.display = 'block';
-          statusMsg.style.background = 'rgba(239, 68, 68, 0.12)';
-          statusMsg.style.color = '#f87171';
-          statusMsg.style.border = '1px solid rgba(239, 68, 68, 0.35)';
-          statusMsg.textContent = '❌ ' + err.message;
-        }
-      } finally {
-        executeBtn.disabled = false;
-        executeBtn.textContent = '⚡ Import Route & Plan EV Charging';
-      }
-    });
+    }
+    renderIntermediateStops();
   }
-}
+
+  // Switch to Route tab silently & auto-plan
+  activateTabSilently('route');
+  const btnPlan = document.getElementById('btn-plan-route');
+  if (btnPlan) {
+    setTimeout(() => btnPlan.click(), 400);
+  }
+};
+
+function setupGoogleMapsImporter() {}
 
 // Android Web Share Target auto-detection
-function checkSharedRouteParams() {
+async function checkSharedRouteParams() {
   const urlParams = new URLSearchParams(window.location.search);
   const sharedText = urlParams.get('text') || urlParams.get('url') || urlParams.get('title');
   if (sharedText) {
     console.log('[VoltWay] Detected shared route params from Android Share Target:', sharedText);
-    const modal = document.getElementById('modal-import-gmaps');
-    const textarea = document.getElementById('input-gmaps-paste');
-    if (modal && textarea) {
-      textarea.value = sharedText;
-      const executeBtn = document.getElementById('btn-execute-import-gmaps');
-      if (executeBtn) {
-        setTimeout(() => executeBtn.click(), 500);
+    const directions = Utilities.parseGoogleMapsDirectionsUrl(sharedText);
+    if (directions && window.importDirectionsRoute) {
+      await window.importDirectionsRoute(directions);
+    } else {
+      const resolved = await Utilities.resolveLocationInput(sharedText);
+      if (resolved) {
+        const destInput = document.getElementById('input-destination');
+        if (destInput) destInput.value = resolved.name;
+        destinationPoint = resolved;
+        const btnPlan = document.getElementById('btn-plan-route');
+        if (btnPlan) btnPlan.click();
       }
     }
   }
 }
 
-// --- Route Corridor Buffer Distance Filter (User-selectable: 2km, 5km, 10km, 15km, 25km, All) ---
+// --- Route Corridor Buffer Distance Filter (User-selectable: 2km, 5km, 10km, 15km, 25km, All via Dropdown) ---
 function setupCorridorDistanceSelector() {
-  const chipsContainer = document.getElementById('corridor-dist-chips');
+  const mapSelect = document.getElementById('select-map-corridor');
+  const drawerSelect = document.getElementById('select-drawer-corridor');
   const badgeEl = document.getElementById('corridor-buffer-badge');
-  const mapVal = document.getElementById('map-corridor-val');
-  const btnCycle = document.getElementById('btn-cycle-map-corridor');
 
-  const distSequence = ['2', '5', '10', '15', '25', 'all'];
-
-  function applyBuffer(distStr) {
+  function applyBuffer(distStr, sourceEl) {
+    const bufferVal = distStr === 'all' ? 'all' : Number(distStr);
     if (window.RouteEngine) {
-      window.RouteEngine.setCorridorBufferKm(distStr === 'all' ? 'all' : Number(distStr));
+      window.RouteEngine.setCorridorBufferKm(bufferVal);
     }
-    document.querySelectorAll('.btn-corridor-dist').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-dist') === distStr);
-    });
+    if (mapSelect && mapSelect !== sourceEl) mapSelect.value = distStr;
+    if (drawerSelect && drawerSelect !== sourceEl) drawerSelect.value = distStr;
     const label = distStr === 'all' ? 'All in View' : `Within ${distStr} km`;
     if (badgeEl) badgeEl.textContent = label;
-    if (mapVal) mapVal.textContent = distStr === 'all' ? 'All' : `${distStr} km`;
     if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast(`🛣️ Route buffer set to ${label}`);
+      window.SyncEngine.showAutoUpdateToast(`🛣️ Route corridor: ${label}`);
     }
   }
 
-  if (chipsContainer) {
-    chipsContainer.addEventListener('click', (e) => {
-      const btn = e.target.closest('.btn-corridor-dist');
-      if (!btn) return;
-      const distStr = btn.getAttribute('data-dist');
-      applyBuffer(distStr);
-    });
+  if (mapSelect) {
+    mapSelect.addEventListener('change', (e) => applyBuffer(e.target.value, mapSelect));
   }
-
-  if (btnCycle) {
-    btnCycle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const current = window.RouteEngine ? String(window.RouteEngine.getCorridorBufferKm()) : '5';
-      let nextIdx = (distSequence.indexOf(current) + 1) % distSequence.length;
-      if (nextIdx < 0) nextIdx = 1; // default to '5'
-      applyBuffer(distSequence[nextIdx]);
-    });
+  if (drawerSelect) {
+    drawerSelect.addEventListener('change', (e) => applyBuffer(e.target.value, drawerSelect));
   }
 }
 

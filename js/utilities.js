@@ -340,9 +340,29 @@ const Utilities = (function () {
    */
   async function unshortenUrl(shortUrl) {
     if (!shortUrl) return null;
+
+    // 1. Native CapacitorHttp on Android (bypasses browser CORS & follows 302 redirects natively)
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
+      try {
+        const resp = await window.Capacitor.Plugins.CapacitorHttp.get({
+          url: shortUrl,
+          headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36' }
+        });
+        if (resp && resp.url && resp.url !== shortUrl) {
+          return resp.url;
+        }
+        if (resp && resp.data) {
+          return typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
+        }
+      } catch (err) {
+        console.warn('[VoltWay] CapacitorHttp unshorten notice:', err);
+      }
+    }
+
+    // 2. Direct fetch with follow redirect
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 4000);
+      const timer = setTimeout(() => controller.abort(), 2000);
       const resp = await fetch(shortUrl, { redirect: 'follow', signal: controller.signal });
       clearTimeout(timer);
       if (resp && resp.url && resp.url !== shortUrl && resp.url.includes('google.com/maps')) {
@@ -350,25 +370,55 @@ const Utilities = (function () {
       }
     } catch (e) {}
 
-    const proxies = [
-      `https://corsproxy.io/?${encodeURIComponent(shortUrl)}`,
-      `https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`
-    ];
-    for (const p of proxies) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 3500);
-        const resp = await fetch(p, { signal: controller.signal });
-        clearTimeout(timer);
-        if (resp && resp.ok) {
-          if (resp.url && resp.url.includes('google.com/maps')) return resp.url;
-          const text = await resp.text();
-          const match = text.match(/https?:\/\/(?:www\.)?google\.com\/maps\/[^\s"'<>]+/i);
-          if (match) return match[0];
-          const coordMatch = text.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || text.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-          if (coordMatch) return text;
+    // 3. Fallback unshortening endpoint
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`, { signal: controller.signal });
+      clearTimeout(timer);
+      if (resp && resp.ok) {
+        const json = await resp.json();
+        if (json && json.contents) return json.contents;
+      }
+    } catch (e) {}
+
+    return null;
+  }
+
+  /**
+   * Parses Google Maps Multi-Stop Directions URLs
+   * Format: /maps/dir/Origin/Stop1/Stop2/Dest/@... or ?origin=...&destination=...&waypoints=...
+   */
+  function parseGoogleMapsDirectionsUrl(url) {
+    if (!url || typeof url !== 'string' || !url.includes('/maps/dir/')) return null;
+    try {
+      // 1. Query parameters format
+      const qMatch = url.match(/[?&]origin=([^&]+).*?[?&]destination=([^&]+)/i);
+      if (qMatch) {
+        const origin = decodeURIComponent(qMatch[1]).replace(/\+/g, ' ');
+        const destination = decodeURIComponent(qMatch[2]).replace(/\+/g, ' ');
+        const wpMatch = url.match(/[?&]waypoints=([^&]+)/i);
+        const waypoints = wpMatch ? decodeURIComponent(wpMatch[1]).replace(/\+/g, ' ').split('|') : [];
+        return { origin, destination, waypoints };
+      }
+
+      // 2. Path segments format (/maps/dir/Origin/Stop1/Stop2/Dest/...)
+      const pathMatch = url.match(/\/maps\/dir\/(.*?)(?:\/@|\?|$)/i);
+      if (pathMatch) {
+        const rawParts = pathMatch[1]
+          .split('/')
+          .map(p => decodeURIComponent(p).replace(/\+/g, ' ').trim())
+          .filter(p => p && !p.startsWith('@') && !p.startsWith('data='));
+        if (rawParts.length >= 2) {
+          return {
+            origin: rawParts[0],
+            destination: rawParts[rawParts.length - 1],
+            waypoints: rawParts.slice(1, -1)
+          };
         }
-      } catch (e) {}
+      }
+    } catch (e) {
+      console.warn('[VoltWay] Directions URL parse note:', e);
     }
     return null;
   }
@@ -427,13 +477,17 @@ const Utilities = (function () {
       if (atMatch) {
         return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
       }
-      const qMatch = urlStr.match(/[?&](?:q|daddr|saddr|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/i);
+      const qMatch = urlStr.match(/[?&](?:q|daddr|saddr|ll)=(?:loc:)?(-?\d+\.\d+),(-?\d+\.\d+)/i);
       if (qMatch) {
         return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
       }
       const protoMatch = urlStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || urlStr.match(/!2d(-?\d+\.\d+)!1d(-?\d+\.\d+)/);
       if (protoMatch) {
         return { lat: parseFloat(protoMatch[1]), lng: parseFloat(protoMatch[2]) };
+      }
+      const centerMatch = urlStr.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i) || urlStr.match(/center=(-?\d+\.\d+),(-?\d+\.\d+)/i);
+      if (centerMatch) {
+        return { lat: parseFloat(centerMatch[1]), lng: parseFloat(centerMatch[2]) };
       }
       return null;
     };
@@ -444,13 +498,13 @@ const Utilities = (function () {
       return {
         lat: directCoords.lat,
         lng: directCoords.lng,
-        name: `Map Location (${directCoords.lat.toFixed(4)}, ${directCoords.lng.toFixed(4)})`,
+        name: `Map Pin (${directCoords.lat.toFixed(4)}, ${directCoords.lng.toFixed(4)})`,
         fullName: `Google Maps Pin: ${directCoords.lat.toFixed(5)}, ${directCoords.lng.toFixed(5)}`
       };
     }
 
-    // 4. Place name inside URL (e.g. /place/Edappally,+Kochi/)
-    const placeInUrlMatch = text.match(/\/maps\/place\/([^/@?]+)/i);
+    // 4. Place name inside URL (e.g. /place/Edappally,+Kochi/ or /search/Kochi/)
+    const placeInUrlMatch = text.match(/\/maps\/place\/([^/@?]+)/i) || text.match(/\/maps\/search\/([^/@?]+)/i);
     if (placeInUrlMatch) {
       const decodedPlace = decodeURIComponent(placeInUrlMatch[1]).replace(/\+/g, ' ').trim();
       if (decodedPlace) {
@@ -459,25 +513,26 @@ const Utilities = (function () {
       }
     }
 
-    // 5. Shared text accompanied with URL or short link (Standard Android & iOS Google Maps share)
-    // E.g. "Kozhikode Beach\nhttps://maps.app.goo.gl/xyz" or "Dropped pin\nnear Alappuzha\nhttps://..."
+    // 5. Shared multiline message from Google Maps mobile app
+    // E.g. "Kozhikode Beach\nBeach Rd, Vellayil...\nhttps://maps.app.goo.gl/..."
+    // or "Dropped pin\nnear Alappuzha, Kerala\nhttps://maps.app.goo.gl/..."
     if (text.includes('http://') || text.includes('https://') || text.includes('goo.gl')) {
+      const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+      
+      // Try resolving by place text line first
+      for (const line of lines) {
+        if (/https?:\/\//i.test(line) || /goo\.gl/i.test(line)) continue;
+        const cleaned = line.replace(/^(?:dropped pin|shared location|near:?|location:?)\s*/i, '').trim();
+        if (cleaned.length >= 2) {
+          const results = await searchPlace(cleaned);
+          if (results && results.length > 0) return results[0];
+        }
+      }
+
+      // If text lines didn't resolve or were empty (pure short link), unshorten the URL
       const urlMatch = text.match(/https?:\/\/[^\s]+/i);
       const url = urlMatch ? urlMatch[0] : null;
 
-      // Extract cleaned place name text from multiline shared message
-      let cleanText = text
-        .replace(/https?:\/\/[^\s]+/gi, '')
-        .replace(/\b(shared location|dropped pin|directions to|location:?|near)\b/gi, '')
-        .replace(/[\r\n\t]+/g, ' ')
-        .trim();
-
-      if (cleanText.length >= 2) {
-        const results = await searchPlace(cleanText);
-        if (results && results.length > 0) return results[0];
-      }
-
-      // If text alone didn't resolve or was empty (pure short link), unshorten the URL
       if (url) {
         const expanded = await unshortenUrl(url);
         if (expanded) {
@@ -486,11 +541,11 @@ const Utilities = (function () {
             return {
               lat: expCoords.lat,
               lng: expCoords.lng,
-              name: `Map Location (${expCoords.lat.toFixed(4)}, ${expCoords.lng.toFixed(4)})`,
+              name: `Map Pin (${expCoords.lat.toFixed(4)}, ${expCoords.lng.toFixed(4)})`,
               fullName: `Google Maps Pin: ${expCoords.lat.toFixed(5)}, ${expCoords.lng.toFixed(5)}`
             };
           }
-          const expPlaceMatch = expanded.match(/\/maps\/place\/([^/@?]+)/i);
+          const expPlaceMatch = expanded.match(/\/maps\/place\/([^/@?]+)/i) || expanded.match(/\/maps\/search\/([^/@?]+)/i);
           if (expPlaceMatch) {
             const placeName = decodeURIComponent(expPlaceMatch[1]).replace(/\+/g, ' ').trim();
             const results = await searchPlace(placeName);
@@ -602,6 +657,7 @@ const Utilities = (function () {
     formatMinutes,
     searchPlace,
     unshortenUrl,
+    parseGoogleMapsDirectionsUrl,
     resolveLocationInput,
     getLocalPlaces,
     renderAmenitiesHtml,
