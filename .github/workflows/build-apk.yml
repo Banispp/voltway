@@ -52,9 +52,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.11-release
-          name: "VoltWay 2W Android APK v5.11 (Google Maps Directions Export, UI Overlap Fix & Comprehensive Bolt.Earth Coverage)"
-          body: "VoltWay 2W v5.11: Added direct 'Open in Google Maps' turn-by-turn navigation and 'Share Route Directions' buttons in route summary; fixed floating START & RECENTER buttons overlapping bottom drawer menus and tabs; perfected z-index and drawer-open state handling; expanded Bolt.Earth regional harvester across Kerala & key corridors; verified pure 2W charging ecosystem with Ather Grid, Hero VIDA Grid, and Bolt.Earth Fast & 15A slow sockets."
+          tag_name: v5.12-release
+          name: "VoltWay 2W Android APK v5.12 (Rider Amenities on All Stops, Interactive Maps Search & Full UI Sync)"
+          body: "VoltWay 2W v5.12: Enabled complete Nearby Rider Amenities (< 200m: Tea/Cafe, Food/Snacks, Washrooms, Fuel & Air) on all trip charging stops on the map pin popup, in the Trip Battery Timeline stop cards, and across corridor chargers; added 1-tap interactive Google Maps nearby search directly from amenity chips; highlighted verified on-site food and cafe locations."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

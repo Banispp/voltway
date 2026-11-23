@@ -69,7 +69,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.11')
+      navigator.serviceWorker.register('./sw.js?v=5.12')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -1673,6 +1673,9 @@ function renderTripBatteryTimeline(route) {
                 <span class="stop-metric-val val-depart">${step.departureSoC}%</span>
               </div>
             </div>
+
+            <!-- Nearby Rider Amenities at this Charging Stop (< 200m) -->
+            ${window.Utilities && window.Utilities.renderAmenitiesHtml ? window.Utilities.renderAmenitiesHtml(step.station?.lat, step.station?.lng, step.station?.name, step.station?.address) : ''}
             ${step.arrivalSoC < 0 ? `
               <div class="stop-warning-pill" style="background: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #fca5a5;">
                 🚨 Battery Depleted: Battery runs out before reaching this charger (short by ~${Math.round(Math.abs(step.arrivalSoC) * (batteryState.efficiency || 0.85))} km). Add an earlier charging stop!
@@ -1914,6 +1917,7 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
           📍 ~${c.kmFromOrigin} km along route from origin
         </div>
         <div class="corridor-card-desc">${c.connector || (c.type === 'FAST' ? '⚡ High-Speed DC Fast Charger' : '🔌 Standard 15A AC Socket')}</div>
+        ${window.Utilities && window.Utilities.renderAmenitiesHtml ? window.Utilities.renderAmenitiesHtml(c.lat, c.lng, c.name, c.address) : ''}
         <div class="corridor-card-actions">
           <button class="btn-sm btn-nav" onclick="MapEngine.focusCharger(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">🔍 Show on Map</button>
           ${isWp

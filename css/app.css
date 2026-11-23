@@ -3435,13 +3435,25 @@ html, body {
 }
 
 .amenity-chip-pill {
-  transition: transform 0.1s, background 0.15s;
-  cursor: default;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.amenity-chip-pill:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  transform: translateY(-1px);
 }
 
 .amenity-chip-pill:active {
-  transform: scale(0.95);
-  background: rgba(255, 255, 255, 0.15) !important;
+  transform: scale(0.94);
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.amenity-chip-pill.amenity-highlight:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
 }
 
 /* 7. State Regional Filter Chips Bar (Ultra-Fast 60FPS Optimization) */

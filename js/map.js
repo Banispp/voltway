@@ -414,9 +414,11 @@ const MapEngine = (function () {
   }
 
   /**
-   * Interactive Charger Popup with Trip Planner actions
+   * Interactive Charger Popup with Trip Planner actions & Nearby Rider Amenities
+   * @param {Object} charger Charger data object
+   * @param {number|null} stopIndex If this charger is an active route stop (0, 1, ...), provides stop badge
    */
-  function createChargerPopupHtml(charger) {
+  function createChargerPopupHtml(charger, stopIndex = null) {
     const isAther = charger.network === 'ATHER_GRID';
     const isVida = charger.network === 'VIDA_GRID';
     const isFast = charger.type === 'FAST';
@@ -439,14 +441,14 @@ const MapEngine = (function () {
     const estTimeText = isFast ? (chargeTime ? chargeTime.fastTimeFormatted : '~35 mins to 80%') : (chargeTime ? chargeTime.slowTimeFormatted : '~3h 30m');
 
     const waypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
-    const isAlreadyWaypoint = waypoints.some(w => w.id === charger.id);
+    const isAlreadyWaypoint = stopIndex !== null || waypoints.some(w => w.id === charger.id);
 
     const isAtherGun = isFast || charger.is_ather_gun;
 
-    // Check distance to active route if route is planned
+    // Check distance to active route if route is planned and not already an active stop
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     let routeDistanceHtml = '';
-    if (activeRoute && window.RouteEngine.getDistanceToActiveRoute) {
+    if (activeRoute && window.RouteEngine.getDistanceToActiveRoute && stopIndex === null) {
       const distFromRoute = window.RouteEngine.getDistanceToActiveRoute(charger.lat, charger.lng);
       if (distFromRoute !== null) {
         const isHighway = distFromRoute <= 0.4;
@@ -473,10 +475,60 @@ const MapEngine = (function () {
       }
     }
 
+    const stopHeaderBadge = stopIndex !== null
+      ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; letter-spacing: 0.3px;">⚡ TRIP CHARGING STOP #${stopIndex + 1}</span>`
+      : `<span class="popup-badge ${networkBadgeClass}">${networkName}</span>`;
+
+    const stopActionButtons = stopIndex !== null ? `
+      <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger); font-weight: 800; padding: 9px;" onclick="RouteEngine.removeWaypoint('${charger.id}')">
+        ❌ Remove from Trip Stops
+      </button>
+      <button class="btn-popup-nav" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; font-weight: 800; padding: 9px; cursor: pointer;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${(charger.name||'Stop').replace(/'/g, "\\'")}'})">
+        🗺️ Navigate to this Stop in Google Maps
+      </button>
+    ` : `
+      ${isAlreadyWaypoint ? `
+        <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
+          ❌ Remove from Trip Waypoints
+        </button>
+      ` : `
+        <button class="btn-popup-waypoint" style="background: var(--color-ather); color: #062b1a; font-weight: 800;" onclick="MapEngine.handleAddWaypoint('${charger.id}')">
+          ➕ Add to Route as Waypoint (Stop)
+        </button>
+      `}
+      <div style="display: flex; gap: 6px;">
+        <button class="btn-sm btn-nav" style="flex: 1;" onclick="MapEngine.handleSetAsOrigin('${charger.id}')">
+          🚩 Set as Start
+        </button>
+        <button class="btn-sm btn-nav" style="flex: 1;" onclick="MapEngine.handleSetAsDest('${charger.id}')">
+          🏁 Set as End
+        </button>
+      </div>
+      <button class="btn-popup-nav btn-direct-inapp-route" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; font-weight: 800; padding: 9px;" onclick="MapEngine.handleRouteDirectToCharger('${charger.id}')">
+        ⚡ Plan Direct Route Here
+      </button>
+    `;
+
+    const amenitiesHtml = window.Utilities && window.Utilities.renderAmenitiesHtml
+      ? window.Utilities.renderAmenitiesHtml(charger.lat, charger.lng, charger.name, charger.address)
+      : `
+        <div class="popup-amenities-section" style="margin: 8px 0 6px 0; padding: 8px 10px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
+          <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 5px;">
+            ☕ Nearby Rider Amenities (&lt; 200m)
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">☕ Tea / Cafe</span>
+            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">🍽️ Snacks / Dine</span>
+            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">🚻 Washroom</span>
+            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">⛽ Fuel / Air 24x7</span>
+          </div>
+        </div>
+      `;
+
     return `
       <div class="popup-card">
         <div class="popup-header">
-          <span class="popup-badge ${networkBadgeClass}">${networkName}</span>
+          ${stopHeaderBadge}
           <span class="popup-type">${isVida ? '⚡ Hero VIDA Fast' : (isAther ? '⚡ Ather Grid Fast' : (isFast ? '⚡ Bolt Fast' : '🔌 15A Socket'))}</span>
         </div>
         <div class="popup-title">${isVida ? charger.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : charger.name}</div>
@@ -491,7 +543,7 @@ const MapEngine = (function () {
 
         <div class="popup-detail">
           <span class="detail-label">Connector:</span>
-          <span class="detail-val" style="font-weight: 800; color: ${isFast ? '#00E676' : '#38bdf8'};">${charger.connector}</span>
+          <span class="detail-val" style="font-weight: 800; color: ${isFast ? '#00E676' : '#38bdf8'};">${charger.connector || (isFast ? 'DC Fast Charger' : '15A AC Plug Socket')}</span>
         </div>
         <div class="popup-detail">
           <span class="detail-label">Speed:</span>
@@ -504,40 +556,11 @@ const MapEngine = (function () {
         ${charger.address ? `<div class="popup-address"><i class="icon-pin">📍</i> ${charger.address}</div>` : ''}
 
         <!-- Feature 5: Nearby Rider Amenities (< 200m) -->
-        <div class="popup-amenities-section" style="margin: 8px 0 6px 0; padding: 8px 10px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
-          <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 5px;">
-            ☕ Nearby Rider Amenities (&lt; 200m)
-          </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
-            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">☕ Tea / Cafe</span>
-            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">🍽️ Snacks / Dine</span>
-            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">🚻 Washroom</span>
-            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">⛽ Fuel / Air 24x7</span>
-          </div>
-        </div>
+        ${amenitiesHtml}
 
         <!-- Trip Planner Actions (Click on map to add/set) -->
         <div class="popup-actions" style="flex-direction: column; gap: 6px; margin-top: 8px;">
-          ${isAlreadyWaypoint ? `
-            <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
-              ❌ Remove from Trip Waypoints
-            </button>
-          ` : `
-            <button class="btn-popup-waypoint" style="background: var(--color-ather); color: #062b1a; font-weight: 800;" onclick="MapEngine.handleAddWaypoint('${charger.id}')">
-              ➕ Add to Route as Waypoint (Stop)
-            </button>
-          `}
-          <div style="display: flex; gap: 6px;">
-            <button class="btn-sm btn-nav" style="flex: 1;" onclick="MapEngine.handleSetAsOrigin('${charger.id}')">
-              🚩 Set as Start
-            </button>
-            <button class="btn-sm btn-nav" style="flex: 1;" onclick="MapEngine.handleSetAsDest('${charger.id}')">
-              🏁 Set as End
-            </button>
-          </div>
-          <button class="btn-popup-nav btn-direct-inapp-route" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; font-weight: 800; padding: 9px;" onclick="MapEngine.handleRouteDirectToCharger('${charger.id}')">
-            ⚡ Plan Direct Route Here
-          </button>
+          ${stopActionButtons}
         </div>
       </div>
     `;
@@ -839,41 +862,10 @@ const MapEngine = (function () {
     // 4. Render Intermediate Highlighted Charging Stops (STOP 1, STOP 2, ...)
     const intermediateStops = activeRoute.waypoints || [];
     intermediateStops.forEach((wp, idx) => {
-      const isFast = wp.type === 'FAST' || wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID';
-      let brandColor = '#00E676';
-      let netTag = 'Ather Fast';
-      if (wp.network === 'VIDA_GRID') { brandColor = '#FF5722'; netTag = 'Vida Fast'; }
-      else if (wp.network === 'BOLT_EARTH') {
-        if (wp.type === 'FAST') { brandColor = '#FF9100'; netTag = 'Bolt Fast'; }
-        else { brandColor = '#00B0FF'; netTag = 'Bolt 15A'; }
-      }
-
-      const cleanTitle = (wp.name || `Charging Stop ${idx + 1}`).replace(/\s*\(Ather Gun[^)]*\)/gi, '');
-
       const stopMarker = L.marker([wp.lat, wp.lng], {
         icon: createHighlightedStopPinIcon(wp, idx),
         zIndexOffset: 20000 + idx
-      }).bindPopup(`
-        <div class="popup-card">
-          <div class="popup-header">
-            <span class="popup-badge" style="background: ${brandColor}; color: #000; font-weight: 800;">⚡ TRIP CHARGING STOP #${idx + 1}</span>
-          </div>
-          <div class="popup-title">${cleanTitle}</div>
-          <div class="popup-detail">
-            <span class="detail-label">Network:</span>
-            <span class="detail-val" style="color: ${brandColor}; font-weight: 700;">${netTag}</span>
-          </div>
-          <div class="popup-detail">
-            <span class="detail-label">Connector:</span>
-            <span class="detail-val">${wp.connector || (isFast ? 'DC Fast Charger' : '15A AC Plug Socket')}</span>
-          </div>
-          <div class="popup-actions" style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
-            <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.15); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 8px; border-radius: 6px; font-weight: 700; cursor: pointer;" onclick="RouteEngine.removeWaypoint('${wp.id}')">
-              ❌ Remove from Trip Stops
-            </button>
-          </div>
-        </div>
-      `, { maxWidth: 320, className: 'charger-popup' }).addTo(waypointsLayer);
+      }).bindPopup(createChargerPopupHtml(wp, idx), { maxWidth: 320, className: 'charger-popup' }).addTo(waypointsLayer);
 
       waypointMarkersMap.set(wp.id, stopMarker);
     });
