@@ -233,35 +233,10 @@ def run_harvest():
         json.dump(final_bolt_list, f, ensure_ascii=False)
     print(f"Saved {len(final_bolt_list)} Bolt chargers to {base_file}", flush=True)
 
-    # Read existing ather_grid_chargers.json
-    ather_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ather_grid_chargers.json')
-    with open(ather_file, 'r', encoding='utf-8') as f:
-        ather_list = json.load(f)
-
-    # Merge Ather and Bolt
-    merged = ather_list + final_bolt_list
-
-    # Save chargers_db.json
-    json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'chargers_db.json')
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(merged, f, ensure_ascii=False)
-    print(f"Saved {len(merged)} stations to {json_path}", flush=True)
-
-    # Save chargers_db.js
-    js_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'chargers_db.js')
-    with open(js_path, 'w', encoding='utf-8') as f:
-        f.write('// Auto-generated 2W EV Chargers Database\n')
-        f.write('window.BUNDLED_CHARGERS = ')
-        json.dump(merged, f, ensure_ascii=False)
-        f.write(';\n')
-    print(f"Saved {len(merged)} stations to {js_path}", flush=True)
-
-    print("\nMASTER DATABASE UPDATE SUCCESSFUL:")
-    print(f"  Total Stations: {len(merged)}")
-    print(f"  ⚡ Ather Grid Fast: {len(ather_list)}")
-    print(f"  ⚡ Bolt.Earth Fast: {total_fast}")
-    print(f"  🔌 Bolt.Earth 15A Slow: {total_slow}")
-    print("=" * 70, flush=True)
+    # Delegate full merge to merge_and_update.py (includes Ather + Hero VIDA + Bolt.Earth)
+    import subprocess
+    merge_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'merge_and_update.py')
+    subprocess.run([sys.executable, merge_script])
 
 if __name__ == '__main__':
     run_harvest()

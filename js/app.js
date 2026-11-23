@@ -69,7 +69,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.10')
+      navigator.serviceWorker.register('./sw.js?v=5.11')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -157,6 +157,7 @@ window.expandBottomSheet = function() {
   const tb = document.getElementById('btn-toggle-drawer');
   if (bs) bs.classList.remove('collapsed');
   if (tb) tb.innerHTML = '▼ Minimize';
+  document.body.classList.add('drawer-open');
 };
 
 window.collapseBottomSheet = function() {
@@ -164,6 +165,7 @@ window.collapseBottomSheet = function() {
   const tb = document.getElementById('btn-toggle-drawer');
   if (bs) bs.classList.add('collapsed');
   if (tb) tb.innerHTML = '▲ Expand Panel';
+  document.body.classList.remove('drawer-open');
 };
 
 // --- Tabs Management ---
@@ -173,6 +175,11 @@ function setupTabs() {
   const bottomSheet = document.getElementById('bottom-sheet');
   const toggleDrawerBtn = document.getElementById('btn-toggle-drawer');
   const handleBar = document.getElementById('sheet-handle-bar');
+
+  // Sync initial body drawer state
+  if (bottomSheet && !bottomSheet.classList.contains('collapsed')) {
+    document.body.classList.add('drawer-open');
+  }
 
   tabButtons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -195,6 +202,7 @@ function setupTabs() {
       e.stopPropagation();
       const isCollapsed = bottomSheet.classList.toggle('collapsed');
       toggleDrawerBtn.innerHTML = isCollapsed ? '▲ Expand Panel' : '▼ Minimize';
+      document.body.classList.toggle('drawer-open', !isCollapsed);
     });
   }
 
@@ -206,6 +214,7 @@ function setupTabs() {
       if (toggleDrawerBtn) {
         toggleDrawerBtn.innerHTML = isCollapsed ? '▲ Expand Panel' : '▼ Minimize';
       }
+      document.body.classList.toggle('drawer-open', !isCollapsed);
     });
 
     let touchStartY = 0;
@@ -1380,6 +1389,7 @@ function onRouteStateChange(routeState) {
   const waypointsCount = document.getElementById('trip-waypoints-count');
   const btnStartInAppNav = document.getElementById('btn-start-inapp-nav');
   const btnFloatingStartNav = document.getElementById('btn-floating-start-nav');
+  const navSecondaryActions = document.getElementById('nav-secondary-actions');
   const corridorControl = document.getElementById('corridor-buffer-control');
   const mapCorridorPill = document.getElementById('map-route-corridor-pill');
   const mapCorridorVal = document.getElementById('map-corridor-val');
@@ -1391,6 +1401,7 @@ function onRouteStateChange(routeState) {
     if (waypointsSection) waypointsSection.style.display = 'none';
     if (btnStartInAppNav) btnStartInAppNav.style.display = 'none';
     if (btnFloatingStartNav) btnFloatingStartNav.style.display = 'none';
+    if (navSecondaryActions) navSecondaryActions.style.display = 'none';
     if (corridorControl) corridorControl.style.display = 'none';
     if (mapCorridorPill) mapCorridorPill.style.display = 'none';
     const timelineSection = document.getElementById('trip-battery-timeline-section');
@@ -1482,6 +1493,7 @@ function onRouteStateChange(routeState) {
   if (summaryCard) summaryCard.style.display = 'block';
   if (btnStartInAppNav) btnStartInAppNav.style.display = 'flex';
   if (btnFloatingStartNav) btnFloatingStartNav.style.display = 'flex';
+  if (navSecondaryActions) navSecondaryActions.style.display = 'flex';
 
   updateRouteMetrics(route);
   renderTripBatteryTimeline(route);
@@ -2525,6 +2537,67 @@ function setupDriveModeControls() {
   if (btnFloatingStart) {
     btnFloatingStart.addEventListener('click', () => {
       if (window.DriveEngine) window.DriveEngine.startDriveMode();
+    });
+  }
+
+  // Google Maps Direction & Route Sharing Actions
+  const btnOpenGmaps = document.getElementById('btn-open-google-maps');
+  if (btnOpenGmaps) {
+    btnOpenGmaps.addEventListener('click', () => {
+      const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+      if (!activeRoute) {
+        alert('Please plan a route first.');
+        return;
+      }
+      const origin = RouteEngine.getOrigin();
+      const destination = RouteEngine.getDestination();
+      const intermediateStops = RouteEngine.getIntermediateStops ? RouteEngine.getIntermediateStops() : [];
+      const chargingWaypoints = RouteEngine.getWaypoints ? RouteEngine.getWaypoints() : [];
+      const allStops = [...intermediateStops, ...chargingWaypoints];
+
+      if (window.NavigationEngine) {
+        window.NavigationEngine.startFullTrip(origin, destination, allStops);
+      }
+    });
+  }
+
+  const btnShareRoute = document.getElementById('btn-share-route-directions');
+  if (btnShareRoute) {
+    btnShareRoute.addEventListener('click', async () => {
+      const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+      if (!activeRoute) {
+        alert('Please plan a route first.');
+        return;
+      }
+      const origin = RouteEngine.getOrigin();
+      const destination = RouteEngine.getDestination();
+      const intermediateStops = RouteEngine.getIntermediateStops ? RouteEngine.getIntermediateStops() : [];
+      const chargingWaypoints = RouteEngine.getWaypoints ? RouteEngine.getWaypoints() : [];
+      const allStops = [...intermediateStops, ...chargingWaypoints];
+
+      const gmapsUrl = window.NavigationEngine 
+        ? window.NavigationEngine.buildMultiStopGoogleMapsUrl(origin, destination, allStops)
+        : '';
+
+      const startName = origin?.name || 'Current Location';
+      const destName = destination?.name || 'Destination';
+      const shareText = `VoltWay 2W EV Route Plan:\n📍 From: ${startName}\n🏁 To: ${destName}\n⚡ Total Charging Stops: ${allStops.length}\n🗺️ Open in Google Maps:\n${gmapsUrl}`;
+
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: 'VoltWay 2W EV Route Plan',
+            text: shareText,
+            url: gmapsUrl
+          });
+        } catch (e) {
+          if (e.name !== 'AbortError') {
+            await copyTextToClipboard(gmapsUrl, 'Google Maps route directions copied to clipboard!');
+          }
+        }
+      } else {
+        await copyTextToClipboard(gmapsUrl, 'Google Maps route directions copied to clipboard!');
+      }
     });
   }
 
