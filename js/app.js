@@ -69,7 +69,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.9')
+      navigator.serviceWorker.register('./sw.js?v=5.10')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -332,6 +332,7 @@ function setupFilterChips() {
       checkFastOnlySync();
     });
   }
+  checkFastOnlySync();
 }
 
 function syncRouteFilterBtn(filterKey, active) {
@@ -349,7 +350,7 @@ function setupStateFilter() {
   const chips = document.querySelectorAll('.state-chip');
   if (!chips || chips.length === 0) return;
 
-  const savedState = localStorage.getItem('voltway_state_filter') || 'kerala';
+  const savedState = localStorage.getItem('voltway_selected_state') || localStorage.getItem('voltway_state_filter') || 'all';
   if (window.MapEngine && window.MapEngine.setStateFilter) {
     window.MapEngine.setStateFilter(savedState);
   }
@@ -366,6 +367,7 @@ function setupStateFilter() {
       chips.forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       const chosenState = chip.getAttribute('data-state');
+      localStorage.setItem('voltway_selected_state', chosenState);
       localStorage.setItem('voltway_state_filter', chosenState);
       if (window.MapEngine && window.MapEngine.setStateFilter) {
         window.MapEngine.setStateFilter(chosenState);
@@ -373,10 +375,10 @@ function setupStateFilter() {
       updateFilterBadges();
 
       const stateLabels = {
+        all: '🌐 All (Fast 2W Stations)',
         kerala: '🌴 Kerala (Fastest 0-Lag)',
         karnataka: '🌲 Karnataka & Bengaluru',
-        tamil_nadu: '🛕 Tamil Nadu',
-        all: '🌐 All South India'
+        tamil_nadu: '🛕 Tamil Nadu'
       };
       if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
         window.SyncEngine.showAutoUpdateToast(`Showing ${stateLabels[chosenState] || chosenState} chargers`);
@@ -386,7 +388,7 @@ function setupStateFilter() {
 }
 
 function updateFilterBadges() {
-  const activeState = (window.MapEngine && window.MapEngine.getStateFilter) ? window.MapEngine.getStateFilter() : 'kerala';
+  const activeState = (window.MapEngine && window.MapEngine.getStateFilter) ? window.MapEngine.getStateFilter() : 'all';
   const allChargers = (window.SyncEngine && window.SyncEngine.getChargers) ? window.SyncEngine.getChargers() : [];
 
   let total = 0;

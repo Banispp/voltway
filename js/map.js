@@ -23,15 +23,15 @@ const MapEngine = (function () {
   let userHeading = 0;
   let isAutoFollow = false;
 
-  // Regional State filter ('kerala' default, 'karnataka', 'tamil_nadu', 'all')
-  let activeStateFilter = localStorage.getItem('voltway_selected_state') || 'kerala';
+  // Regional State filter ('all' default, 'kerala', 'karnataka', 'tamil_nadu')
+  let activeStateFilter = localStorage.getItem('voltway_selected_state') || 'all';
 
-  // Filter state
+  // Filter state: TWO-WHEELER FAST CHARGERS ONLY BY DEFAULT!
   const filters = {
     atherFast: true,
     vidaFast: true,
     boltFast: true,
-    boltSlow: true
+    boltSlow: false
   };
 
   // User position
@@ -317,23 +317,19 @@ const MapEngine = (function () {
       const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID' && c.network !== 'VIDA_GRID');
 
       if (zoom < 8) {
-        const step = Math.max(1, Math.floor(fastInBounds.length / 50));
-        for (let i = 0; i < fastInBounds.length && visibleChargers.length < 50; i += step) {
+        // High zoom-out regional overview: sample evenly
+        const step = Math.max(1, Math.floor(fastInBounds.length / 80));
+        for (let i = 0; i < fastInBounds.length && visibleChargers.length < 80; i += step) {
           visibleChargers.push(fastInBounds[i]);
         }
       } else {
-        // Show up to 60 Fast Chargers in viewport
-        visibleChargers.push(...fastInBounds.slice(0, 60));
+        // Two-Wheeler Fast Chargers Only (Ather, VIDA & Bolt Fast): Show ALL in viewport without arbitrary 60-cap limit!
+        visibleChargers.push(...fastInBounds.slice(0, 300));
 
-        // Fill remaining slots with 15A slow sockets up to 120 total markers (eliminates mobile freeze/lag)
-        const remainingSlots = Math.max(0, 120 - visibleChargers.length);
-        if (slowInBounds.length <= remainingSlots) {
-          visibleChargers.push(...slowInBounds);
-        } else {
-          const step = Math.max(1, Math.floor(slowInBounds.length / remainingSlots));
-          for (let i = 0; i < slowInBounds.length && visibleChargers.length < 120; i += step) {
-            visibleChargers.push(slowInBounds[i]);
-          }
+        // If slow sockets explicitly enabled, fill remaining slots
+        if (filters.boltSlow && slowInBounds.length > 0) {
+          const remainingSlots = Math.max(0, 350 - visibleChargers.length);
+          visibleChargers.push(...slowInBounds.slice(0, remainingSlots));
         }
       }
     }
@@ -647,7 +643,7 @@ const MapEngine = (function () {
    * Enables 0-lag 60fps rendering by restricting candidate pool to selected state.
    */
   function setStateFilter(state) {
-    activeStateFilter = state || 'kerala';
+    activeStateFilter = state || 'all';
     localStorage.setItem('voltway_selected_state', activeStateFilter);
 
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;

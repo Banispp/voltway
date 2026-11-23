@@ -34,7 +34,7 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "VoltWay Auto-Sync Bot"
-          git add ather_grid_chargers.json bolt_chargers.json chargers_db.json chargers_db.js
+          git add ather_grid_chargers.json bolt_chargers.json vida_chargers.json chargers_db.json chargers_db.js
           if git diff --staged --quiet; then
             echo "No new chargers detected today. Database is already up to date!"
           else
