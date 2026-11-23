@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSunlightToggle();
   setupSearchAutocomplete();
   setupGoogleMapsImporter();
+  setupCorridorDistanceSelector();
   checkSharedRouteParams();
 
   // 6. Listen to State Changes
@@ -66,7 +67,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.5')
+      navigator.serviceWorker.register('./sw.js?v=5.6')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -945,6 +946,10 @@ function onRouteStateChange(routeState) {
   const waypointsCount = document.getElementById('trip-waypoints-count');
   const btnStartFullGmaps = document.getElementById('btn-start-gmaps-full');
   const btnNavNextCharger = document.getElementById('btn-nav-next-charger');
+  const corridorControl = document.getElementById('corridor-buffer-control');
+  const mapCorridorPill = document.getElementById('map-route-corridor-pill');
+  const mapCorridorVal = document.getElementById('map-corridor-val');
+  const corridorBufferBadge = document.getElementById('corridor-buffer-badge');
 
   if (!route) {
     if (summaryCard) summaryCard.style.display = 'none';
@@ -952,6 +957,8 @@ function onRouteStateChange(routeState) {
     if (waypointsSection) waypointsSection.style.display = 'none';
     if (btnStartFullGmaps) btnStartFullGmaps.style.display = 'none';
     if (btnNavNextCharger) btnNavNextCharger.style.display = 'none';
+    if (corridorControl) corridorControl.style.display = 'none';
+    if (mapCorridorPill) mapCorridorPill.style.display = 'none';
     const timelineSection = document.getElementById('trip-battery-timeline-section');
     if (timelineSection) timelineSection.style.display = 'none';
     const corridorContainer = document.getElementById('corridor-chargers-list');
@@ -961,8 +968,24 @@ function onRouteStateChange(routeState) {
     if (window.MapEngine && window.MapEngine.renderRoute) {
       window.MapEngine.renderRoute(null);
     }
+    if (window.MapEngine && window.MapEngine.renderChargers) {
+      window.MapEngine.renderChargers();
+    }
     return;
   }
+
+  // Update corridor buffer badges and pill
+  const curBuffer = (routeState && routeState.corridorBufferKm) || (window.RouteEngine ? window.RouteEngine.getCorridorBufferKm() : 5);
+  const bufferText = curBuffer === 'all' ? 'All in View' : `Within ${curBuffer} km`;
+  if (corridorControl) corridorControl.style.display = 'block';
+  if (mapCorridorPill) mapCorridorPill.style.display = 'flex';
+  if (mapCorridorVal) mapCorridorVal.textContent = curBuffer === 'all' ? 'All' : `${curBuffer} km`;
+  if (corridorBufferBadge) corridorBufferBadge.textContent = bufferText;
+
+  document.querySelectorAll('.btn-corridor-dist').forEach(btn => {
+    const d = btn.getAttribute('data-dist');
+    btn.classList.toggle('active', String(d) === String(curBuffer));
+  });
 
   // 1. Render all alternative routes on map with active selected highlight
   const shouldFit = window.__isNewRouteCalculation === true;
@@ -1031,6 +1054,9 @@ function onRouteStateChange(routeState) {
   updateRouteMetrics(route);
   renderTripBatteryTimeline(route);
   renderCorridorChargersList(corridorChargers, waypoints);
+  if (window.MapEngine && window.MapEngine.renderChargers) {
+    window.MapEngine.renderChargers();
+  }
 }
 
 function renderTripBatteryTimeline(route) {
@@ -1435,9 +1461,14 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
       <div class="corridor-card ${isWp ? 'is-waypoint' : ''}">
         <div class="corridor-card-header">
           <span class="popup-badge ${badgeClass}">${netName}</span>
-          <span class="corridor-dist">📍 ~${c.kmFromOrigin} km from start (${c.corridorDistanceKm} km detour)</span>
+          <span class="corridor-detour-pill ${c.corridorDistanceKm <= 0.4 ? 'direct-pill' : 'detour-pill'}">
+            🛣️ ${c.corridorDistanceKm <= 0.4 ? 'Direct on Route' : `${c.corridorDistanceKm} km detour`}
+          </span>
         </div>
         <div class="corridor-card-title">${cleanName}</div>
+        <div class="corridor-route-meta" style="font-size: 0.74rem; color: #94a3b8; margin: 2px 0 4px 0;">
+          📍 ~${c.kmFromOrigin} km along route from origin
+        </div>
         <div class="corridor-card-desc">${c.connector || (c.type === 'FAST' ? '⚡ High-Speed DC Fast Charger' : '🔌 Standard 15A AC Socket')}</div>
         <div class="corridor-card-actions">
           <button class="btn-sm btn-nav" onclick="MapEngine.focusCharger(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">🔍 Show on Map</button>
@@ -1935,5 +1966,49 @@ function checkSharedRouteParams() {
         setTimeout(() => executeBtn.click(), 500);
       }
     }
+  }
+}
+
+// --- Route Corridor Buffer Distance Filter (User-selectable: 2km, 5km, 10km, 15km, 25km, All) ---
+function setupCorridorDistanceSelector() {
+  const chipsContainer = document.getElementById('corridor-dist-chips');
+  const badgeEl = document.getElementById('corridor-buffer-badge');
+  const mapVal = document.getElementById('map-corridor-val');
+  const btnCycle = document.getElementById('btn-cycle-map-corridor');
+
+  const distSequence = ['2', '5', '10', '15', '25', 'all'];
+
+  function applyBuffer(distStr) {
+    if (window.RouteEngine) {
+      window.RouteEngine.setCorridorBufferKm(distStr === 'all' ? 'all' : Number(distStr));
+    }
+    document.querySelectorAll('.btn-corridor-dist').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-dist') === distStr);
+    });
+    const label = distStr === 'all' ? 'All in View' : `Within ${distStr} km`;
+    if (badgeEl) badgeEl.textContent = label;
+    if (mapVal) mapVal.textContent = distStr === 'all' ? 'All' : `${distStr} km`;
+    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+      window.SyncEngine.showAutoUpdateToast(`🛣️ Route buffer set to ${label}`);
+    }
+  }
+
+  if (chipsContainer) {
+    chipsContainer.addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-corridor-dist');
+      if (!btn) return;
+      const distStr = btn.getAttribute('data-dist');
+      applyBuffer(distStr);
+    });
+  }
+
+  if (btnCycle) {
+    btnCycle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const current = window.RouteEngine ? String(window.RouteEngine.getCorridorBufferKm()) : '5';
+      let nextIdx = (distSequence.indexOf(current) + 1) % distSequence.length;
+      if (nextIdx < 0) nextIdx = 1; // default to '5'
+      applyBuffer(distSequence[nextIdx]);
+    });
   }
 }

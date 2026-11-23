@@ -401,6 +401,133 @@ html, body {
   font-weight: 800;
 }
 
+/* Floating Route Corridor Buffer Pill on Map */
+.map-route-corridor-pill {
+  pointer-events: auto;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(11, 15, 25, 0.94);
+  border: 1.5px solid #00B0FF;
+  border-radius: var(--radius-full);
+  padding: 5px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 10px rgba(0, 176, 255, 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: fadeInDown 0.25s ease;
+}
+
+.pill-corridor-icon {
+  font-size: 0.9rem;
+}
+
+.pill-corridor-text {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+.pill-corridor-text strong {
+  color: #00B0FF;
+  font-weight: 900;
+}
+
+.btn-pill-cycle {
+  background: rgba(0, 176, 255, 0.18);
+  border: 1px solid #00B0FF;
+  color: #00B0FF;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: all 0.15s ease;
+}
+
+.btn-pill-cycle:active {
+  transform: scale(0.92);
+  background: #00B0FF;
+  color: #051329;
+}
+
+/* Corridor Buffer Filter Section in Drawer */
+.corridor-buffer-control {
+  background: #0e1524;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.corridor-buffer-sub {
+  font-size: 0.73rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.corridor-dist-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.corridor-dist-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.btn-corridor-dist {
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--border-color);
+  background: #151e2e;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: manipulation;
+  transition: all 0.2s ease;
+}
+
+.btn-corridor-dist.active {
+  background: rgba(0, 176, 255, 0.18);
+  border-color: #00B0FF;
+  color: #00B0FF;
+  box-shadow: 0 0 10px rgba(0, 176, 255, 0.3);
+}
+
+.btn-corridor-dist:active {
+  transform: scale(0.94);
+}
+
+/* Detour Pill in Corridor Cards */
+.corridor-detour-pill {
+  font-size: 0.70rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.corridor-detour-pill.direct-pill {
+  background: rgba(0, 230, 118, 0.15);
+  border: 1px solid #00E676;
+  color: #00E676;
+}
+
+.corridor-detour-pill.detour-pill {
+  background: rgba(0, 176, 255, 0.15);
+  border: 1px solid #00B0FF;
+  color: #00B0FF;
+}
+
 /* --- Map Viewport (Bright Daylight OpenStreetMap) --- */
 #map {
   flex: 1;

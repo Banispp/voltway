@@ -254,43 +254,61 @@ const MapEngine = (function () {
     const zoom = map.getZoom();
     const bounds = map.getBounds().pad(0.18); // 18% margin around screen
 
-    // 1. Filter by active filter chips first
-    const activeCandidates = [];
-    for (let i = 0; i < chargers.length; i++) {
-      const c = chargers[i];
-      if (c.network === 'ATHER_GRID' && !filters.atherFast) continue;
-      if (c.network === 'VIDA_GRID' && !filters.vidaFast) continue;
-      if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) continue;
-      if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) continue;
-      activeCandidates.push(c);
-    }
+    const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+    const corridorBuffer = window.RouteEngine ? window.RouteEngine.getCorridorBufferKm() : 5;
+    const isCorridorActive = Boolean(activeRoute && corridorBuffer !== 'all');
 
-    // 2. High-Performance Viewport Marker Culling (FAST CHARGERS ALWAYS PRIORITIZED 100%)
     let visibleChargers = [];
-    const inBounds = activeCandidates.filter(c => bounds.contains([c.lat, c.lng]));
 
-    // ALWAYS include ALL Fast Chargers (Ather Grid, Hero VIDA Fast, Bolt Fast) in the viewport!
-    const fastInBounds = inBounds.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID');
-    const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID' && c.network !== 'VIDA_GRID');
+    if (isCorridorActive) {
+      // WHEN ROUTE IS ACTIVE: Only render chargers strictly within the route corridor buffer!
+      const corridorChargers = (window.RouteEngine && window.RouteEngine.getCorridorChargers()) || [];
+      const inBounds = corridorChargers.filter(c => bounds.contains([c.lat, c.lng]));
 
-    if (zoom < 8) {
-      // National level: Show up to 350 Fast Chargers
-      const step = Math.max(1, Math.floor(fastInBounds.length / 350));
-      for (let i = 0; i < fastInBounds.length; i += step) {
-        visibleChargers.push(fastInBounds[i]);
+      for (let i = 0; i < inBounds.length; i++) {
+        const c = inBounds[i];
+        if (c.network === 'ATHER_GRID' && !filters.atherFast) continue;
+        if (c.network === 'VIDA_GRID' && !filters.vidaFast) continue;
+        if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) continue;
+        if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) continue;
+        visibleChargers.push(c);
       }
     } else {
-      // Regional & City level (Zoom >= 8): Show 100% of all Fast Chargers!
-      visibleChargers.push(...fastInBounds);
+      // WHEN NO ROUTE IS ACTIVE (OR 'ALL' SELECTED): High-Performance Viewport Marker Culling
+      // 1. Filter by active filter chips first
+      const activeCandidates = [];
+      for (let i = 0; i < chargers.length; i++) {
+        const c = chargers[i];
+        if (c.network === 'ATHER_GRID' && !filters.atherFast) continue;
+        if (c.network === 'VIDA_GRID' && !filters.vidaFast) continue;
+        if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) continue;
+        if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) continue;
+        activeCandidates.push(c);
+      }
 
-      // Fill remaining slots with 15A slow sockets up to 850 total markers
-      const remainingSlots = Math.max(0, 850 - visibleChargers.length);
-      if (slowInBounds.length <= remainingSlots) {
-        visibleChargers.push(...slowInBounds);
+      // 2. High-Performance Viewport Marker Culling (Capped to 100-120 markers on mobile to prevent freezing)
+      const inBounds = activeCandidates.filter(c => bounds.contains([c.lat, c.lng]));
+      const fastInBounds = inBounds.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID');
+      const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID' && c.network !== 'VIDA_GRID');
+
+      if (zoom < 8) {
+        const step = Math.max(1, Math.floor(fastInBounds.length / 50));
+        for (let i = 0; i < fastInBounds.length && visibleChargers.length < 50; i += step) {
+          visibleChargers.push(fastInBounds[i]);
+        }
       } else {
-        const step = Math.max(1, Math.floor(slowInBounds.length / remainingSlots));
-        for (let i = 0; i < slowInBounds.length && visibleChargers.length < 850; i += step) {
-          visibleChargers.push(slowInBounds[i]);
+        // Show up to 60 Fast Chargers in viewport
+        visibleChargers.push(...fastInBounds.slice(0, 60));
+
+        // Fill remaining slots with 15A slow sockets up to 120 total markers (eliminates mobile freeze/lag)
+        const remainingSlots = Math.max(0, 120 - visibleChargers.length);
+        if (slowInBounds.length <= remainingSlots) {
+          visibleChargers.push(...slowInBounds);
+        } else {
+          const step = Math.max(1, Math.floor(slowInBounds.length / remainingSlots));
+          for (let i = 0; i < slowInBounds.length && visibleChargers.length < 120; i += step) {
+            visibleChargers.push(slowInBounds[i]);
+          }
         }
       }
     }
@@ -305,7 +323,7 @@ const MapEngine = (function () {
 
     // Ensure currently open popup marker is NEVER dropped from visible chargers
     if (activePopupChargerId && !visibleChargers.some(c => c.id === activePopupChargerId)) {
-      const activeC = chargers.find(c => c.id === activePopupChargerId);
+      const activeC = chargers.find(c => c.id === activePopupChargerId) || ((window.RouteEngine && window.RouteEngine.getCorridorChargers()) || []).find(c => c.id === activePopupChargerId);
       if (activeC) visibleChargers.push(activeC);
     }
 
@@ -313,7 +331,9 @@ const MapEngine = (function () {
     const activeRouteWaypoints = (window.RouteEngine && window.RouteEngine.getActiveRoute() && window.RouteEngine.getActiveRoute().waypoints) || [];
     const activeWpIds = new Set(activeRouteWaypoints.map(w => w.id));
 
-    // 3. Diffing: Remove only markers that have physically moved OUTSIDE the bounds or whose filter is off
+    const newVisibleIds = new Set(visibleChargers.map(c => c.id));
+
+    // 3. Diffing: Remove markers that have moved outside bounds, whose filter is off, or outside active corridor
     for (const [id, marker] of markerMap.entries()) {
       const c = marker._chargerData;
       if (c) {
@@ -324,6 +344,11 @@ const MapEngine = (function () {
       }
       if (id === activePopupChargerId) continue; // Never destroy active popup marker!
       if (activeWpIds.has(id)) {
+        markersLayer.removeLayer(marker);
+        markerMap.delete(id);
+        continue;
+      }
+      if (isCorridorActive && !newVisibleIds.has(id)) {
         markersLayer.removeLayer(marker);
         markerMap.delete(id);
         continue;
@@ -396,6 +421,36 @@ const MapEngine = (function () {
 
     const isAtherGun = isFast || charger.is_ather_gun;
 
+    // Check distance to active route if route is planned
+    const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+    let routeDistanceHtml = '';
+    if (activeRoute && window.RouteEngine.getDistanceToActiveRoute) {
+      const distFromRoute = window.RouteEngine.getDistanceToActiveRoute(charger.lat, charger.lng);
+      if (distFromRoute !== null) {
+        const isHighway = distFromRoute <= 0.4;
+        const distColor = isHighway ? '#00e676' : (distFromRoute <= 3.0 ? '#38bdf8' : '#ffb703');
+        const distBg = isHighway ? 'rgba(0, 230, 118, 0.15)' : (distFromRoute <= 3.0 ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 183, 3, 0.15)');
+        const labelText = isHighway ? '⚡ Direct on Highway Route' : `⚡ ${distFromRoute} km Detour from Main Route`;
+        
+        let kmStart = '';
+        if (charger.kmFromOrigin != null) {
+          kmStart = ` • 📍 ~${charger.kmFromOrigin} km from Start`;
+        }
+
+        routeDistanceHtml = `
+          <div class="popup-route-detour-badge" style="background: ${distBg}; border: 1.5px solid ${distColor}; border-radius: 8px; padding: 7px 10px; margin: 6px 0 4px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 0.74rem; font-weight: 800; color: ${distColor}; text-transform: uppercase; letter-spacing: 0.3px;">🛣️ Distance from Route</span>
+              <span style="font-size: 0.95rem; font-weight: 900; color: #ffffff;">${distFromRoute} km</span>
+            </div>
+            <div style="font-size: 0.72rem; color: #cbd5e1; font-weight: 600; margin-top: 3px;">
+              ${labelText}${kmStart}
+            </div>
+          </div>
+        `;
+      }
+    }
+
     return `
       <div class="popup-card">
         <div class="popup-header">
@@ -403,6 +458,9 @@ const MapEngine = (function () {
           <span class="popup-type">${isVida ? '⚡ Hero VIDA Fast' : (isAther ? '⚡ Ather Grid Fast' : (isFast ? '⚡ Bolt Fast' : '🔌 15A Socket'))}</span>
         </div>
         <div class="popup-title">${isVida ? charger.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : charger.name}</div>
+
+        <!-- Distance from Route Banner (Active Route Deviation) -->
+        ${routeDistanceHtml}
 
         <!-- Fast Charging Compatibility Banner -->
         <div class="popup-ather-compat ${isAtherGun ? 'compat-direct' : 'compat-socket'}">

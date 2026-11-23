@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=5.5">
+  <link rel="stylesheet" href="css/app.css?v=5.6">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -29,7 +29,7 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v5-5-fresh') {
+            if (name !== 'voltway-2w-v5-6-fresh') {
               caches.delete(name);
             }
           });
@@ -97,6 +97,13 @@
           <span>🔌 Bolt 15A</span>
           <span id="count-bolt-slow" class="chip-badge">1,198</span>
         </button>
+      </div>
+
+      <!-- Floating Route Corridor Buffer Pill on Map (Visible when Route is Active) -->
+      <div id="map-route-corridor-pill" class="map-route-corridor-pill" style="display: none;">
+        <span class="pill-corridor-icon">🛣️</span>
+        <span class="pill-corridor-text">Route Corridor: <strong id="map-corridor-val">5 km</strong></span>
+        <button type="button" id="btn-cycle-map-corridor" class="btn-pill-cycle" title="Tap to change route corridor buffer distance">Change ▾</button>
       </div>
     </div>
 
@@ -300,12 +307,26 @@
               </div>
             </div>
 
-            <!-- Discovered Chargers Along Corridor (3-4.5 km) -->
+            <!-- Discovered Chargers Along Corridor with Interactive Distance Filter -->
             <div class="corridor-container">
               <div class="section-title">
                 <span>⚡ 2W Chargers Along Selected Route (<span id="corridor-count">0</span>)</span>
-                <span style="font-size: 0.72rem; color: var(--color-ather);">Within Corridor (~3 - 4.5 km)</span>
+                <span id="corridor-buffer-badge" style="font-size: 0.72rem; color: var(--color-ather); font-weight: 800;">Within 5 km</span>
               </div>
+
+              <!-- Route Corridor Distance Buffer Selector -->
+              <div class="corridor-buffer-control" id="corridor-buffer-control">
+                <div class="corridor-buffer-sub">🛣️ Maximum Detour from Route:</div>
+                <div class="corridor-dist-chips" id="corridor-dist-chips">
+                  <button type="button" class="btn-corridor-dist" data-dist="2">2 km</button>
+                  <button type="button" class="btn-corridor-dist active" data-dist="5">5 km</button>
+                  <button type="button" class="btn-corridor-dist" data-dist="10">10 km</button>
+                  <button type="button" class="btn-corridor-dist" data-dist="15">15 km</button>
+                  <button type="button" class="btn-corridor-dist" data-dist="25">25 km</button>
+                  <button type="button" class="btn-corridor-dist" data-dist="all">All in View</button>
+                </div>
+              </div>
+
               <div id="corridor-chargers-list" class="corridor-chargers-list">
                 <!-- Dynamically populated -->
               </div>
@@ -606,15 +627,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.5"></script>
+  <script src="chargers_db.js?v=5.6"></script>
 
-  <!-- Application Engine Scripts with Version 5.5 Cache Buster -->
-  <script src="js/battery.js?v=5.5"></script>
-  <script src="js/sync.js?v=5.5"></script>
-  <script src="js/navigator.js?v=5.5"></script>
-  <script src="js/router.js?v=5.5"></script>
-  <script src="js/utilities.js?v=5.5"></script>
-  <script src="js/map.js?v=5.5"></script>
-  <script src="js/app.js?v=5.5"></script>
+  <!-- Application Engine Scripts with Version 5.6 Cache Buster -->
+  <script src="js/battery.js?v=5.6"></script>
+  <script src="js/sync.js?v=5.6"></script>
+  <script src="js/navigator.js?v=5.6"></script>
+  <script src="js/router.js?v=5.6"></script>
+  <script src="js/utilities.js?v=5.6"></script>
+  <script src="js/map.js?v=5.6"></script>
+  <script src="js/app.js?v=5.6"></script>
 </body>
 </html>

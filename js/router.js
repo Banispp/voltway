@@ -21,6 +21,9 @@ const RouteEngine = (function () {
     boltSlow: true
   };
 
+  // Route Corridor Buffer Distance in km (User configurable: 2, 5, 10, 15, 25, or 'all')
+  let corridorBufferKm = 5;
+
   // Timeline charging calculation mode: 'optimal' (Fast Travel) vs 'target' (Full Limit)
   let currentTimelineMode = 'optimal';
 
@@ -42,8 +45,53 @@ const RouteEngine = (function () {
       selectedRouteIndex,
       corridorChargers,
       waypoints: intermediateWaypoints,
-      timelineMode: currentTimelineMode
+      timelineMode: currentTimelineMode,
+      corridorBufferKm
     }));
+  }
+
+  function setCorridorBufferKm(km) {
+    if (km === 'all' || km === 0 || km === null) {
+      corridorBufferKm = 'all';
+    } else {
+      corridorBufferKm = Number(km) || 5;
+    }
+    if (activeRoute && activeRoute.coordinates) {
+      findCorridorChargers(activeRoute.coordinates, corridorBufferKm);
+      notify();
+      if (window.MapEngine && window.MapEngine.renderChargers) {
+        window.MapEngine.renderChargers();
+      }
+    }
+  }
+
+  function getCorridorBufferKm() {
+    return corridorBufferKm;
+  }
+
+  /**
+   * Calculates perpendicular distance from a given [lat, lng] to the active route polyline (in km).
+   */
+  function getDistanceToActiveRoute(lat, lng) {
+    if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) return null;
+
+    // Check if charger is already in precomputed corridorChargers
+    const existing = corridorChargers.find(c => Math.abs(c.lat - lat) < 0.0001 && Math.abs(c.lng - lng) < 0.0001);
+    if (existing && existing.corridorDistanceKm != null) {
+      return existing.corridorDistanceKm;
+    }
+
+    const coords = activeRoute.coordinates;
+    const p = [lat, lng];
+    let minDistance = Infinity;
+    for (let s = 0; s < coords.length - 1; s++) {
+      const res = distToSegment(p, coords[s], coords[s + 1]);
+      if (res.distance < minDistance) {
+        minDistance = res.distance;
+      }
+      if (minDistance <= 0.05) break;
+    }
+    return minDistance === Infinity ? null : Math.round(minDistance * 10) / 10;
   }
 
   function setTimelineMode(mode) {
@@ -336,9 +384,9 @@ const RouteEngine = (function () {
       return [];
     }
 
-    const effectiveMaxCorridorKm = (maxCorridorKm != null)
-      ? maxCorridorKm
-      : ((activeRoute && activeRoute.distanceKm > 40) ? 4.5 : 3.0);
+    const requestedBuffer = (maxCorridorKm != null) ? maxCorridorKm : corridorBufferKm;
+    const isAll = requestedBuffer === 'all' || requestedBuffer === 0;
+    const effectiveMaxCorridorKm = isAll ? 50.0 : Number(requestedBuffer || 5);
 
     // Precompute cumulative Haversine distance along route coordinates
     const cumDists = new Float64Array(routeCoords.length);
@@ -365,7 +413,7 @@ const RouteEngine = (function () {
       if (lng > maxLng) maxLng = lng;
     }
 
-    const degBuffer = effectiveMaxCorridorKm > 3 ? 0.065 : 0.04;
+    const degBuffer = effectiveMaxCorridorKm > 15 ? 0.35 : (effectiveMaxCorridorKm > 8 ? 0.2 : (effectiveMaxCorridorKm > 3 ? 0.08 : 0.04));
     minLat -= degBuffer;
     maxLat += degBuffer;
     minLng -= degBuffer;
@@ -919,6 +967,9 @@ const RouteEngine = (function () {
     clearRoute,
     setRouteFilters,
     getRouteFilters,
+    setCorridorBufferKm,
+    getCorridorBufferKm,
+    getDistanceToActiveRoute,
     subscribe,
     getActiveRoute: () => activeRoute,
     getAllRoutes: () => allRoutes,
