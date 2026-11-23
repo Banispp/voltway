@@ -19,9 +19,11 @@
   <!-- Free Leaflet OpenStreetMap Engine -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Leaflet 360 Full Map Rotation & Touch Gestures Plugin -->
+  <script src="js/leaflet-rotate.js?v=5.14"></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=5.13">
+  <link rel="stylesheet" href="css/app.css?v=5.14">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -29,15 +31,15 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v5-13-fresh') {
+            if (name !== 'voltway-2w-v5-14-fresh') {
               caches.delete(name);
             }
           });
         });
       }
       try {
-        if (localStorage.getItem('voltway_installed_ver') !== 'voltway-2w-v5-13-fresh') {
-          localStorage.setItem('voltway_installed_ver', 'voltway-2w-v5-13-fresh');
+        if (localStorage.getItem('voltway_installed_ver') !== 'voltway-2w-v5-14-fresh') {
+          localStorage.setItem('voltway_installed_ver', 'voltway-2w-v5-14-fresh');
           localStorage.setItem('voltway_state_filter', 'all');
         }
       } catch (e) {}
@@ -359,15 +361,15 @@
                   <span class="btn-nav-icon">🗺️</span>
                   <div class="btn-nav-text">
                     <span class="btn-nav-title">Open in Google Maps</span>
-                    <span class="btn-nav-desc">ഗൂഗിൾ മാപ്പിൽ തുറക്കുക</span>
+                    <span class="btn-nav-desc">Launch Turn-by-Turn GPS voice navigation</span>
                   </div>
                   <span class="btn-nav-arrow">↗</span>
                 </button>
                 <button type="button" id="btn-share-route-directions" class="btn-nav-share-link" title="Share route directions via WhatsApp, SMS or copy link">
                   <span class="btn-nav-icon">📤</span>
                   <div class="btn-nav-text">
-                    <span class="btn-nav-title">Share Route</span>
-                    <span class="btn-nav-desc">റൂട്ട് ഷെയർ ചെയ്യുക</span>
+                    <span class="btn-nav-title">Share Route Link</span>
+                    <span class="btn-nav-desc">Send directions via WhatsApp or copy link</span>
                   </div>
                   <span class="btn-nav-arrow">📋</span>
                 </button>
@@ -675,15 +677,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.13"></script>
+  <script src="chargers_db.js?v=5.14"></script>
 
-  <!-- Application Engine Scripts with Version 5.13 Cache Buster -->
-  <script src="js/battery.js?v=5.13"></script>
-  <script src="js/sync.js?v=5.13"></script>
-  <script src="js/navigator.js?v=5.13"></script>
-  <script src="js/router.js?v=5.13"></script>
-  <script src="js/utilities.js?v=5.13"></script>
-  <script src="js/map.js?v=5.13"></script>
-  <script src="js/app.js?v=5.13"></script>
+  <!-- Application Engine Scripts with Version 5.14 Cache Buster -->
+  <script src="js/battery.js?v=5.14"></script>
+  <script src="js/sync.js?v=5.14"></script>
+  <script src="js/navigator.js?v=5.14"></script>
+  <script src="js/router.js?v=5.14"></script>
+  <script src="js/utilities.js?v=5.14"></script>
+  <script src="js/map.js?v=5.14"></script>
+  <script src="js/app.js?v=5.14"></script>
 </body>
 </html>

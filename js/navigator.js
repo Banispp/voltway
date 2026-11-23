@@ -64,17 +64,42 @@ const NavigationEngine = (function () {
   }
 
   /**
+   * Opens an external navigation URL reliably on Android WebView, Capacitor, and mobile browsers
+   */
+  function openExternalUrl(url) {
+    if (!url) return;
+    console.log('[VoltWay Nav] Opening URL:', url);
+    const isAndroid = /android/i.test(navigator.userAgent);
+    const isCapacitor = Boolean(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+    if (isAndroid || isCapacitor) {
+      // In Android WebView / Capacitor, setting window.location.href triggers the Android OS Intent resolver
+      // which directly opens the native Google Maps app instead of getting blocked as a popup
+      window.location.href = url;
+      return;
+    }
+
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!win || win.closed || typeof win.closed === 'undefined') {
+      window.location.href = url;
+    }
+  }
+
+  /**
    * Launch native Google Maps app with full multi-stop route
    */
   function startFullTrip(origin, destination, waypoints = []) {
     const url = buildMultiStopGoogleMapsUrl(origin, destination, waypoints);
     if (!url) {
-      alert('Please set both origin and destination before starting navigation.');
+      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast('⚠️ Please set origin and destination first.');
+      } else {
+        alert('Please set both origin and destination before starting navigation.');
+      }
       return;
     }
     console.log('[VoltWay Nav] Launching Multi-stop Google Maps URL:', url);
-    // On Android, window.open or window.location with this universal link opens native Google Maps app
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openExternalUrl(url);
   }
 
   /**
@@ -82,12 +107,16 @@ const NavigationEngine = (function () {
    */
   function navigateToNextCharger(nextCharger, currentPosition = null) {
     if (!nextCharger) {
-      alert('No next charger waypoint available.');
+      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast('⚠️ No next charger waypoint available.');
+      } else {
+        alert('No next charger waypoint available.');
+      }
       return;
     }
     const url = buildSingleStopGoogleMapsUrl(nextCharger, currentPosition);
     console.log('[VoltWay Nav] Navigating to next charger:', nextCharger.name, url);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openExternalUrl(url);
   }
 
   /**
@@ -95,7 +124,9 @@ const NavigationEngine = (function () {
    */
   function copyRouteLink(origin, destination, waypoints = []) {
     const url = buildMultiStopGoogleMapsUrl(origin, destination, waypoints);
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+    if (window.Utilities && window.Utilities.copyToClipboard) {
+      window.Utilities.copyToClipboard(url, '📋 Google Maps navigation link copied!');
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(url).then(() => {
         alert('Route navigation link copied to clipboard!');
       }).catch(() => {

@@ -52,9 +52,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.13-release
-          name: "VoltWay 2W Android APK v5.13 (11,443 Pan-India 2W Chargers, 7,260 Bolt.Earth Stations & Unclustered Precision)"
-          body: "VoltWay 2W v5.13: Full nationwide coverage of Bolt.Earth with 7,260 stations (550 Fast, 6,710 Slow 15A sockets), expanding the unified 2-wheeler EV database to 11,443 stations across India (3,572 Ather Grid, 611 Hero VIDA Grid, 7,260 Bolt.Earth); unclustered with zoom 18 high-resolution precision; Nearby Rider Amenities (< 200m) with 1-tap Google Maps search on all route stops and corridor chargers."
+          tag_name: v5.14-release
+          name: "VoltWay 2W Android APK v5.14 (360° Map Rotation, Mobile Nav Action Redesign, Zero Malayalam UI Text)"
+          body: "VoltWay 2W v5.14: Google Maps-style 360-degree full map rotation with two-finger touch gestures, rotating compass needle, and heading-up turn guidance in Drive Mode; redesigned mobile-first stacked secondary navigation buttons (Open in Google Maps & Share Route) with touch-friendly layout and direct Android intent execution; zero Malayalam text across all UI components; 11,443 verified pan-India 2W chargers."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

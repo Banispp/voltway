@@ -549,6 +549,51 @@ const Utilities = (function () {
     `;
   }
 
+  /**
+   * Universal Mobile & WebView Clipboard Copy Utility
+   */
+  async function copyToClipboard(text, successToast = 'Copied to clipboard!') {
+    if (!text) return false;
+    let success = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      }
+    } catch (err) {
+      console.warn('[VoltWay Utilities] navigator.clipboard fallback:', err);
+    }
+
+    if (!success) {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        textarea.setAttribute('readonly', '');
+        document.body.appendChild(textarea);
+        textarea.select();
+        textarea.setSelectionRange(0, 99999);
+        success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+      } catch (e) {
+        console.warn('[VoltWay Utilities] execCommand fallback failed:', e);
+      }
+    }
+
+    if (success) {
+      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast(successToast);
+      } else {
+        alert(successToast);
+      }
+    } else {
+      prompt('Copy link:', text);
+    }
+    return success;
+  }
+
   return {
     haversine,
     findNearestChargers,
@@ -560,8 +605,10 @@ const Utilities = (function () {
     resolveLocationInput,
     getLocalPlaces,
     renderAmenitiesHtml,
+    copyToClipboard,
     POPULAR_INDIAN_PLACES
   };
 })();
 
 window.Utilities = Utilities;
+window.copyTextToClipboard = Utilities.copyToClipboard;

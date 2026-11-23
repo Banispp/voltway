@@ -1106,6 +1106,9 @@ const DriveEngine = (function () {
       window.MapEngine.setAutoFollow(false);
       const m = window.MapEngine.getMap();
       if (m) {
+        if (typeof m.setBearing === 'function') {
+          m.setBearing(0);
+        }
         setTimeout(() => m.invalidateSize(), 100);
       }
       const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
@@ -2550,7 +2553,11 @@ function setupDriveModeControls() {
     btnOpenGmaps.addEventListener('click', () => {
       const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
       if (!activeRoute) {
-        alert('Please plan a route first.');
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('⚠️ Please plan a route first!');
+        } else {
+          alert('Please plan a route first.');
+        }
         return;
       }
       const origin = RouteEngine.getOrigin();
@@ -2570,7 +2577,11 @@ function setupDriveModeControls() {
     btnShareRoute.addEventListener('click', async () => {
       const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
       if (!activeRoute) {
-        alert('Please plan a route first.');
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('⚠️ Please plan a route first!');
+        } else {
+          alert('Please plan a route first.');
+        }
         return;
       }
       const origin = RouteEngine.getOrigin();
@@ -2583,10 +2594,18 @@ function setupDriveModeControls() {
         ? window.NavigationEngine.buildMultiStopGoogleMapsUrl(origin, destination, allStops)
         : '';
 
+      if (!gmapsUrl) {
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('⚠️ No route waypoints found');
+        }
+        return;
+      }
+
       const startName = origin?.name || 'Current Location';
       const destName = destination?.name || 'Destination';
-      const shareText = `VoltWay 2W EV Route Plan:\n📍 From: ${startName}\n🏁 To: ${destName}\n⚡ Total Charging Stops: ${allStops.length}\n🗺️ Open in Google Maps:\n${gmapsUrl}`;
+      const shareText = `VoltWay 2W EV Route Plan:\n📍 From: ${startName}\n🏁 To: ${destName}\n⚡ Charging Stops: ${allStops.length}\n🗺️ Google Maps Directions:\n${gmapsUrl}`;
 
+      let shared = false;
       if (navigator.share) {
         try {
           await navigator.share({
@@ -2594,13 +2613,19 @@ function setupDriveModeControls() {
             text: shareText,
             url: gmapsUrl
           });
+          shared = true;
+          return;
         } catch (e) {
-          if (e.name !== 'AbortError') {
-            await copyTextToClipboard(gmapsUrl, 'Google Maps route directions copied to clipboard!');
-          }
+          if (e.name === 'AbortError') return; // User closed sheet
         }
-      } else {
-        await copyTextToClipboard(gmapsUrl, 'Google Maps route directions copied to clipboard!');
+      }
+
+      if (!shared) {
+        if (window.Utilities && window.Utilities.copyToClipboard) {
+          await window.Utilities.copyToClipboard(gmapsUrl, '📋 Google Maps route directions copied!');
+        } else if (typeof window.copyTextToClipboard === 'function') {
+          await window.copyTextToClipboard(gmapsUrl, '📋 Google Maps route directions copied!');
+        }
       }
     });
   }

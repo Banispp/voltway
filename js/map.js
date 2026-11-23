@@ -67,7 +67,14 @@ const MapEngine = (function () {
       zoom: defaultZoom,
       zoomControl: false,
       attributionControl: false,
-      preferCanvas: true
+      preferCanvas: true,
+      rotate: true,
+      touchRotate: true,
+      rotateControl: {
+        position: 'topright',
+        closeOnZeroBearing: false
+      },
+      bearing: 0
     });
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -914,6 +921,11 @@ const MapEngine = (function () {
         if (Math.abs(diff) > 0.5) {
           userHeading = (userHeading + diff * 0.35 + 360) % 360;
           updatePuckHeading(userHeading);
+
+          // If in active drive guidance mode and auto-follow is on, align map heading smoothly
+          if (isAutoFollow && window.DriveEngine && window.DriveEngine.isActive() && map && typeof map.setBearing === 'function') {
+            map.setBearing(userHeading);
+          }
         }
       }
     };
@@ -1046,6 +1058,9 @@ const MapEngine = (function () {
       updateUserPuck(lat, lng, accuracy, userHeading);
 
       if (isAutoFollow && map) {
+        if (window.DriveEngine && window.DriveEngine.isActive() && typeof map.setBearing === 'function' && userHeading != null) {
+          map.setBearing(userHeading);
+        }
         map.panTo([lat, lng], { animate: true, duration: 0.6 });
       }
 
@@ -1248,6 +1263,12 @@ const MapEngine = (function () {
     isPopupOpen: () => Boolean(activePopupChargerId),
     getUserCoords: () => userCoords,
     getMap: () => map,
+    getBearing: () => (map && typeof map.getBearing === 'function' ? map.getBearing() : 0),
+    setBearing: (deg) => {
+      if (map && typeof map.setBearing === 'function') {
+        map.setBearing(deg);
+      }
+    },
     handleNavigateToCharger,
     handleAddWaypoint,
     handleRemoveWaypoint,
