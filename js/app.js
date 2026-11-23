@@ -6,6 +6,18 @@
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('[VoltWay 2W] Bootstrapping Application...');
 
+  // Pre-cache all frequently used DOM elements (eliminates 100+ repeated getElementById calls)
+  const EL = {
+    map: document.getElementById('map'),
+    bottomSheet: document.getElementById('bottom-sheet'),
+    sheetHandleBar: document.getElementById('sheet-handle-bar'),
+    btnToggleDrawer: document.getElementById('btn-toggle-drawer'),
+    searchInput: document.getElementById('search-input'),
+    searchDropdown: document.getElementById('search-dropdown'),
+    btnInstall: document.getElementById('btn-install-app'),
+    btnForceRefresh: document.getElementById('btn-force-refresh'),
+  };
+
   // 1. Initialize Map
   const map = MapEngine.initMap('map');
 
@@ -54,7 +66,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.4')
+      navigator.serviceWorker.register('./sw.js?v=5.5')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -1594,18 +1606,18 @@ function setupSearchAutocomplete() {
   const resultsContainer = document.getElementById('search-dropdown');
   if (!searchInput || !resultsContainer) return;
 
-  let debounceTimer = null;
+  let searchDebounceTimer = null;
 
   searchInput.addEventListener('input', () => {
-    clearTimeout(debounceTimer);
-    const query = searchInput.value.trim();
-    if (query.length < 2) {
-      resultsContainer.style.display = 'none';
-      resultsContainer.innerHTML = '';
-      return;
-    }
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(async () => {
+      const query = searchInput.value.trim();
+      if (query.length < 2) {
+        resultsContainer.style.display = 'none';
+        resultsContainer.innerHTML = '';
+        return;
+      }
 
-    debounceTimer = setTimeout(async () => {
       // 1. Search in local chargers by name/address first
       const allChargers = SyncEngine.getChargers();
       const lowerQuery = query.toLowerCase();
@@ -1617,7 +1629,7 @@ function setupSearchAutocomplete() {
       const osmMatches = await Utilities.searchPlace(query);
 
       renderSearchResults(localMatches, osmMatches);
-    }, 350);
+    }, 220);
   });
 
   // Hide dropdown when clicking outside

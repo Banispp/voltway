@@ -94,8 +94,13 @@ const MapEngine = (function () {
 
   /**
    * Custom HTML Pin Icons with Crisp Vector SVGs (Fixes broken question marks / corrupted symbols)
+   * Uses an icon cache so identical network+type icons are only created once.
    */
+  const _iconCache = {};
   function createPinIcon(charger) {
+    const key = `${charger.network}_${charger.type}`;
+    if (_iconCache[key]) return _iconCache[key];
+
     let pinClass = 'pin-ather';
     let iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
     let label = 'Ather Fast';
@@ -130,13 +135,15 @@ const MapEngine = (function () {
       </div>
     `;
 
-    return L.divIcon({
+    const icon = L.divIcon({
       className: 'custom-pin-container',
       html: html,
       iconSize: [52, 48],
       iconAnchor: [26, 38],
       popupAnchor: [0, -36]
     });
+    _iconCache[key] = icon;
+    return icon;
   }
 
   /**
@@ -342,7 +349,7 @@ const MapEngine = (function () {
       marker.bindPopup(() => createChargerPopupHtml(charger), {
         maxWidth: 320,
         className: 'charger-popup',
-        autoPanPadding: [20, 20]
+        autoPan: false,   // prevents Leaflet moveend trigger on popup open (eliminates flicker)
       });
 
       marker.on('popupopen', () => {
@@ -873,7 +880,7 @@ const MapEngine = (function () {
       marker.bindPopup(() => createChargerPopupHtml(charger), {
         maxWidth: 320,
         className: 'charger-popup',
-        autoPanPadding: [20, 20]
+        autoPan: false,   // prevents Leaflet moveend trigger on popup open (eliminates flicker)
       });
       marker.on('popupopen', () => { activePopupChargerId = charger.id; });
       marker.on('popupclose', () => { if (activePopupChargerId === charger.id) activePopupChargerId = null; });

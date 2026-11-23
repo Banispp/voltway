@@ -130,6 +130,14 @@ const SyncEngine = (function () {
   async function checkAndSyncRemoteUpdates() {
     if (!navigator.onLine) return { added: 0, removed: 0 };
 
+    // 6-hour freshness gate: skip auto-sync if data was synced recently
+    const lastSync = localStorage.getItem('voltway_last_sync');
+    const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
+    if (lastSync && new Date(lastSync).getTime() > sixHoursAgo) {
+      console.log('[VoltWay Sync] Chargers are fresh (synced within 6h). Skipping auto-sync.');
+      return { added: 0, removed: 0 };
+    }
+
     try {
       console.log('[VoltWay Sync] Auto-reconciling Ather & Bolt chargers in background...');
       const resp = await fetch('chargers_db.json?v=' + Date.now(), { cache: 'no-store' });
@@ -265,7 +273,13 @@ const SyncEngine = (function () {
     const url = `https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom=${south}&lng_right=${east}&lat_top=${north}&lng_left=${west}&zoom=16`;
 
     try {
-      const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      });
+      clearTimeout(abortTimer);
       if (!resp.ok) return [];
       const res = await resp.json();
       const items = res.data || [];

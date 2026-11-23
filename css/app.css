@@ -53,6 +53,9 @@ html, body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   user-select: none;
+  /* OPT-6: Crisper text on OLED; reduces CPU text-rendering cost */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeSpeed;
 }
 
 #app-container {
@@ -147,6 +150,7 @@ html, body {
   gap: 5px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   transition: all 0.2s ease;
+  touch-action: manipulation; /* OPT-5: eliminates 300ms tap delay on Android */
 }
 
 .btn-header-action:hover {
@@ -175,12 +179,16 @@ html, body {
 }
 
 .btn-sync-header {
-  background: rgba(0, 230, 118, 0.14) !important;
-  border: 1.5px solid #00e676 !important;
-  color: #00e676 !important;
-  font-weight: 800 !important;
-  padding: 6px 12px !important;
   box-shadow: 0 0 12px rgba(0, 230, 118, 0.2);
+}
+
+/* OPT-4: Proper specificity instead of !important cascade fights */
+.header-actions .btn-sync-header {
+  background: rgba(0, 230, 118, 0.14);
+  border: 1.5px solid #00e676;
+  color: #00e676;
+  font-weight: 800;
+  padding: 6px 12px;
 }
 
 .live-status-dot {
@@ -269,6 +277,7 @@ html, body {
   border-radius: var(--radius-md);
   max-height: 280px;
   overflow-y: auto;
+  scroll-behavior: smooth;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   display: none;
   z-index: 1002;
@@ -339,6 +348,7 @@ html, body {
   white-space: nowrap;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
   transition: all 0.2s ease;
+  touch-action: manipulation; /* OPT-5: eliminates 300ms tap delay on Android */
 }
 
 .filter-chip.active {
@@ -419,6 +429,8 @@ html, body {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
   z-index: 998;
   transition: transform 0.2s, bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform; /* OPT-1: GPU pre-composite, eliminates paint jank */
+  touch-action: manipulation; /* OPT-5: eliminates 300ms tap delay on Android */
 }
 
 .btn-float-gps:active {
@@ -429,6 +441,7 @@ html, body {
 .custom-pin-container {
   background: transparent;
   border: none;
+  transform: translateZ(0); /* OPT-2: force GPU layer for most-touched DOM elements */
 }
 
 .custom-pin {
@@ -437,11 +450,13 @@ html, body {
   align-items: center;
   cursor: pointer;
   transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transform: translateZ(0); /* OPT-2: force GPU layer for most-touched DOM elements */
 }
 
 .custom-pin:hover {
   transform: scale(1.15) translateY(-4px);
   z-index: 1000;
+  will-change: transform; /* OPT-1: GPU pre-composite on hover */
 }
 
 .pin-badge {
@@ -551,8 +566,8 @@ html, body {
   top: 14px;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 28px;
-  height: 28px;
+  width: 24px;  /* OPT-7: fixed size, scale via transform only — no layout thrash */
+  height: 24px; /* OPT-7: fixed size, scale via transform only — no layout thrash */
   border-radius: 50%;
   border: 2px solid var(--brand-color, #00E676);
   background: var(--brand-glow, rgba(0, 230, 118, 0.4));
@@ -560,25 +575,17 @@ html, body {
   pointer-events: none;
   animation: beacon-wave 2.2s cubic-bezier(0.1, 0.4, 0.8, 1) infinite;
   z-index: 1;
+  will-change: transform; /* OPT-1: GPU pre-composite, eliminates paint jank */
 }
 
 .beacon-pulse-ring.delay {
   animation-delay: 1.1s;
 }
 
+/* OPT-7: Use transform:scale() only — eliminates width/height layout thrash */
 @keyframes beacon-wave {
-  0% {
-    width: 24px;
-    height: 24px;
-    opacity: 0.95;
-    box-shadow: 0 0 10px var(--brand-color, #00E676);
-  }
-  100% {
-    width: 76px;
-    height: 76px;
-    opacity: 0;
-    border-width: 1px;
-  }
+  0%  { transform: translate(-50%, -50%) scale(0.3); opacity: 0.9; }
+  100%{ transform: translate(-50%, -50%) scale(3);   opacity: 0;   }
 }
 
 /* Main Highlighted Stop Pin Badge */
@@ -594,6 +601,7 @@ html, body {
   padding: 3px 8px 3px 5px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.8), 0 0 16px var(--brand-glow, rgba(0, 230, 118, 0.5));
   transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  will-change: transform; /* OPT-1: GPU pre-composite, eliminates paint jank */
 }
 
 .highlight-stop-container:hover .highlight-stop-pin,
@@ -715,6 +723,7 @@ html, body {
   gap: 8px;
   min-width: 250px;
   max-width: 320px;
+  contain: layout style;
 }
 
 .popup-header {
@@ -819,6 +828,7 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 4px;
+  touch-action: manipulation; /* OPT-5: eliminates 300ms tap delay on Android */
 }
 
 .btn-popup-waypoint {
@@ -834,6 +844,7 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 4px;
+  touch-action: manipulation; /* OPT-5: eliminates 300ms tap delay on Android */
 }
 
 /* --- Slide-Up Bottom Sheet (OLED Dark Mode) --- */
@@ -853,6 +864,7 @@ html, body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   touch-action: pan-y;
+  will-change: transform;
 }
 
 .bottom-sheet.collapsed {
@@ -917,6 +929,7 @@ html, body {
   gap: 5px;
   transition: all 0.2s;
   min-height: 44px;
+  touch-action: manipulation;
 }
 
 .tab-btn.active {
@@ -938,12 +951,16 @@ html, body {
   gap: 14px;
   max-height: calc(85vh - 90px);
   background: #0b0f19;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  contain: layout style;
 }
 
 .tab-pane {
   display: none;
   flex-direction: column;
   gap: 14px;
+  contain: layout style;
 }
 
 .tab-pane.active {
@@ -1017,6 +1034,7 @@ html, body {
   box-shadow: 0 4px 14px rgba(0, 168, 68, 0.3);
   transition: all 0.2s;
   flex: 1;
+  touch-action: manipulation;
 }
 
 .btn-primary-action:hover {
@@ -2873,6 +2891,7 @@ html, body {
     max-height: 260px;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
     padding-right: 4px;
   }
 
@@ -2918,4 +2937,18 @@ html, body {
   .header-actions {
     gap: 3px;
   }
+}
+
+/* Skeleton Loading Shimmer Placeholder */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton-block {
+  background: linear-gradient(90deg, #151e2e 25%, #1e293b 50%, #151e2e 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+  will-change: background-position;
 }
