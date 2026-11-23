@@ -163,7 +163,6 @@ const SyncEngine = (function () {
 
   function reconcileChargers(authoritativeList) {
     if (!Array.isArray(authoritativeList) || authoritativeList.length === 0) return { added: 0, removed: 0 };
-    authoritativeList = authoritativeList.filter(c => isTargetSouthRegion(c.name, c.address, c.lat, c.lng));
 
     const remoteMap = new Map();
     authoritativeList.forEach(c => {

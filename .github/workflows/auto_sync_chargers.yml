@@ -27,6 +27,9 @@ jobs:
       - name: Fetch Latest Bolt.Earth Chargers
         run: python scripts/download_bolt.py
 
+      - name: Fetch Latest Hero VIDA Fast Chargers
+        run: python scripts/download_vida.py
+
       - name: Consolidate Database Bundles
         run: python scripts/merge_and_update.py
 
@@ -38,6 +41,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No new chargers detected today. Database is already up to date!"
           else
-            git commit -m "Auto-Sync: Added newly detected Ather & Bolt chargers [skip ci]"
+            git commit -m "Auto-Sync: Added newly detected Ather, VIDA & Bolt chargers [skip ci]"
             git push
           fi
