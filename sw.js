@@ -1,20 +1,20 @@
-// VoltWay 2W Service Worker - Version 5.8 (South India 2W: Ather + Hero VIDA + Bolt 2W)
+// VoltWay 2W Service Worker - Version 5.9 (South India 2W: Ather + Hero VIDA + Bolt 2W)
 // Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v5-8-fresh';
+const CACHE_NAME = 'voltway-2w-v5-9-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css?v=5.8',
-  './js/app.js?v=5.8',
-  './js/map.js?v=5.8',
-  './js/router.js?v=5.8',
-  './js/battery.js?v=5.8',
-  './js/navigator.js?v=5.8',
-  './js/sync.js?v=5.8',
-  './js/utilities.js?v=5.8',
-  './chargers_db.js?v=5.8',
+  './css/app.css?v=5.9',
+  './js/app.js?v=5.9',
+  './js/map.js?v=5.9',
+  './js/router.js?v=5.9',
+  './js/battery.js?v=5.9',
+  './js/navigator.js?v=5.9',
+  './js/sync.js?v=5.9',
+  './js/utilities.js?v=5.9',
+  './chargers_db.js?v=5.9',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -27,7 +27,7 @@ const ASSETS_TO_CACHE = [
 
 // Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
-  console.log('[VoltWay SW] Installing fresh v5.8 service worker...');
+  console.log('[VoltWay SW] Installing fresh v5.9 service worker...');
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {

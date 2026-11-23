@@ -69,7 +69,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.8')
+      navigator.serviceWorker.register('./sw.js?v=5.9')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -565,6 +565,28 @@ let originPoint = null;
 let destinationPoint = null;
 let intermediateCustomStops = []; // Array of { id, name, lat, lng, isCustomStop: true }
 
+// --- Mobile Clipboard Helper ---
+async function handleClipboardPaste(targetInput, onPasted) {
+  if (!targetInput) return;
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.trim()) {
+        targetInput.value = text.trim();
+        if (onPasted) await onPasted(text.trim());
+        return;
+      }
+    } catch (e) {
+      console.warn('[VoltWay] Clipboard access note:', e);
+    }
+  }
+  targetInput.focus();
+  targetInput.select();
+  if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+    window.SyncEngine.showAutoUpdateToast('📋 Long-press inside the box to paste');
+  }
+}
+
 function renderIntermediateStops() {
   const container = document.getElementById('intermediate-stops-list');
   if (!container) return;
@@ -584,13 +606,36 @@ function renderIntermediateStops() {
         </div>
       </div>
       <div class="autocomplete-wrapper">
-        <input type="text" class="input-text input-stop-text" placeholder="Intermediate stop or city..." value="${stop.name || ''}" autocomplete="off">
+        <div class="input-row">
+          <input type="text" class="input-text input-stop-text" placeholder="Intermediate stop, town, or paste link..." value="${stop.name || ''}" autocomplete="off">
+          <button type="button" class="btn-addon btn-paste-addon btn-paste-stop" title="Paste location link">📋</button>
+        </div>
         <div class="autocomplete-dropdown"></div>
       </div>
     `;
 
     const inputEl = row.querySelector('.input-stop-text');
     const dropdownEl = row.querySelector('.autocomplete-dropdown');
+    const btnPasteStop = row.querySelector('.btn-paste-stop');
+
+    if (btnPasteStop) {
+      btnPasteStop.addEventListener('click', async () => {
+        await handleClipboardPaste(inputEl, async (val) => {
+          const resolved = await Utilities.resolveLocationInput(val);
+          if (resolved) {
+            stop.lat = resolved.lat;
+            stop.lng = resolved.lng;
+            stop.name = resolved.name;
+            inputEl.value = resolved.name;
+            const map = MapEngine.getMap();
+            if (map) map.setView([resolved.lat, resolved.lng], 13, { animate: true });
+            if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+              window.SyncEngine.showAutoUpdateToast(`📍 Stop ${charCode}: ${resolved.name}`);
+            }
+          }
+        });
+      });
+    }
 
     // Attach autocomplete
     attachLocationAutocomplete(inputEl, dropdownEl, (point) => {
@@ -686,12 +731,48 @@ function setupRoutePlanner() {
     if (map) map.setView([point.lat, point.lng], 14, { animate: true });
   });
 
+  const btnPasteOrigin = document.getElementById('btn-paste-origin');
+  if (btnPasteOrigin && originInput) {
+    btnPasteOrigin.addEventListener('click', async () => {
+      await handleClipboardPaste(originInput, async (val) => {
+        const resolved = await Utilities.resolveLocationInput(val);
+        if (resolved) {
+          originInput.value = resolved.name;
+          originPoint = resolved;
+          const map = MapEngine.getMap();
+          if (map) map.setView([resolved.lat, resolved.lng], 14, { animate: true });
+          if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+            window.SyncEngine.showAutoUpdateToast(`🚩 Starting Point: ${resolved.name}`);
+          }
+        }
+      });
+    });
+  }
+
   // Attach rich autocomplete to Final Destination (D)
   attachLocationAutocomplete(destInput, document.getElementById('dest-suggestions'), (point) => {
     destinationPoint = point;
     const map = MapEngine.getMap();
     if (map) map.setView([point.lat, point.lng], 14, { animate: true });
   });
+
+  const btnPasteDest = document.getElementById('btn-paste-dest');
+  if (btnPasteDest && destInput) {
+    btnPasteDest.addEventListener('click', async () => {
+      await handleClipboardPaste(destInput, async (val) => {
+        const resolved = await Utilities.resolveLocationInput(val);
+        if (resolved) {
+          destInput.value = resolved.name;
+          destinationPoint = resolved;
+          const map = MapEngine.getMap();
+          if (map) map.setView([resolved.lat, resolved.lng], 14, { animate: true });
+          if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+            window.SyncEngine.showAutoUpdateToast(`🏁 Destination: ${resolved.name}`);
+          }
+        }
+      });
+    });
+  }
 
   // Setup Route Planner Charger Filter Pills (Ather Fast, VIDA Fast, Bolt Fast, Bolt Slow)
   const routeFilterBtns = document.querySelectorAll('.route-filter-btn');
@@ -973,6 +1054,9 @@ const DriveEngine = (function () {
       window.collapseBottomSheet();
     }
 
+    // Enable Google Maps True Fullscreen Navigation Mode
+    document.body.classList.add('nav-active');
+
     // Show HUD and bottom stats bar
     const hud = document.getElementById('nav-driving-hud');
     const bottomBar = document.getElementById('nav-bottom-bar');
@@ -983,6 +1067,10 @@ const DriveEngine = (function () {
     if (window.MapEngine) {
       window.MapEngine.setAutoFollow(true);
       window.MapEngine.locateUser(true);
+      setTimeout(() => {
+        const m = window.MapEngine.getMap();
+        if (m) m.invalidateSize();
+      }, 100);
     }
 
     // Play startup chime
@@ -994,6 +1082,8 @@ const DriveEngine = (function () {
 
   function exitDriveMode() {
     active = false;
+    document.body.classList.remove('nav-active');
+
     const hud = document.getElementById('nav-driving-hud');
     const bottomBar = document.getElementById('nav-bottom-bar');
     const recenterBtn = document.getElementById('btn-recenter-nav');
@@ -1003,6 +1093,10 @@ const DriveEngine = (function () {
 
     if (window.MapEngine) {
       window.MapEngine.setAutoFollow(false);
+      const m = window.MapEngine.getMap();
+      if (m) {
+        setTimeout(() => m.invalidateSize(), 100);
+      }
       const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
       if (activeRoute && window.MapEngine.renderRoute) {
         window.MapEngine.renderRoute(activeRoute, window.RouteEngine.getAllRoutes(), 0, true);
@@ -1283,6 +1377,7 @@ function onRouteStateChange(routeState) {
   const waypointsContainer = document.getElementById('trip-waypoints-container');
   const waypointsCount = document.getElementById('trip-waypoints-count');
   const btnStartInAppNav = document.getElementById('btn-start-inapp-nav');
+  const btnFloatingStartNav = document.getElementById('btn-floating-start-nav');
   const corridorControl = document.getElementById('corridor-buffer-control');
   const mapCorridorPill = document.getElementById('map-route-corridor-pill');
   const mapCorridorVal = document.getElementById('map-corridor-val');
@@ -1293,6 +1388,7 @@ function onRouteStateChange(routeState) {
     if (routeSelectorContainer) routeSelectorContainer.style.display = 'none';
     if (waypointsSection) waypointsSection.style.display = 'none';
     if (btnStartInAppNav) btnStartInAppNav.style.display = 'none';
+    if (btnFloatingStartNav) btnFloatingStartNav.style.display = 'none';
     if (corridorControl) corridorControl.style.display = 'none';
     if (mapCorridorPill) mapCorridorPill.style.display = 'none';
     const timelineSection = document.getElementById('trip-battery-timeline-section');
@@ -1383,6 +1479,7 @@ function onRouteStateChange(routeState) {
   // 4. Update Summary Card & Drive Mode Action
   if (summaryCard) summaryCard.style.display = 'block';
   if (btnStartInAppNav) btnStartInAppNav.style.display = 'flex';
+  if (btnFloatingStartNav) btnFloatingStartNav.style.display = 'flex';
 
   updateRouteMetrics(route);
   renderTripBatteryTimeline(route);
@@ -2029,6 +2126,13 @@ function setupSearchAutocomplete() {
     }, 180);
   });
 
+  const pasteSearchBtn = document.getElementById('btn-paste-search');
+  if (pasteSearchBtn) {
+    pasteSearchBtn.addEventListener('click', async () => {
+      await handleClipboardPaste(searchInput, (val) => handleSearchQuery(val));
+    });
+  }
+
   // Hide dropdown when clicking outside
   document.addEventListener('click', (e) => {
     if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
@@ -2215,12 +2319,17 @@ function setupGoogleMapsImporter() {
               statusMsg.style.border = '1px solid rgba(0, 230, 118, 0.35)';
               statusMsg.textContent = '📋 Link pasted from clipboard!';
             }
+            return;
           }
-        } else {
-          alert('Clipboard permission not granted. Please paste directly into the box.');
         }
-      } catch (err) {
-        alert('Please press Ctrl+V or long-press to paste into the box.');
+      } catch (err) {}
+      textarea.focus();
+      if (statusMsg) {
+        statusMsg.style.display = 'block';
+        statusMsg.style.background = 'rgba(56, 189, 248, 0.12)';
+        statusMsg.style.color = '#38bdf8';
+        statusMsg.style.border = '1px solid rgba(56, 189, 248, 0.35)';
+        statusMsg.textContent = '📋 Long-press inside the box and tap "Paste"';
       }
     });
   }
@@ -2392,6 +2501,13 @@ function setupDriveModeControls() {
     btnRecenter.addEventListener('click', () => {
       if (window.MapEngine) {
         window.MapEngine.setAutoFollow(true);
+        const coords = window.MapEngine.getUserCoords();
+        if (coords) {
+          const map = window.MapEngine.getMap();
+          if (map) map.setView([coords.lat, coords.lng], 16, { animate: true });
+        } else {
+          window.MapEngine.locateUser(true);
+        }
       }
     });
   }
@@ -2400,6 +2516,26 @@ function setupDriveModeControls() {
   if (btnSound) {
     btnSound.addEventListener('click', () => {
       if (window.DriveEngine) window.DriveEngine.toggleSound();
+    });
+  }
+
+  const btnFloatingStart = document.getElementById('btn-floating-start-nav');
+  if (btnFloatingStart) {
+    btnFloatingStart.addEventListener('click', () => {
+      if (window.DriveEngine) window.DriveEngine.startDriveMode();
+    });
+  }
+
+  const btnFullscreen = document.getElementById('btn-toggle-fullscreen');
+  if (btnFullscreen) {
+    btnFullscreen.addEventListener('click', () => {
+      const isFull = document.body.classList.toggle('manual-fullscreen');
+      btnFullscreen.innerHTML = isFull ? '✕' : '⛶';
+      btnFullscreen.title = isFull ? 'Exit Fullscreen' : 'Toggle Fullscreen Map';
+      setTimeout(() => {
+        const map = window.MapEngine ? window.MapEngine.getMap() : null;
+        if (map) map.invalidateSize();
+      }, 150);
     });
   }
 }

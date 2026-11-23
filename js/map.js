@@ -905,37 +905,78 @@ const MapEngine = (function () {
    * Google Maps Style Live Navigation Puck:
    * Smooth animated dot with directional heading cone and pulsing accuracy halo
    */
+  let compassListenerAttached = false;
+  function initCompass() {
+    if (compassListenerAttached) return;
+    compassListenerAttached = true;
+
+    const onOrientation = (e) => {
+      let heading = null;
+      if (e.webkitCompassHeading != null) {
+        heading = e.webkitCompassHeading;
+      } else if (e.alpha != null) {
+        // Android absolute orientation: 360 - alpha is magnetic compass heading
+        heading = (360 - e.alpha) % 360;
+      }
+
+      if (heading != null && !isNaN(heading)) {
+        // Low-pass filter for smooth 60fps rotation without jitter
+        let diff = (heading - userHeading + 180) % 360 - 180;
+        if (diff < -180) diff += 360;
+        if (Math.abs(diff) > 0.5) {
+          userHeading = (userHeading + diff * 0.35 + 360) % 360;
+          updatePuckHeading(userHeading);
+        }
+      }
+    };
+
+    if ('ondeviceorientationabsolute' in window) {
+      window.addEventListener('deviceorientationabsolute', onOrientation, { passive: true });
+    } else if ('ondeviceorientation' in window) {
+      window.addEventListener('deviceorientation', onOrientation, { passive: true });
+    }
+  }
+
+  function updatePuckHeading(heading) {
+    const rotDeg = Math.round(heading || 0);
+    const cone = document.querySelector('.puck-heading-cone');
+    const arrow = document.querySelector('.puck-arrow-icon');
+    if (cone) cone.style.transform = `rotate(${rotDeg}deg)`;
+    if (arrow) arrow.style.transform = `rotate(${rotDeg}deg)`;
+  }
+
   function updateUserPuck(lat, lng, accuracy = 15, heading = 0) {
     if (!map) return;
 
     const rotDeg = Math.round(heading || 0);
-    const html = `
-      <div class="user-nav-puck-wrapper">
-        <div class="puck-heading-cone" style="transform: rotate(${rotDeg}deg);"></div>
-        <div class="puck-outer-ring">
-          <div class="puck-inner-dot">
-            <div class="puck-arrow-icon" style="transform: rotate(${rotDeg}deg);">▲</div>
-          </div>
-        </div>
-        <div class="puck-pulse-halo"></div>
-      </div>
-    `;
-
-    const puckIcon = L.divIcon({
-      className: 'user-nav-puck-container',
-      html: html,
-      iconSize: [44, 44],
-      iconAnchor: [22, 22]
-    });
 
     if (!userLocationMarker) {
+      const html = `
+        <div class="user-nav-puck-wrapper">
+          <div class="puck-heading-cone" style="transform: rotate(${rotDeg}deg);"></div>
+          <div class="puck-outer-ring">
+            <div class="puck-inner-dot">
+              <div class="puck-arrow-icon" style="transform: rotate(${rotDeg}deg);">▲</div>
+            </div>
+          </div>
+          <div class="puck-pulse-halo"></div>
+        </div>
+      `;
+
+      const puckIcon = L.divIcon({
+        className: 'user-nav-puck-container',
+        html: html,
+        iconSize: [44, 44],
+        iconAnchor: [22, 22]
+      });
+
       userLocationMarker = L.marker([lat, lng], {
         icon: puckIcon,
         zIndexOffset: 30000
       }).addTo(map);
     } else {
       userLocationMarker.setLatLng([lat, lng]);
-      userLocationMarker.setIcon(puckIcon);
+      updatePuckHeading(rotDeg);
     }
 
     // Accuracy Circle
@@ -970,9 +1011,9 @@ const MapEngine = (function () {
     }
     const recenterBtn = document.getElementById('btn-recenter-nav');
     if (recenterBtn) {
-      if (isAutoFollow) {
+      if (isAutoFollow || !userCoords) {
         recenterBtn.style.display = 'none';
-      } else if (window.DriveEngine && window.DriveEngine.isActive()) {
+      } else {
         recenterBtn.style.display = 'flex';
       }
     }
@@ -982,6 +1023,8 @@ const MapEngine = (function () {
    * Continuous Live GPS Tracking (Google Maps real-time movement)
    */
   function startLiveTracking(autoCenter = false) {
+    initCompass(); // Activate real-time compass hardware tracking
+
     if (watchId !== null) return;
     if (!navigator.geolocation) {
       console.warn('[VoltWay GPS] Geolocation not supported by browser/device');
@@ -997,18 +1040,17 @@ const MapEngine = (function () {
       const speed = pos.coords.speed; // m/s
       let heading = pos.coords.heading;
 
-      // If phone hardware heading is not provided or 0, calculate bearing from movement delta
-      if (heading == null || isNaN(heading) || heading === 0) {
-        if (userCoords && (Math.abs(lat - userCoords.lat) > 0.00005 || Math.abs(lng - userCoords.lng) > 0.00005)) {
-          const dLat = (lat - userCoords.lat) * Math.PI / 180;
-          const dLng = (lng - userCoords.lng) * Math.PI / 180;
-          const y = Math.sin(dLng) * Math.cos(lat * Math.PI / 180);
-          const x = Math.cos(userCoords.lat * Math.PI / 180) * Math.sin(lat * Math.PI / 180) -
-                    Math.sin(userCoords.lat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) * Math.cos(dLng);
-          userHeading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-        }
-      } else {
+      // If phone hardware heading is provided by GPS, use it
+      if (heading != null && !isNaN(heading) && heading !== 0) {
         userHeading = heading;
+      } else if (userCoords && (Math.abs(lat - userCoords.lat) > 0.00003 || Math.abs(lng - userCoords.lng) > 0.00003)) {
+        // Calculate movement delta bearing when moving (>3 meters)
+        const dLat = (lat - userCoords.lat) * Math.PI / 180;
+        const dLng = (lng - userCoords.lng) * Math.PI / 180;
+        const y = Math.sin(dLng) * Math.cos(lat * Math.PI / 180);
+        const x = Math.cos(userCoords.lat * Math.PI / 180) * Math.sin(lat * Math.PI / 180) -
+                  Math.sin(userCoords.lat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) * Math.cos(dLng);
+        userHeading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
       }
 
       userCoords = { lat, lng, accuracy, heading: userHeading, speed };
@@ -1016,7 +1058,7 @@ const MapEngine = (function () {
       updateUserPuck(lat, lng, accuracy, userHeading);
 
       if (isAutoFollow && map) {
-        map.panTo([lat, lng], { animate: true, duration: 0.8 });
+        map.panTo([lat, lng], { animate: true, duration: 0.6 });
       }
 
       updateGpsButtonUi();
@@ -1033,8 +1075,8 @@ const MapEngine = (function () {
 
     watchId = navigator.geolocation.watchPosition(onPos, onErr, {
       enableHighAccuracy: true,
-      maximumAge: 2000,
-      timeout: 15000
+      maximumAge: 0,
+      timeout: 10000
     });
   }
 

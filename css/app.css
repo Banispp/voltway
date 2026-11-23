@@ -3481,4 +3481,160 @@ html, body {
   box-shadow: 0 0 10px rgba(0, 230, 118, 0.35);
 }
 
+/* 8. Mobile Paste Buttons & Enhanced Fullscreen Navigation */
+.btn-search-paste {
+  position: absolute;
+  right: 36px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #38bdf8;
+  font-size: 0.85rem;
+  padding: 4px 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: all 0.15s ease;
+}
+
+.btn-search-paste:hover, .btn-search-paste:active {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: #38bdf8;
+}
+
+.btn-paste-addon {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  color: #38bdf8 !important;
+  font-weight: 700 !important;
+  font-size: 0.82rem !important;
+  padding: 0 10px !important;
+  cursor: pointer;
+}
+
+.btn-paste-addon:hover, .btn-paste-addon:active {
+  background: rgba(56, 189, 248, 0.25) !important;
+}
+
+/* Floating Google Maps Style Start Button */
+.btn-floating-start-nav {
+  position: fixed;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border: 1.5px solid #38bdf8;
+  color: #ffffff;
+  border-radius: 28px;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.5), 0 0 16px rgba(56, 189, 248, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  z-index: 1060;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: startNavGlow 2.5s infinite alternate;
+}
+
+.btn-floating-start-nav:hover, .btn-floating-start-nav:active {
+  transform: translateX(-50%) scale(1.04);
+  box-shadow: 0 12px 30px rgba(2, 132, 199, 0.7), 0 0 20px rgba(56, 189, 248, 0.6);
+}
+
+@keyframes startNavGlow {
+  0% { box-shadow: 0 8px 24px rgba(2, 132, 199, 0.5), 0 0 12px rgba(56, 189, 248, 0.3); }
+  100% { box-shadow: 0 10px 28px rgba(2, 132, 199, 0.75), 0 0 22px rgba(56, 189, 248, 0.6); }
+}
+
+/* Floating Fullscreen Map Button */
+.btn-toggle-fullscreen {
+  position: fixed;
+  top: 135px;
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  z-index: 990;
+  transition: all 0.15s ease;
+}
+
+.btn-toggle-fullscreen:hover, .btn-toggle-fullscreen:active {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: #38bdf8;
+}
+
+/* Fullscreen In-App Navigation Mode */
+body.nav-active .app-header,
+body.nav-active .map-top-bar,
+body.nav-active .bottom-nav-tabs,
+body.nav-active #bottom-sheet,
+body.nav-active #btn-floating-start-nav,
+body.nav-active .btn-toggle-fullscreen {
+  display: none !important;
+}
+
+body.nav-active #map {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  z-index: 1000 !important;
+}
+
+body.nav-active .btn-float-gps {
+  bottom: 84px !important;
+  z-index: 1060 !important;
+}
+
+body.nav-active .btn-recenter-nav {
+  bottom: 84px !important;
+  z-index: 1060 !important;
+}
+
+/* Manual Fullscreen Map Mode */
+body.manual-fullscreen .app-header,
+body.manual-fullscreen .map-top-bar,
+body.manual-fullscreen .bottom-nav-tabs,
+body.manual-fullscreen #bottom-sheet,
+body.manual-fullscreen #btn-floating-start-nav {
+  display: none !important;
+}
+
+body.manual-fullscreen #map {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  z-index: 1000 !important;
+}
+
+body.manual-fullscreen .btn-toggle-fullscreen {
+  top: 16px !important;
+  z-index: 1060 !important;
+  border-color: #38bdf8 !important;
+  color: #38bdf8 !important;
+}
+
 

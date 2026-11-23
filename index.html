@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=5.8">
+  <link rel="stylesheet" href="css/app.css?v=5.9">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -29,7 +29,7 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v5-8-fresh') {
+            if (name !== 'voltway-2w-v5-9-fresh') {
               caches.delete(name);
             }
           });
@@ -70,7 +70,8 @@
     <div class="map-top-bar">
       <!-- Location & Charger Search Bar -->
       <div class="search-box-container">
-        <input type="text" id="search-places-input" class="search-input" placeholder="Search location, city, or EV station..." autocomplete="off">
+        <input type="text" id="search-places-input" class="search-input" placeholder="Search location, town, or paste link..." autocomplete="off">
+        <button type="button" id="btn-paste-search" class="btn-search-paste" title="Paste location from clipboard">📋</button>
         <span class="search-icon">🔍</span>
         <div id="search-dropdown" class="search-dropdown"></div>
       </div>
@@ -124,6 +125,17 @@
       🎯
     </button>
 
+    <!-- Floating Fullscreen Map Toggle Button -->
+    <button id="btn-toggle-fullscreen" class="btn-toggle-fullscreen" title="Toggle Fullscreen Map">
+      ⛶
+    </button>
+
+    <!-- Floating Google Maps Style Start Navigation Button -->
+    <button id="btn-floating-start-nav" class="btn-floating-start-nav" style="display: none;" title="Start In-App Navigation">
+      <span class="start-icon">▶</span>
+      <span class="start-label">Start</span>
+    </button>
+
     <!-- In-App Turn-by-Turn Driving Mode HUD (Google Maps Style) -->
     <div id="nav-driving-hud" class="nav-driving-hud" style="display: none;">
       <div class="hud-maneuver-icon-box">
@@ -141,7 +153,7 @@
       <button type="button" id="btn-hud-sound-toggle" class="btn-hud-sound" title="Toggle audio chime">🔔</button>
     </div>
 
-    <!-- Floating Recenter Camera Button -->
+    <!-- Floating Recenter Camera Button (Google Maps Style) -->
     <button id="btn-recenter-nav" class="btn-recenter-nav" style="display: none;" title="Recenter Camera on Rider">
       <span class="recenter-icon">🎯</span> Recenter
     </button>
@@ -209,7 +221,8 @@
             <span class="input-label">Starting Point</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="input-origin" class="input-text" placeholder="Starting point or GPS..." value="Current Location (GPS)" autocomplete="off">
+                <input type="text" id="input-origin" class="input-text" placeholder="Starting point, GPS, or paste link..." value="Current Location (GPS)" autocomplete="off">
+                <button type="button" id="btn-paste-origin" class="btn-addon btn-paste-addon" title="Paste location link">📋</button>
                 <button id="btn-use-gps-origin" class="btn-addon" title="Use Current GPS Location">📍 GPS</button>
               </div>
               <div id="origin-suggestions" class="autocomplete-dropdown"></div>
@@ -232,7 +245,10 @@
           <div class="input-group">
             <span class="input-label">Final Destination</span>
             <div class="autocomplete-wrapper">
-              <input type="text" id="input-destination" class="input-text" placeholder="Destination location..." autocomplete="off">
+              <div class="input-row">
+                <input type="text" id="input-destination" class="input-text" placeholder="Destination town or paste link..." autocomplete="off">
+                <button type="button" id="btn-paste-dest" class="btn-addon btn-paste-addon" title="Paste location link">📋</button>
+              </div>
               <div id="dest-suggestions" class="autocomplete-dropdown"></div>
             </div>
           </div>
@@ -633,15 +649,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.8"></script>
+  <script src="chargers_db.js?v=5.9"></script>
 
-  <!-- Application Engine Scripts with Version 5.8 Cache Buster -->
-  <script src="js/battery.js?v=5.8"></script>
-  <script src="js/sync.js?v=5.8"></script>
-  <script src="js/navigator.js?v=5.8"></script>
-  <script src="js/router.js?v=5.8"></script>
-  <script src="js/utilities.js?v=5.8"></script>
-  <script src="js/map.js?v=5.8"></script>
-  <script src="js/app.js?v=5.8"></script>
+  <!-- Application Engine Scripts with Version 5.9 Cache Buster -->
+  <script src="js/battery.js?v=5.9"></script>
+  <script src="js/sync.js?v=5.9"></script>
+  <script src="js/navigator.js?v=5.9"></script>
+  <script src="js/router.js?v=5.9"></script>
+  <script src="js/utilities.js?v=5.9"></script>
+  <script src="js/map.js?v=5.9"></script>
+  <script src="js/app.js?v=5.9"></script>
 </body>
 </html>

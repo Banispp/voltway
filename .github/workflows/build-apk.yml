@@ -52,9 +52,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.8-release
-          name: "VoltWay 2W Android APK v5.8 (Regional State Filter & Ultra-Minimal Clean UI)"
-          body: "VoltWay 2W v5.8: Regional state filter (Kerala 0-lag 60FPS default, Karnataka/Bengaluru, Tamil Nadu, All), streamlined personal single-user interface with clutter removed (eliminated 2-wheeler model picker, riding mode presets, Ather fast charging rule text, and verbose explanatory paragraphs), Google Maps style live moving GPS puck with heading beam, turn-by-turn HUD, and universal location geocoding + link resolution."
+          tag_name: v5.9-release
+          name: "VoltWay 2W Android APK v5.9 (Universal Link Paste, Google Maps Fullscreen Nav & Smooth Compass GPS)"
+          body: "VoltWay 2W v5.9: Native CapacitorHttp Google Maps short link (maps.app.goo.gl) unshortening and universal location resolution across Search, Origin, Destination, and intermediate stops; mobile clipboard paste buttons on all inputs with Ctrl+V removed; Google Maps style floating Start Navigation button and true fullscreen mode; universal Recenter camera button; and buttery-smooth 60FPS real-time hardware compass heading beam and continuous GPS tracking."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

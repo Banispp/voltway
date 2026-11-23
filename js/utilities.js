@@ -335,16 +335,53 @@ const Utilities = (function () {
   }
 
   /**
+   * Expands short Google Maps URLs (maps.app.goo.gl or goo.gl/maps)
+   * Uses native CapacitorHttp on Android, or free CORS proxies on Web
+   */
+  async function unshortenUrl(shortUrl) {
+    if (!shortUrl) return null;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4000);
+      const resp = await fetch(shortUrl, { redirect: 'follow', signal: controller.signal });
+      clearTimeout(timer);
+      if (resp && resp.url && resp.url !== shortUrl && resp.url.includes('google.com/maps')) {
+        return resp.url;
+      }
+    } catch (e) {}
+
+    const proxies = [
+      `https://corsproxy.io/?${encodeURIComponent(shortUrl)}`,
+      `https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`
+    ];
+    for (const p of proxies) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3500);
+        const resp = await fetch(p, { signal: controller.signal });
+        clearTimeout(timer);
+        if (resp && resp.ok) {
+          if (resp.url && resp.url.includes('google.com/maps')) return resp.url;
+          const text = await resp.text();
+          const match = text.match(/https?:\/\/(?:www\.)?google\.com\/maps\/[^\s"'<>]+/i);
+          if (match) return match[0];
+          const coordMatch = text.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || text.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+          if (coordMatch) return text;
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  /**
    * Universal Location Input & Link Resolver:
-   * Handles ALL 3 input scenarios seamlessly:
-   * 1. Coordinates: "10.0246, 76.3079" or "10.0246 76.3079"
-   * 2. Google Maps URLs & shared text:
-   *    - "@10.0246,76.3079"
-   *    - "?q=10.0246,76.3079"
-   *    - "/place/Edappally,+Kochi/@10.0246,76.3079"
-   *    - "!1d76.3079!2d10.0246"
-   *    - Shared WhatsApp text: "Edappally Toll, Kochi https://maps.app.goo.gl/xyz"
-   * 3. Plain text query: "Valanchery", "Ponnani", "MG Road", etc.
+   * Handles ALL mobile and desktop location inputs:
+   * 1. Direct Coordinates: "10.0246, 76.3079"
+   * 2. DMS Coordinates: 10°01'28.6"N 76°18'28.5"E
+   * 3. Google Maps URLs (@lat,lng, ?q=lat,lng, /place/Name, dir/)
+   * 4. Google Maps Mobile Shared Text (multiline "Dropped pin near Alappuzha https://...")
+   * 5. Short Google Maps URLs (maps.app.goo.gl/xyz, goo.gl/maps/xyz)
+   * 6. Plain Text Names: "Valanchery", "Ponnani", "MG Road Kochi" (Photon 150ms Geocoder)
    *
    * @param {string} rawInput 
    * @returns {Promise<Object|null>} { lat, lng, name, fullName }
@@ -369,45 +406,50 @@ const Utilities = (function () {
       }
     }
 
-    // 2. Embedded coordinates in URL (@lat,lng or q=lat,lng or ll=lat,lng or !1d!2d)
-    const atCoordMatch = text.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (atCoordMatch) {
-      const lat = parseFloat(atCoordMatch[1]);
-      const lng = parseFloat(atCoordMatch[2]);
+    // 2. Degrees Minutes Seconds (DMS) format e.g. 10°01'28.6"N 76°18'28.5"E
+    const dmsMatch = text.match(/(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([NS])\s*[, ]\s*(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([EW])/i);
+    if (dmsMatch) {
+      let lat = parseInt(dmsMatch[1], 10) + parseInt(dmsMatch[2], 10) / 60 + parseFloat(dmsMatch[3]) / 3600;
+      if (dmsMatch[4].toUpperCase() === 'S') lat = -lat;
+      let lng = parseInt(dmsMatch[5], 10) + parseInt(dmsMatch[6], 10) / 60 + parseFloat(dmsMatch[7]) / 3600;
+      if (dmsMatch[8].toUpperCase() === 'W') lng = -lng;
       return {
-        lat,
-        lng,
-        name: `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-        fullName: `Google Maps Pin: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+        lat: Math.round(lat * 1000000) / 1000000,
+        lng: Math.round(lng * 1000000) / 1000000,
+        name: `Pin (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+        fullName: `GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
       };
     }
 
-    const queryCoordMatch = text.match(/[?&](?:q|daddr|saddr|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/i);
-    if (queryCoordMatch) {
-      const lat = parseFloat(queryCoordMatch[1]);
-      const lng = parseFloat(queryCoordMatch[2]);
+    // Helper to extract coordinates from Google Maps URLs
+    const extractFromUrlString = (urlStr) => {
+      const atMatch = urlStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (atMatch) {
+        return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+      }
+      const qMatch = urlStr.match(/[?&](?:q|daddr|saddr|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/i);
+      if (qMatch) {
+        return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
+      }
+      const protoMatch = urlStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || urlStr.match(/!2d(-?\d+\.\d+)!1d(-?\d+\.\d+)/);
+      if (protoMatch) {
+        return { lat: parseFloat(protoMatch[1]), lng: parseFloat(protoMatch[2]) };
+      }
+      return null;
+    };
+
+    // 3. Embedded coordinates in URL (@lat,lng or q=lat,lng or ll=lat,lng or !3d!4d)
+    const directCoords = extractFromUrlString(text);
+    if (directCoords) {
       return {
-        lat,
-        lng,
-        name: `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-        fullName: `Google Maps Pin: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+        lat: directCoords.lat,
+        lng: directCoords.lng,
+        name: `Map Location (${directCoords.lat.toFixed(4)}, ${directCoords.lng.toFixed(4)})`,
+        fullName: `Google Maps Pin: ${directCoords.lat.toFixed(5)}, ${directCoords.lng.toFixed(5)}`
       };
     }
 
-    const protoCoordMatch = text.match(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/);
-    if (protoCoordMatch) {
-      // In Google Maps protobuf, 1d is longitude, 2d is latitude
-      const lng = parseFloat(protoCoordMatch[1]);
-      const lat = parseFloat(protoCoordMatch[2]);
-      return {
-        lat,
-        lng,
-        name: `Map Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-        fullName: `Google Maps Pin: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
-      };
-    }
-
-    // 3. Place name inside URL (e.g. /place/Edappally,+Kochi/)
+    // 4. Place name inside URL (e.g. /place/Edappally,+Kochi/)
     const placeInUrlMatch = text.match(/\/maps\/place\/([^/@?]+)/i);
     if (placeInUrlMatch) {
       const decodedPlace = decodeURIComponent(placeInUrlMatch[1]).replace(/\+/g, ' ').trim();
@@ -417,18 +459,48 @@ const Utilities = (function () {
       }
     }
 
-    // 4. Shared text accompanied with URL (standard Android & iOS Google Maps share string)
-    // E.g. "Lulu Mall, Edappally, Kochi https://maps.app.goo.gl/abcdef"
+    // 5. Shared text accompanied with URL or short link (Standard Android & iOS Google Maps share)
+    // E.g. "Kozhikode Beach\nhttps://maps.app.goo.gl/xyz" or "Dropped pin\nnear Alappuzha\nhttps://..."
     if (text.includes('http://') || text.includes('https://') || text.includes('goo.gl')) {
-      let cleanText = text.replace(/https?:\/\/[^\s]+/gi, '').trim();
-      cleanText = cleanText.replace(/^(Shared location|Dropped pin near|Directions to|Location:)\s*/i, '').trim();
+      const urlMatch = text.match(/https?:\/\/[^\s]+/i);
+      const url = urlMatch ? urlMatch[0] : null;
+
+      // Extract cleaned place name text from multiline shared message
+      let cleanText = text
+        .replace(/https?:\/\/[^\s]+/gi, '')
+        .replace(/\b(shared location|dropped pin|directions to|location:?|near)\b/gi, '')
+        .replace(/[\r\n\t]+/g, ' ')
+        .trim();
+
       if (cleanText.length >= 2) {
         const results = await searchPlace(cleanText);
         if (results && results.length > 0) return results[0];
       }
+
+      // If text alone didn't resolve or was empty (pure short link), unshorten the URL
+      if (url) {
+        const expanded = await unshortenUrl(url);
+        if (expanded) {
+          const expCoords = extractFromUrlString(expanded);
+          if (expCoords) {
+            return {
+              lat: expCoords.lat,
+              lng: expCoords.lng,
+              name: `Map Location (${expCoords.lat.toFixed(4)}, ${expCoords.lng.toFixed(4)})`,
+              fullName: `Google Maps Pin: ${expCoords.lat.toFixed(5)}, ${expCoords.lng.toFixed(5)}`
+            };
+          }
+          const expPlaceMatch = expanded.match(/\/maps\/place\/([^/@?]+)/i);
+          if (expPlaceMatch) {
+            const placeName = decodeURIComponent(expPlaceMatch[1]).replace(/\+/g, ' ').trim();
+            const results = await searchPlace(placeName);
+            if (results && results.length > 0) return results[0];
+          }
+        }
+      }
     }
 
-    // 5. Standard text place query (e.g. "Valanchery", "Ponnani", "Cherthala")
+    // 6. Standard text place query (e.g. "Valanchery", "Ponnani", "Cherthala")
     const searchResults = await searchPlace(text);
     if (searchResults && searchResults.length > 0) {
       return searchResults[0];
@@ -452,6 +524,7 @@ const Utilities = (function () {
     estimateChargingTime,
     formatMinutes,
     searchPlace,
+    unshortenUrl,
     resolveLocationInput,
     getLocalPlaces,
     POPULAR_INDIAN_PLACES
