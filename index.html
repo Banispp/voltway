@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=5.7">
+  <link rel="stylesheet" href="css/app.css?v=5.8">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -29,7 +29,7 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v5-7-fresh') {
+            if (name !== 'voltway-2w-v5-8-fresh') {
               caches.delete(name);
             }
           });
@@ -73,6 +73,15 @@
         <input type="text" id="search-places-input" class="search-input" placeholder="Search location, city, or EV station..." autocomplete="off">
         <span class="search-icon">🔍</span>
         <div id="search-dropdown" class="search-dropdown"></div>
+      </div>
+
+      <!-- State Regional Filter Bar (Ultra-Fast 60FPS Optimization) -->
+      <div class="state-chips-bar" id="state-chips-bar">
+        <span class="state-filter-pill-label">📍 State:</span>
+        <button type="button" class="state-chip active" data-state="kerala" title="Show Kerala EV Chargers Only (Fastest 0-Lag)">🌴 Kerala</button>
+        <button type="button" class="state-chip" data-state="karnataka" title="Show Karnataka & Bangalore EV Chargers">🌲 Karnataka</button>
+        <button type="button" class="state-chip" data-state="tamil_nadu" title="Show Tamil Nadu EV Chargers">🛕 Tamil Nadu</button>
+        <button type="button" class="state-chip" data-state="all" title="Show All South India EV Chargers">🌐 All</button>
       </div>
 
       <!-- Filter Chips Bar (Sticky) -->
@@ -379,35 +388,9 @@
               <input type="range" id="battery-slider" class="battery-slider" min="0" max="100" value="85">
             </div>
 
-            <!-- Vehicle Model Selector -->
-            <div class="input-group">
-              <span class="input-label">Select 2-Wheeler Model</span>
-              <select id="vehicle-select" class="input-text" style="background: var(--bg-card); cursor: pointer;">
-                <option value="ather-450x-37" selected>Ather 450X (3.7 kWh)</option>
-                <option value="ather-450x-29">Ather 450X (2.9 kWh)</option>
-                <option value="ather-rizta-37">Ather Rizta (3.7 kWh)</option>
-                <option value="ather-450-apex">Ather 450 Apex (Warp+)</option>
-                <option value="ola-s1-pro">Ola S1 Pro Gen 2 (4.0 kWh)</option>
-                <option value="tvs-iqube">TVS iQube (3.4 kWh)</option>
-                <option value="bajaj-chetak">Bajaj Chetak (3.2 kWh)</option>
-                <option value="hero-vida-v1">Hero Vida V1 Pro (3.94 kWh)</option>
-                <option value="custom-2w">Custom 2W Electric Scooter</option>
-              </select>
-            </div>
-
-            <!-- Riding Mode Quick Presets -->
-            <div class="input-group">
-              <span class="input-label">Riding Mode Preset</span>
-              <div class="mode-pills-row">
-                <button class="btn-mode" data-mode="ECO">Eco (1.0 km/%)</button>
-                <button class="btn-mode active" data-mode="RIDE">Ride (0.8 km/%)</button>
-                <button class="btn-mode" data-mode="WARP">Warp/Sport (0.6 km/%)</button>
-              </div>
-            </div>
-
             <!-- Custom Efficiency Input -->
-            <div class="input-row" style="align-items: center; justify-content: space-between;">
-              <span class="input-label" style="margin: 0;">Custom Efficiency:</span>
+            <div class="input-row" style="align-items: center; justify-content: space-between; margin-top: 4px;">
+              <span class="input-label" style="margin: 0;">Vehicle Efficiency:</span>
               <div style="display: flex; align-items: center; gap: 6px;">
                 <input type="number" id="efficiency-input" step="0.05" min="0.2" max="2.5" value="0.85" class="input-text" style="width: 75px; text-align: center; height: 34px;">
                 <span style="font-size: 0.8rem; color: var(--text-muted);">km / 1%</span>
@@ -417,11 +400,10 @@
             <!-- Safety Reserve Margin -->
             <div class="slider-container">
               <div class="slider-header">
-                <span class="input-label">Safety Reserve Buffer (Arrival Buffer)</span>
+                <span class="input-label">Safety Reserve Buffer</span>
                 <span id="reserve-val" style="font-weight: 700; color: var(--color-warning);">15%</span>
               </div>
               <input type="range" id="reserve-slider" class="battery-slider" min="5" max="30" value="15" style="accent-color: var(--color-warning);">
-              <span style="font-size: 0.72rem; color: var(--text-muted);">Minimum battery remaining upon arrival at any charging stop.</span>
             </div>
 
             <!-- Fast Charge Target SoC Limit (User Configurable) -->
@@ -429,7 +411,6 @@
               <div class="slider-header">
                 <div>
                   <span class="input-label" style="color: var(--color-ather); margin: 0; font-size: 0.85rem;">⚡ Fast Charge Target Limit</span>
-                  <span style="font-size: 0.72rem; color: var(--text-muted); display: block; margin-top: 2px;">Charge up to this % at fast chargers</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 4px;">
                   <span id="target-charge-val" style="font-weight: 800; font-size: 1.15rem; color: var(--color-ather);">80%</span>
@@ -441,9 +422,6 @@
                 <button type="button" class="btn-target-preset" data-pct="85">85%</button>
                 <button type="button" class="btn-target-preset" data-pct="90">90%</button>
                 <button type="button" class="btn-target-preset" data-pct="100">100% (Full 🔋)</button>
-              </div>
-              <div class="target-charge-hint" style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 8px; line-height: 1.45; background: rgba(0, 0, 0, 0.4); padding: 8px 10px; border-radius: 6px; border-left: 3px solid var(--color-ather);">
-                ⚡ <strong>Ather 80% Fast Charging Rule:</strong> Ather scooters and Ather Grid DC Fast Chargers peak-charge rapidly up to 80% to protect the battery pack and maximize charging turnover. Above 80%, charging slows down or cuts off. You can customize this target limit between 50% and 100% anytime.
               </div>
             </div>
 
@@ -464,8 +442,7 @@
         <!-- ==================== TAB 3: CHARGING TIME ESTIMATOR ==================== -->
         <div id="pane-calculator" class="tab-pane">
           <div class="battery-dashboard">
-            <span class="input-label" style="font-size: 0.85rem; color: var(--color-ather);">⚡ Charging Duration & Range Estimator</span>
-            <p style="font-size: 0.78rem; color: var(--text-muted);">Estimate charging time for Ather Grid fast chargers vs Bolt 15A slow plug sockets based on lithium charging physics.</p>
+            <span class="input-label" style="font-size: 0.85rem; color: var(--color-ather); margin-bottom: 6px;">⚡ Charging Duration & Range</span>
 
             <!-- Starting % Slider -->
             <div class="slider-container">
@@ -512,7 +489,6 @@
             <button id="btn-trigger-sos" class="btn-primary-action btn-sos" style="height: 52px; font-size: 1rem;">
               🚨 PINPOINT NEAREST CHARGER NOW
             </button>
-            <p style="font-size: 0.75rem; color: var(--text-muted); text-align: center;">Uses live GPS to instantly compute nearest Ather Grid Fast, Bolt Fast & 15A Socket.</p>
           </div>
 
           <div id="sos-results-container" style="display: flex; flex-direction: column; gap: 10px;">
@@ -657,15 +633,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.7"></script>
+  <script src="chargers_db.js?v=5.8"></script>
 
-  <!-- Application Engine Scripts with Version 5.7 Cache Buster -->
-  <script src="js/battery.js?v=5.7"></script>
-  <script src="js/sync.js?v=5.7"></script>
-  <script src="js/navigator.js?v=5.7"></script>
-  <script src="js/router.js?v=5.7"></script>
-  <script src="js/utilities.js?v=5.7"></script>
-  <script src="js/map.js?v=5.7"></script>
-  <script src="js/app.js?v=5.7"></script>
+  <!-- Application Engine Scripts with Version 5.8 Cache Buster -->
+  <script src="js/battery.js?v=5.8"></script>
+  <script src="js/sync.js?v=5.8"></script>
+  <script src="js/navigator.js?v=5.8"></script>
+  <script src="js/router.js?v=5.8"></script>
+  <script src="js/utilities.js?v=5.8"></script>
+  <script src="js/map.js?v=5.8"></script>
+  <script src="js/app.js?v=5.8"></script>
 </body>
 </html>

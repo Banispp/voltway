@@ -50,14 +50,14 @@ const SyncEngine = (function () {
       stored = await getAllFromDB();
     }
 
-    if (stored && stored.length > 0) {
+    if (stored && stored.length > 0 && stored[0].state) {
       console.log(`[VoltWay] Loaded ${stored.length} chargers from IndexedDB`);
       inMemoryChargers = stored;
     } else if (window.BUNDLED_CHARGERS && window.BUNDLED_CHARGERS.length > 0) {
-      console.log(`[VoltWay] Loaded ${window.BUNDLED_CHARGERS.length} bundled chargers`);
+      console.log(`[VoltWay] Loaded ${window.BUNDLED_CHARGERS.length} bundled chargers (with state tagging)`);
       inMemoryChargers = window.BUNDLED_CHARGERS;
       if (db) {
-        saveBatchToDB(inMemoryChargers).catch(err => console.warn('Could not cache to IndexedDB:', err));
+        clearAndSaveAllToDB(inMemoryChargers).catch(err => console.warn('Could not cache to IndexedDB:', err));
       }
     } else {
       try {
@@ -65,7 +65,7 @@ const SyncEngine = (function () {
         if (resp.ok) {
           const data = await resp.json();
           inMemoryChargers = data;
-          if (db) saveBatchToDB(data);
+          if (db) clearAndSaveAllToDB(data);
         }
       } catch (err) {
         console.warn('Fallback fetch chargers_db.json failed:', err);
@@ -166,7 +166,10 @@ const SyncEngine = (function () {
     authoritativeList = authoritativeList.filter(c => isTargetSouthRegion(c.name, c.address, c.lat, c.lng));
 
     const remoteMap = new Map();
-    authoritativeList.forEach(c => remoteMap.set(c.id, c));
+    authoritativeList.forEach(c => {
+      if (!c.state) c.state = classifyState(c);
+      remoteMap.set(c.id, c);
+    });
 
     const currentMap = new Map();
     inMemoryChargers.forEach(c => currentMap.set(c.id, c));
@@ -262,6 +265,31 @@ const SyncEngine = (function () {
   }
 
   /**
+   * Classifies a charger into 'kerala' | 'karnataka' | 'tamil_nadu' | 'other'
+   */
+  function classifyState(c) {
+    if (c.state) return c.state;
+    const text = `${c.name || ''} ${c.address || ''}`.toLowerCase();
+    const lat = c.lat;
+    const lng = c.lng;
+
+    const klKeywords = ['kerala', 'malappuram', 'kozhikode', 'ernakulam', 'kochi', 'cochin', 'thrissur', 'trivandrum', 'thiruvananthapuram', 'kollam', 'alappuzha', 'alleppey', 'kottayam', 'palakkad', 'kannur', 'kasaragod', 'wayanad', 'idukki', 'pathanamthitta'];
+    if (klKeywords.some(k => text.includes(k))) return 'kerala';
+
+    const kaKeywords = ['karnataka', 'bengaluru', 'bangalore', 'mysuru', 'mysore', 'mangaluru', 'mangalore', 'hubli', 'hubballi', 'dharwad', 'belagavi', 'belgaum', 'udupi', 'manipal', 'tumkur', 'tumakuru', 'shimoga', 'shivamogga', 'davanagere', 'ballari', 'bellary', 'kolar', 'hassan', 'mandya', 'chikkamagaluru', 'raichur', 'bidar', 'kalaburagi', 'gulbarga'];
+    if (kaKeywords.some(k => text.includes(k))) return 'karnataka';
+
+    const tnKeywords = ['tamil nadu', 'tamilnadu', 'chennai', 'coimbatore', 'madurai', 'trichy', 'tiruchirappalli', 'salem', 'tirunelveli', 'tiruppur', 'erode', 'vellore', 'hosur', 'kanyakumari', 'ooty', 'udhagamandalam', 'dharmapuri', 'krishnagiri'];
+    if (tnKeywords.some(k => text.includes(k))) return 'tamil_nadu';
+
+    if (lat >= 8.15 && lat <= 12.85 && lng >= 74.85 && lng <= 77.40) return 'kerala';
+    if (lat >= 11.55 && lat <= 18.45 && lng >= 74.05 && lng <= 77.75) return 'karnataka';
+    if (lat >= 8.08 && lat <= 13.50 && lng >= 76.25 && lng <= 80.35) return 'tamil_nadu';
+
+    return 'other';
+  }
+
+  /**
    * LIVE VIEWPORT QUERY FOR BOLT.EARTH:
    * As the user navigates, pans, or zooms the map, this automatically fetches
    * live chargers directly from Bolt.Earth's public discovery API!
@@ -349,12 +377,14 @@ const SyncEngine = (function () {
         const powerKw = is2WFast ? 3.3 : 1.5;
         const cleanAddr = addr.split(',')[0].trim();
         const name = is2WFast ? `Bolt Fast (Ather Gun ⚡) - ${cleanAddr || cid}` : `Bolt.Earth 15A Socket - ${cleanAddr || cid}`;
+        const cState = classifyState({ name, address: addr, lat, lng });
 
         newItems.push({
           id: cid,
           name,
           network: 'BOLT_EARTH',
           type: ctype,
+          state: cState,
           model_id: modelId,
           connector: connName,
           is_ather_gun: is2WFast,
@@ -455,6 +485,7 @@ const SyncEngine = (function () {
     newChargers.forEach(c => {
       if (!existingMap.has(c.id)) {
         if (!isTargetSouthRegion(c.name, c.address, c.lat, c.lng)) return;
+        if (!c.state) c.state = classifyState(c);
         existingMap.set(c.id, c);
         toAdd.push(c);
         addedCount++;

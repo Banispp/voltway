@@ -71,4 +71,6 @@ def check_js(filename):
 
 print('js/utilities.js:', check_js('js/utilities.js'))
 print('js/map.js:', check_js('js/map.js'))
+print('js/sync.js:', check_js('js/sync.js'))
 print('js/app.js:', check_js('js/app.js'))
+print('sw.js:', check_js('sw.js'))

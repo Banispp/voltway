@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 5. Initialize UI Components
   setupTabs();
+  setupStateFilter();
   setupFilterChips();
   setupBatteryControls();
   setupRoutePlanner();
@@ -68,7 +69,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.7')
+      navigator.serviceWorker.register('./sw.js?v=5.8')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -344,8 +345,70 @@ function syncRouteFilterBtn(filterKey, active) {
   RouteEngine.setRouteFilters(currentFilters);
 }
 
+function setupStateFilter() {
+  const chips = document.querySelectorAll('.state-chip');
+  if (!chips || chips.length === 0) return;
+
+  const savedState = localStorage.getItem('voltway_state_filter') || 'kerala';
+  if (window.MapEngine && window.MapEngine.setStateFilter) {
+    window.MapEngine.setStateFilter(savedState);
+  }
+
+  chips.forEach(chip => {
+    const st = chip.getAttribute('data-state');
+    if (st === savedState) {
+      chip.classList.add('active');
+    } else {
+      chip.classList.remove('active');
+    }
+
+    chip.addEventListener('click', () => {
+      chips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      const chosenState = chip.getAttribute('data-state');
+      localStorage.setItem('voltway_state_filter', chosenState);
+      if (window.MapEngine && window.MapEngine.setStateFilter) {
+        window.MapEngine.setStateFilter(chosenState);
+      }
+      updateFilterBadges();
+
+      const stateLabels = {
+        kerala: '🌴 Kerala (Fastest 0-Lag)',
+        karnataka: '🌲 Karnataka & Bengaluru',
+        tamil_nadu: '🛕 Tamil Nadu',
+        all: '🌐 All South India'
+      };
+      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast(`Showing ${stateLabels[chosenState] || chosenState} chargers`);
+      }
+    });
+  });
+}
+
 function updateFilterBadges() {
-  const stats = SyncEngine.getStats();
+  const activeState = (window.MapEngine && window.MapEngine.getStateFilter) ? window.MapEngine.getStateFilter() : 'kerala';
+  const allChargers = (window.SyncEngine && window.SyncEngine.getChargers) ? window.SyncEngine.getChargers() : [];
+
+  let total = 0;
+  let atherFast = 0;
+  let vidaFast = 0;
+  let boltFast = 0;
+  let boltSlow = 0;
+
+  for (let i = 0; i < allChargers.length; i++) {
+    const c = allChargers[i];
+    if (activeState !== 'all' && c.state !== activeState) continue;
+    total++;
+    if (c.network === 'ATHER_GRID') {
+      atherFast++;
+    } else if (c.network === 'VIDA_GRID') {
+      vidaFast++;
+    } else if (c.network === 'BOLT_EARTH') {
+      if (c.type === 'FAST') boltFast++;
+      else boltSlow++;
+    }
+  }
+
   const countFastOnly = document.getElementById('count-fast-only');
   const countAther = document.getElementById('count-ather-fast');
   const countVida = document.getElementById('count-vida-fast');
@@ -354,16 +417,16 @@ function updateFilterBadges() {
   const btnNetworkPill = document.getElementById('btn-open-sync');
   const headerCountEl = document.getElementById('header-station-count');
 
-  const totalFast = (stats.atherFast || 0) + (stats.vidaFast || 0) + (stats.boltFast || 0);
+  const totalFast = atherFast + vidaFast + boltFast;
   if (countFastOnly) countFastOnly.textContent = totalFast.toLocaleString();
-  if (countAther) countAther.textContent = stats.atherFast.toLocaleString();
-  if (countVida) countVida.textContent = (stats.vidaFast || 0).toLocaleString();
-  if (countBoltFast) countBoltFast.textContent = stats.boltFast.toLocaleString();
-  if (countBoltSlow) countBoltSlow.textContent = stats.boltSlow.toLocaleString();
+  if (countAther) countAther.textContent = atherFast.toLocaleString();
+  if (countVida) countVida.textContent = vidaFast.toLocaleString();
+  if (countBoltFast) countBoltFast.textContent = boltFast.toLocaleString();
+  if (countBoltSlow) countBoltSlow.textContent = boltSlow.toLocaleString();
   if (headerCountEl) {
-    headerCountEl.textContent = stats.total.toLocaleString();
+    headerCountEl.textContent = total.toLocaleString();
   } else if (btnNetworkPill) {
-    btnNetworkPill.innerHTML = `<span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">${stats.total.toLocaleString()}</span>)`;
+    btnNetworkPill.innerHTML = `<span class="live-status-dot"></span> 🔄 Sync (<span id="header-station-count">${total.toLocaleString()}</span>)`;
   }
 }
 
