@@ -3079,3 +3079,346 @@ html, body {
   border-radius: var(--radius-sm);
   will-change: background-position;
 }
+
+/* ==========================================================================
+   v5.7 Google Maps Style Live Navigation Puck, In-App Drive HUD & Amenities
+   ========================================================================== */
+
+/* 1. Google Maps Style Live Navigation Puck */
+.user-nav-puck-container {
+  background: transparent !important;
+  border: none !important;
+  transition: transform 0.4s ease-out;
+  will-change: transform;
+}
+
+.user-nav-puck-wrapper {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.puck-heading-cone {
+  position: absolute;
+  top: -18px;
+  left: 6px;
+  width: 32px;
+  height: 40px;
+  background: linear-gradient(to top, rgba(56, 189, 248, 0.75), rgba(56, 189, 248, 0.02));
+  clip-path: polygon(50% 100%, 10% 0%, 90% 0%);
+  transform-origin: 50% 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.puck-outer-ring {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.puck-inner-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00B0FF, #0284c7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.puck-arrow-icon {
+  font-size: 10px;
+  color: #ffffff;
+  font-weight: 900;
+  line-height: 1;
+  transform-origin: center center;
+}
+
+.puck-pulse-halo {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0, 176, 255, 0.4);
+  animation: puckPulseAnim 2s infinite ease-out;
+  z-index: 0;
+  pointer-events: none;
+}
+
+@keyframes puckPulseAnim {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+.btn-float-gps.tracking-active {
+  background: #00E676 !important;
+  color: #062b1a !important;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.75) !important;
+  border: 2px solid #ffffff !important;
+}
+
+/* 2. In-App Turn-by-Turn Drive Mode HUD Card */
+.nav-driving-hud {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid rgba(56, 189, 248, 0.4);
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65), 0 0 20px rgba(2, 132, 199, 0.2);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideDownHud 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDownHud {
+  from { transform: translateY(-30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.hud-maneuver-icon-box {
+  flex-shrink: 0;
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);
+}
+
+.hud-turn-icon {
+  font-size: 26px;
+  color: #ffffff;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.hud-instruction-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.hud-distance-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.hud-distance-val {
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+}
+
+.hud-street-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.hud-next-charger-badge {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #00E676;
+  margin-top: 3px;
+  background: rgba(0, 230, 118, 0.12);
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 230, 118, 0.25);
+  display: inline-block;
+}
+
+.btn-hud-sound {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  color: #ffffff;
+}
+
+/* 3. Floating Recenter Camera Button */
+.btn-recenter-nav {
+  position: fixed;
+  bottom: 84px;
+  right: 16px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(10px);
+  border: 1.5px solid #38bdf8;
+  border-radius: 24px;
+  padding: 9px 16px;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.35);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 1060;
+  cursor: pointer;
+}
+
+/* 4. Bottom Driving Stats Bar */
+.nav-bottom-bar {
+  position: fixed;
+  bottom: 14px;
+  left: 14px;
+  right: 14px;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 10px 16px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7);
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-stat-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.nav-stat-val {
+  font-size: 1.05rem;
+  font-weight: 900;
+  color: #ffffff;
+}
+
+.nav-stat-lbl {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-top: 1px;
+}
+
+.nav-stat-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.btn-exit-drive {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1.5px solid #ef4444;
+  color: #f87171;
+  border-radius: 12px;
+  padding: 8px 14px;
+  font-weight: 800;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+/* 5. In-App Drive Mode Launch Button */
+.btn-inapp-drive-mode {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  border: 1.5px solid rgba(56, 189, 248, 0.5);
+  border-radius: 14px;
+  padding: 13px 16px;
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.35);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.btn-inapp-drive-mode:active {
+  transform: scale(0.98);
+}
+
+.drive-btn-icon-wrapper {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.drive-btn-text-wrapper {
+  flex: 1;
+  text-align: left;
+}
+
+.drive-btn-title {
+  display: block;
+  font-size: 0.96rem;
+  font-weight: 900;
+  color: #ffffff;
+  letter-spacing: 0.2px;
+}
+
+.drive-btn-subtitle {
+  display: block;
+  font-size: 0.74rem;
+  color: #e0f2fe;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.drive-btn-arrow {
+  font-size: 1.2rem;
+  color: #ffffff;
+  font-weight: 900;
+  margin-left: auto;
+}
+
+/* 6. Feature 5: Nearby Rider Amenities Chips */
+.popup-amenities-section {
+  user-select: none;
+}
+
+.amenity-chip-pill {
+  transition: transform 0.1s, background 0.15s;
+  cursor: default;
+}
+
+.amenity-chip-pill:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+

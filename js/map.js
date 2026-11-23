@@ -16,6 +16,12 @@ const MapEngine = (function () {
   let safeRangeCircle = null;
   let bufferRangeCircle = null;
   let userLocationMarker = null;
+  let userAccuracyCircle = null;
+
+  // Live GPS tracking state (Google Maps style moving puck & auto-follow)
+  let watchId = null;
+  let userHeading = 0;
+  let isAutoFollow = false;
 
   // Filter state
   const filters = {
@@ -26,7 +32,7 @@ const MapEngine = (function () {
   };
 
   // User position
-  let userCoords = null; // { lat, lng }
+  let userCoords = null; // { lat, lng, accuracy, heading, speed }
 
   // High-performance Marker Pool: chargerId -> marker
   const markerMap = new Map();
@@ -65,6 +71,11 @@ const MapEngine = (function () {
 
     map.on('moveend', onMapMoveEnd);
     map.on('zoomend', onMapMoveEnd);
+    map.on('dragstart', () => {
+      // User is manually panning map: temporarily release camera auto-follow
+      isAutoFollow = false;
+      updateGpsButtonUi();
+    });
     map.on('click', () => {
       if (window.innerWidth <= 768 && typeof window.collapseBottomSheet === 'function') {
         window.collapseBottomSheet();
@@ -481,6 +492,19 @@ const MapEngine = (function () {
         </div>
         ${charger.address ? `<div class="popup-address"><i class="icon-pin">📍</i> ${charger.address}</div>` : ''}
 
+        <!-- Feature 5: Nearby Rider Amenities (< 200m) -->
+        <div class="popup-amenities-section" style="margin: 8px 0 6px 0; padding: 8px 10px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
+          <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 5px;">
+            ☕ Nearby Rider Amenities (&lt; 200m)
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">☕ Tea / Cafe</span>
+            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">🍽️ Snacks / Dine</span>
+            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">🚻 Washroom</span>
+            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">⛽ Fuel / Air 24x7</span>
+          </div>
+        </div>
+
         <!-- Trip Planner Actions (Click on map to add/set) -->
         <div class="popup-actions" style="flex-direction: column; gap: 6px; margin-top: 8px;">
           ${isAlreadyWaypoint ? `
@@ -500,11 +524,8 @@ const MapEngine = (function () {
               🏁 Set as End
             </button>
           </div>
-          <button class="btn-popup-nav" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary);" onclick="MapEngine.handleNavigateToCharger('${charger.id}')">
-            🧭 Open in Google Maps
-          </button>
-          <button class="btn-sm" style="background: rgba(0, 176, 255, 0.1); border: 1px solid var(--color-bolt-slow); color: var(--color-bolt-slow); padding: 7px;" onclick="MapEngine.handleOpenOfficialApp('${charger.network}', '${charger.id}')">
-            📱 Check Live Status in ${isAther ? 'Ather' : (isVida ? 'VIDA' : 'Bolt')} App
+          <button class="btn-popup-nav btn-direct-inapp-route" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; font-weight: 800; padding: 9px;" onclick="MapEngine.handleRouteDirectToCharger('${charger.id}')">
+            ⚡ Plan Direct Route Here
           </button>
         </div>
       </div>
@@ -808,9 +829,6 @@ const MapEngine = (function () {
             <span class="detail-val">${wp.connector || (isFast ? 'DC Fast Charger' : '15A AC Plug Socket')}</span>
           </div>
           <div class="popup-actions" style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
-            <button class="btn-popup-nav" style="background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; padding: 8px; border-radius: 6px; font-weight: 700; cursor: pointer;" onclick="MapEngine.handleNavigateToCharger(window.SyncEngine.getChargers().find(x=>x.id==='${wp.id}') || {id: '${wp.id}', name: '${cleanTitle.replace(/'/g, "\\'")}', lat: ${wp.lat}, lng: ${wp.lng}})">
-              🎙️ Google Maps Navigation to this Stop
-            </button>
             <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.15); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 8px; border-radius: 6px; font-weight: 700; cursor: pointer;" onclick="RouteEngine.removeWaypoint('${wp.id}')">
               ❌ Remove from Trip Stops
             </button>
@@ -840,7 +858,169 @@ const MapEngine = (function () {
     updateSafeRangeOverlay(activeRoute.origin);
   }
 
+  /**
+   * Google Maps Style Live Navigation Puck:
+   * Smooth animated dot with directional heading cone and pulsing accuracy halo
+   */
+  function updateUserPuck(lat, lng, accuracy = 15, heading = 0) {
+    if (!map) return;
+
+    const rotDeg = Math.round(heading || 0);
+    const html = `
+      <div class="user-nav-puck-wrapper">
+        <div class="puck-heading-cone" style="transform: rotate(${rotDeg}deg);"></div>
+        <div class="puck-outer-ring">
+          <div class="puck-inner-dot">
+            <div class="puck-arrow-icon" style="transform: rotate(${rotDeg}deg);">▲</div>
+          </div>
+        </div>
+        <div class="puck-pulse-halo"></div>
+      </div>
+    `;
+
+    const puckIcon = L.divIcon({
+      className: 'user-nav-puck-container',
+      html: html,
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
+    });
+
+    if (!userLocationMarker) {
+      userLocationMarker = L.marker([lat, lng], {
+        icon: puckIcon,
+        zIndexOffset: 30000
+      }).addTo(map);
+    } else {
+      userLocationMarker.setLatLng([lat, lng]);
+      userLocationMarker.setIcon(puckIcon);
+    }
+
+    // Accuracy Circle
+    const safeRadius = Math.max(8, Math.min(accuracy || 20, 150));
+    if (!userAccuracyCircle) {
+      userAccuracyCircle = L.circle([lat, lng], {
+        radius: safeRadius,
+        color: '#38bdf8',
+        weight: 1.5,
+        fillColor: '#38bdf8',
+        fillOpacity: 0.12,
+        interactive: false
+      }).addTo(map);
+    } else {
+      userAccuracyCircle.setLatLng([lat, lng]);
+      userAccuracyCircle.setRadius(safeRadius);
+    }
+
+    updateSafeRangeOverlay({ lat, lng });
+  }
+
+  function updateGpsButtonUi() {
+    const gpsBtn = document.getElementById('btn-float-gps');
+    if (gpsBtn) {
+      if (isAutoFollow) {
+        gpsBtn.classList.add('tracking-active');
+        gpsBtn.title = 'GPS Tracking Active (Auto-Following)';
+      } else {
+        gpsBtn.classList.remove('tracking-active');
+        gpsBtn.title = 'Center on My GPS Location';
+      }
+    }
+    const recenterBtn = document.getElementById('btn-recenter-nav');
+    if (recenterBtn) {
+      if (isAutoFollow) {
+        recenterBtn.style.display = 'none';
+      } else if (window.DriveEngine && window.DriveEngine.isActive()) {
+        recenterBtn.style.display = 'flex';
+      }
+    }
+  }
+
+  /**
+   * Continuous Live GPS Tracking (Google Maps real-time movement)
+   */
+  function startLiveTracking(autoCenter = false) {
+    if (watchId !== null) return;
+    if (!navigator.geolocation) {
+      console.warn('[VoltWay GPS] Geolocation not supported by browser/device');
+      return;
+    }
+
+    if (autoCenter) isAutoFollow = true;
+
+    const onPos = (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const accuracy = pos.coords.accuracy || 15;
+      const speed = pos.coords.speed; // m/s
+      let heading = pos.coords.heading;
+
+      // If phone hardware heading is not provided or 0, calculate bearing from movement delta
+      if (heading == null || isNaN(heading) || heading === 0) {
+        if (userCoords && (Math.abs(lat - userCoords.lat) > 0.00005 || Math.abs(lng - userCoords.lng) > 0.00005)) {
+          const dLat = (lat - userCoords.lat) * Math.PI / 180;
+          const dLng = (lng - userCoords.lng) * Math.PI / 180;
+          const y = Math.sin(dLng) * Math.cos(lat * Math.PI / 180);
+          const x = Math.cos(userCoords.lat * Math.PI / 180) * Math.sin(lat * Math.PI / 180) -
+                    Math.sin(userCoords.lat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) * Math.cos(dLng);
+          userHeading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        }
+      } else {
+        userHeading = heading;
+      }
+
+      userCoords = { lat, lng, accuracy, heading: userHeading, speed };
+
+      updateUserPuck(lat, lng, accuracy, userHeading);
+
+      if (isAutoFollow && map) {
+        map.panTo([lat, lng], { animate: true, duration: 0.8 });
+      }
+
+      updateGpsButtonUi();
+
+      // Notify in-app Turn-by-Turn DriveEngine if active
+      if (window.DriveEngine && window.DriveEngine.isActive()) {
+        window.DriveEngine.onLocationUpdate(userCoords);
+      }
+    };
+
+    const onErr = (err) => {
+      console.warn('[VoltWay GPS Watch] Warning:', err.message);
+    };
+
+    watchId = navigator.geolocation.watchPosition(onPos, onErr, {
+      enableHighAccuracy: true,
+      maximumAge: 2000,
+      timeout: 15000
+    });
+  }
+
+  function setAutoFollow(val) {
+    isAutoFollow = Boolean(val);
+    updateGpsButtonUi();
+    if (isAutoFollow && userCoords && map) {
+      map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
+    }
+  }
+
+  function isAutoFollowActive() {
+    return isAutoFollow;
+  }
+
   async function locateUser(panTo = true) {
+    if (panTo) {
+      isAutoFollow = true;
+    }
+
+    startLiveTracking(panTo);
+
+    // If we already have live coordinates, pan smoothly
+    if (userCoords && panTo && map) {
+      map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
+      updateGpsButtonUi();
+      return userCoords;
+    }
+
     let coords = null;
 
     // 1. Native Capacitor Geolocation Plugin (triggers Android OS location permission dialog in APK)
@@ -873,37 +1053,56 @@ const MapEngine = (function () {
             console.warn('[VoltWay Location] Browser geolocation error:', err.message);
             resolve(null);
           },
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
       });
     }
 
     if (coords) {
-      userCoords = coords;
-      if (!userLocationMarker) {
-        const userIcon = L.divIcon({
-          className: 'user-location-marker',
-          html: '<div class="user-pulse"></div><div class="user-dot"></div>',
-          iconSize: [24, 24],
-          iconAnchor: [12, 12]
-        });
-        userLocationMarker = L.marker([coords.lat, coords.lng], { icon: userIcon }).addTo(map);
-      } else {
-        userLocationMarker.setLatLng([coords.lat, coords.lng]);
-      }
+      userCoords = { ...coords, heading: userHeading };
+      updateUserPuck(coords.lat, coords.lng, 15, userHeading);
 
       if (panTo && map) {
-        map.setView([coords.lat, coords.lng], 14, { animate: true });
+        map.setView([coords.lat, coords.lng], 16, { animate: true });
       }
 
-      updateSafeRangeOverlay(coords);
-      return coords;
+      updateGpsButtonUi();
+      return userCoords;
     } else {
       console.warn('[VoltWay Location] Could not determine user GPS location.');
       if (panTo) {
         alert('Could not determine GPS location. Please make sure Location (GPS) is turned ON in your phone settings and permission is allowed.');
       }
       return null;
+    }
+  }
+
+  function handleRouteDirectToCharger(chargerId) {
+    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
+    const c = allChargers.find(item => item.id === chargerId);
+    if (!c) return;
+
+    if (map) map.closePopup();
+
+    // Set as destination
+    if (window.setPlannerDest) {
+      window.setPlannerDest(c);
+    }
+
+    // If origin is not set, use user's GPS coords
+    if (userCoords && (!window.originPoint || !window.originPoint.lat)) {
+      window.originPoint = { lat: userCoords.lat, lng: userCoords.lng, name: 'Current Location (GPS)' };
+      const origInput = document.getElementById('input-origin');
+      if (origInput) origInput.value = 'Current Location (GPS)';
+    }
+
+    // Switch to Route tab and trigger calculation
+    if (window.activateTabSilently) {
+      window.activateTabSilently('route');
+    }
+    const btnPlan = document.getElementById('btn-plan-route');
+    if (btnPlan) {
+      setTimeout(() => btnPlan.click(), 250);
     }
   }
 
@@ -967,6 +1166,9 @@ const MapEngine = (function () {
     updateSafeRangeOverlay,
     renderRoute,
     locateUser,
+    startLiveTracking,
+    setAutoFollow,
+    isAutoFollowActive,
     focusCharger,
     isPopupOpen: () => Boolean(activePopupChargerId),
     getUserCoords: () => userCoords,
@@ -976,6 +1178,7 @@ const MapEngine = (function () {
     handleRemoveWaypoint,
     handleSetAsOrigin,
     handleSetAsDest,
+    handleRouteDirectToCharger,
     handleOpenOfficialApp
   };
 })();

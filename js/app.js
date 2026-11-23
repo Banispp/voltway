@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSearchAutocomplete();
   setupGoogleMapsImporter();
   setupCorridorDistanceSelector();
+  setupDriveModeControls();
   checkSharedRouteParams();
 
   // 6. Listen to State Changes
@@ -67,7 +68,7 @@ function registerServiceWorker() {
     });
 
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.6')
+      navigator.serviceWorker.register('./sw.js?v=5.7')
         .then((reg) => {
           console.log('[VoltWay SW] Registered successfully with scope:', reg.scope);
           reg.update();
@@ -593,8 +594,7 @@ function setupRoutePlanner() {
   const btnUseGps = document.getElementById('btn-use-gps-origin');
   const btnPlanRoute = document.getElementById('btn-plan-route');
   const btnClearRoute = document.getElementById('btn-clear-route');
-  const btnStartFullGmaps = document.getElementById('btn-start-gmaps-full');
-  const btnNavNextCharger = document.getElementById('btn-nav-next-charger');
+  const btnStartInAppNav = document.getElementById('btn-start-inapp-nav');
   const btnAddIntermediateStop = document.getElementById('btn-add-intermediate-stop');
 
   // Add intermediate stop button handler
@@ -796,42 +796,301 @@ function setupRoutePlanner() {
       if (summaryCard) summaryCard.style.display = 'none';
       if (routeSelector) routeSelector.style.display = 'none';
       if (waypointsSection) waypointsSection.style.display = 'none';
-      if (btnStartFullGmaps) btnStartFullGmaps.style.display = 'none';
-      if (btnNavNextCharger) btnNavNextCharger.style.display = 'none';
+      if (btnStartInAppNav) btnStartInAppNav.style.display = 'none';
     });
   }
 
-  // Google Maps Deep-link Buttons
-  if (btnStartFullGmaps) {
-    btnStartFullGmaps.addEventListener('click', () => {
-      const active = RouteEngine.getActiveRoute();
-      if (active) {
-        NavigationEngine.startFullTrip(active.origin, active.destination, active.waypoints);
-      }
-    });
-  }
-
-  if (btnNavNextCharger) {
-    btnNavNextCharger.addEventListener('click', () => {
-      const waypoints = RouteEngine.getWaypoints();
-      const userC = MapEngine.getUserCoords();
-      if (waypoints && waypoints.length > 0) {
-        NavigationEngine.navigateToNextCharger(waypoints[0], userC);
-      } else {
-        alert('No intermediate charging waypoint on this route. Navigating directly to destination.');
-        const active = RouteEngine.getActiveRoute();
-        if (active) NavigationEngine.navigateToNextCharger(active.destination, userC);
+  // In-App Turn-by-Turn Drive Mode Launcher Button
+  if (btnStartInAppNav) {
+    btnStartInAppNav.addEventListener('click', () => {
+      if (window.DriveEngine) {
+        window.DriveEngine.startDriveMode();
       }
     });
   }
 }
 
 /**
- * Universal Autocomplete Handler for Location Input Fields (Instant 0ms Local + OSM)
+ * VoltWay In-App Turn-by-Turn DriveEngine:
+ * Full standalone automotive guidance HUD, turn-by-turn maneuvers,
+ * live moving GPS camera tracking, upcoming charger notifications, and audio chimes.
+ */
+const DriveEngine = (function () {
+  let active = false;
+  let steps = [];
+  let currentStepIdx = 0;
+  let soundEnabled = true;
+  let lastChimeStepIdx = -1;
+
+  function playChime() {
+    if (!soundEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(659.25, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.22, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+    } catch (e) {}
+  }
+
+  function getTurnSymbol(type, modifier) {
+    const mod = (modifier || '').toLowerCase();
+    const t = (type || '').toLowerCase();
+    if (mod.includes('left')) return '↰';
+    if (mod.includes('right')) return '↱';
+    if (mod.includes('uturn')) return '↶';
+    if (t.includes('arrive') || t.includes('destination')) return '🏁';
+    if (t.includes('roundabout') || t.includes('rotary')) return '🔄';
+    return '⬆';
+  }
+
+  function formatManeuverText(step) {
+    if (!step) return 'Continue straight on route';
+    const mod = (step.modifier || '').replace('_', ' ');
+    const t = (step.type || 'continue').replace('_', ' ');
+    const road = step.name && !step.name.toLowerCase().includes('unnamed') ? step.name : '';
+
+    if (t === 'arrive') return road ? `Arriving at ${road}` : 'Arriving at Destination';
+    if (mod && road) return `Turn ${mod} onto ${road}`;
+    if (mod) return `Turn ${mod}`;
+    if (road) return `Continue onto ${road}`;
+    return 'Continue straight on route';
+  }
+
+  function startDriveMode() {
+    const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+    if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
+      alert('Please calculate a valid route before starting drive guidance.');
+      return;
+    }
+
+    active = true;
+    currentStepIdx = 0;
+    lastChimeStepIdx = -1;
+
+    // Flatten steps across all route legs
+    steps = [];
+    (activeRoute.legs || []).forEach(leg => {
+      (leg.steps || []).forEach(s => {
+        steps.push({
+          type: s.maneuver ? s.maneuver.type : 'continue',
+          modifier: s.maneuver ? s.maneuver.modifier : '',
+          name: s.name || '',
+          distance: s.distance || 0,
+          duration: s.duration || 0,
+          lat: s.maneuver && s.maneuver.location ? s.maneuver.location[1] : null,
+          lng: s.maneuver && s.maneuver.location ? s.maneuver.location[0] : null
+        });
+      });
+    });
+
+    if (steps.length === 0) {
+      steps.push({
+        type: 'continue',
+        modifier: 'straight',
+        name: activeRoute.roadName || 'Main Highway Route',
+        distance: activeRoute.distanceKm * 1000,
+        duration: activeRoute.durationMins * 60,
+        lat: activeRoute.destination.lat,
+        lng: activeRoute.destination.lng
+      });
+    }
+
+    // Collapse bottom drawer
+    if (typeof window.collapseBottomSheet === 'function') {
+      window.collapseBottomSheet();
+    }
+
+    // Show HUD and bottom stats bar
+    const hud = document.getElementById('nav-driving-hud');
+    const bottomBar = document.getElementById('nav-bottom-bar');
+    if (hud) hud.style.display = 'flex';
+    if (bottomBar) bottomBar.style.display = 'flex';
+
+    // Start live auto-follow on map
+    if (window.MapEngine) {
+      window.MapEngine.setAutoFollow(true);
+      window.MapEngine.locateUser(true);
+    }
+
+    // Play startup chime
+    playChime();
+
+    // Render initial guidance display
+    updateHudDisplay(null);
+  }
+
+  function exitDriveMode() {
+    active = false;
+    const hud = document.getElementById('nav-driving-hud');
+    const bottomBar = document.getElementById('nav-bottom-bar');
+    const recenterBtn = document.getElementById('btn-recenter-nav');
+    if (hud) hud.style.display = 'none';
+    if (bottomBar) bottomBar.style.display = 'none';
+    if (recenterBtn) recenterBtn.style.display = 'none';
+
+    if (window.MapEngine) {
+      window.MapEngine.setAutoFollow(false);
+      const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+      if (activeRoute && window.MapEngine.renderRoute) {
+        window.MapEngine.renderRoute(activeRoute, window.RouteEngine.getAllRoutes(), 0, true);
+      }
+    }
+  }
+
+  function toggleSound() {
+    soundEnabled = !soundEnabled;
+    const btn = document.getElementById('btn-hud-sound-toggle');
+    if (btn) {
+      btn.textContent = soundEnabled ? '🔔' : '🔕';
+      btn.title = soundEnabled ? 'Audio alerts active' : 'Audio alerts muted';
+    }
+  }
+
+  function updateHudDisplay(userCoords) {
+    if (!active) return;
+    const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+    if (!activeRoute) return;
+
+    const curStep = steps[currentStepIdx] || steps[steps.length - 1];
+
+    let distText = 'In 200 m';
+    if (userCoords && curStep && curStep.lat != null && curStep.lng != null && window.Utilities) {
+      const dKm = window.Utilities.haversine(userCoords.lat, userCoords.lng, curStep.lat, curStep.lng);
+      const dMeters = Math.round(dKm * 1000);
+
+      // Advance to next maneuver if within 35 meters
+      if (dMeters <= 35 && currentStepIdx < steps.length - 1) {
+        currentStepIdx++;
+        if (currentStepIdx !== lastChimeStepIdx) {
+          lastChimeStepIdx = currentStepIdx;
+          playChime();
+        }
+      }
+
+      if (dMeters < 1000) {
+        distText = `In ${Math.max(20, Math.round(dMeters / 10) * 10)} m`;
+      } else {
+        distText = `In ${(dMeters / 1000).toFixed(1)} km`;
+      }
+    } else if (curStep) {
+      distText = curStep.distance < 1000 ? `In ${Math.round(curStep.distance)} m` : `In ${(curStep.distance / 1000).toFixed(1)} km`;
+    }
+
+    // Update Turn Icon & Street
+    const turnIconEl = document.getElementById('hud-turn-icon');
+    const distEl = document.getElementById('hud-distance-val');
+    const streetEl = document.getElementById('hud-street-name');
+    if (turnIconEl) turnIconEl.textContent = getTurnSymbol(curStep.type, curStep.modifier);
+    if (distEl) distEl.textContent = distText;
+    if (streetEl) streetEl.textContent = formatManeuverText(curStep);
+
+    // Upcoming Charger Station Badge
+    const nextChargerBadge = document.getElementById('hud-next-charger-badge');
+    const nextChargerName = document.getElementById('hud-next-charger-name');
+    const nextChargerDist = document.getElementById('hud-next-charger-dist');
+    const waypoints = activeRoute.waypoints || [];
+    if (waypoints.length > 0 && nextChargerBadge && nextChargerName && nextChargerDist) {
+      const firstWp = waypoints[0];
+      const cleanWpName = (firstWp.name || 'Charging Station').replace(/\s*\(Ather Gun[^)]*\)/gi, '').substring(0, 22);
+      let wpDistStr = '~';
+      if (userCoords && window.Utilities) {
+        const wpKm = Math.round(window.Utilities.haversine(userCoords.lat, userCoords.lng, firstWp.lat, firstWp.lng) * 10) / 10;
+        wpDistStr = `${wpKm} km`;
+      } else if (firstWp.distanceKm) {
+        wpDistStr = `${firstWp.distanceKm} km`;
+      }
+      nextChargerName.textContent = cleanWpName;
+      nextChargerDist.textContent = wpDistStr;
+      nextChargerBadge.style.display = 'inline-block';
+    } else if (nextChargerBadge) {
+      nextChargerBadge.style.display = 'none';
+    }
+
+    // Bottom Stats (ETA, Distance, Duration)
+    const etaEl = document.getElementById('nav-stat-eta');
+    const distStatEl = document.getElementById('nav-stat-dist');
+    const timeStatEl = document.getElementById('nav-stat-time');
+
+    const totalDurationMins = activeRoute.durationMins || 0;
+    const now = new Date();
+    const etaDate = new Date(now.getTime() + totalDurationMins * 60000);
+    const etaStr = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    if (etaEl) etaEl.textContent = etaStr;
+    if (distStatEl) distStatEl.textContent = `${activeRoute.distanceKm} km`;
+    if (timeStatEl) timeStatEl.textContent = `${totalDurationMins} min`;
+  }
+
+  function onLocationUpdate(userCoords) {
+    if (!active) return;
+    updateHudDisplay(userCoords);
+  }
+
+  return {
+    startDriveMode,
+    exitDriveMode,
+    toggleSound,
+    onLocationUpdate,
+    isActive: () => active
+  };
+})();
+
+window.DriveEngine = DriveEngine;
+
+/**
+ * Universal Autocomplete & Link Paste Handler for ALL Location Inputs
+ * Works seamlessly across:
+ * - Starting Origin (A)
+ * - Final Destination (D)
+ * - All Intermediate Stops (B, C, ...)
+ * Supports BOTH typing any town/village (via Photon 150ms geocoder)
+ * AND pasting Google Maps links / shared texts / raw coordinates!
  */
 function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
   if (!inputEl || !dropdownEl) return;
   let timer = null;
+
+  // Resolve special URLs, short links, or coordinates instantly
+  const handlePastedOrSpecialInput = async (rawText) => {
+    if (!rawText) return false;
+    const text = rawText.trim();
+    const hasUrl = text.includes('http://') || text.includes('https://') || text.includes('goo.gl');
+    const hasCoords = /(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)/.test(text);
+
+    if (hasUrl || hasCoords) {
+      dropdownEl.innerHTML = '<div class="dropdown-header">🔍 Resolving Location Link / Coordinates...</div>';
+      dropdownEl.style.display = 'block';
+
+      try {
+        const resolved = await Utilities.resolveLocationInput(text);
+        if (resolved) {
+          inputEl.value = resolved.name;
+          dropdownEl.style.display = 'none';
+          dropdownEl.innerHTML = '';
+          onSelect(resolved);
+          if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+            window.SyncEngine.showAutoUpdateToast(`📍 Location Detected: ${resolved.name}`);
+          }
+          return true;
+        }
+      } catch (err) {
+        console.warn('[VoltWay Autocomplete] Link resolve error:', err);
+      }
+      dropdownEl.style.display = 'none';
+      return false;
+    }
+    return false;
+  };
 
   const renderDropdown = (query, places, chargers) => {
     if (places.length === 0 && chargers.length === 0) {
@@ -884,16 +1143,22 @@ function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
     });
   };
 
-  const executeSearch = (query) => {
+  const executeSearch = async (query) => {
     if (query.length < 1) {
       dropdownEl.style.display = 'none';
       dropdownEl.innerHTML = '';
       return;
     }
 
+    // If query has URL or coordinate structure, resolve immediately
+    if (query.includes('http') || query.includes('goo.gl') || /(-?\d{1,2}\.\d+)[, ]+(-?\d{1,3}\.\d+)/.test(query)) {
+      const handled = await handlePastedOrSpecialInput(query);
+      if (handled) return;
+    }
+
     const qLower = query.toLowerCase();
 
-    // 1. Instant local results (0ms)
+    // 1. Instant local places & chargers matching (0ms)
     const localPlaces = Utilities.getLocalPlaces ? Utilities.getLocalPlaces(query) : [];
     const allChargers = SyncEngine.getChargers();
     const matchedChargers = allChargers.filter(c =>
@@ -902,15 +1167,25 @@ function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
 
     renderDropdown(query, localPlaces, matchedChargers);
 
-    // 2. Query OSM geocoder in background if query is >= 2 letters
+    // 2. Query Photon Komoot Geocoder in background (handles all Kerala towns and Indian cities within 150ms)
     if (query.length >= 2) {
       clearTimeout(timer);
       timer = setTimeout(async () => {
         const fullPlaces = await Utilities.searchPlace(query);
         renderDropdown(query, fullPlaces, matchedChargers);
-      }, 200);
+      }, 150);
     }
   };
+
+  // Paste Event Listener (detects links and coordinates instantly on paste)
+  inputEl.addEventListener('paste', (e) => {
+    const pasted = (e.clipboardData || window.clipboardData).getData('text');
+    if (pasted && pasted.trim()) {
+      setTimeout(() => {
+        handlePastedOrSpecialInput(pasted.trim());
+      }, 20);
+    }
+  });
 
   inputEl.addEventListener('input', () => {
     executeSearch(inputEl.value.trim());
@@ -944,8 +1219,7 @@ function onRouteStateChange(routeState) {
   const waypointsSection = document.getElementById('trip-waypoints-section');
   const waypointsContainer = document.getElementById('trip-waypoints-container');
   const waypointsCount = document.getElementById('trip-waypoints-count');
-  const btnStartFullGmaps = document.getElementById('btn-start-gmaps-full');
-  const btnNavNextCharger = document.getElementById('btn-nav-next-charger');
+  const btnStartInAppNav = document.getElementById('btn-start-inapp-nav');
   const corridorControl = document.getElementById('corridor-buffer-control');
   const mapCorridorPill = document.getElementById('map-route-corridor-pill');
   const mapCorridorVal = document.getElementById('map-corridor-val');
@@ -955,8 +1229,7 @@ function onRouteStateChange(routeState) {
     if (summaryCard) summaryCard.style.display = 'none';
     if (routeSelectorContainer) routeSelectorContainer.style.display = 'none';
     if (waypointsSection) waypointsSection.style.display = 'none';
-    if (btnStartFullGmaps) btnStartFullGmaps.style.display = 'none';
-    if (btnNavNextCharger) btnNavNextCharger.style.display = 'none';
+    if (btnStartInAppNav) btnStartInAppNav.style.display = 'none';
     if (corridorControl) corridorControl.style.display = 'none';
     if (mapCorridorPill) mapCorridorPill.style.display = 'none';
     const timelineSection = document.getElementById('trip-battery-timeline-section');
@@ -1044,12 +1317,9 @@ function onRouteStateChange(routeState) {
     }
   }
 
-  // 4. Update Summary Card & Google Maps Actions
+  // 4. Update Summary Card & Drive Mode Action
   if (summaryCard) summaryCard.style.display = 'block';
-  if (btnStartFullGmaps) btnStartFullGmaps.style.display = 'inline-flex';
-  if (btnNavNextCharger) {
-    btnNavNextCharger.style.display = waypoints && waypoints.length > 0 ? 'inline-flex' : 'none';
-  }
+  if (btnStartInAppNav) btnStartInAppNav.style.display = 'flex';
 
   updateRouteMetrics(route);
   renderTripBatteryTimeline(route);
@@ -1579,8 +1849,8 @@ function renderSosResults(userCoords) {
       </div>
       <div class="sos-address">${closest.address || ''}</div>
       <div class="sos-actions">
-        <button class="btn-sos-nav" onclick="NavigationEngine.navigateToNextCharger(window.SyncEngine.getChargers().find(x=>x.id==='${closest.id}'), MapEngine.getUserCoords())">
-          🧭 1-TAP NAVIGATE NOW
+        <button class="btn-sos-nav" onclick="MapEngine.handleRouteDirectToCharger('${closest.id}')">
+          ⚡ 1-TAP IN-APP ROUTE
         </button>
       </div>
     </div>
@@ -1599,8 +1869,8 @@ function renderSosResults(userCoords) {
         <div class="sos-title">${fast.name}</div>
         <div class="sos-details">${fast.connector} • Requires ~${fastBatReq}% Battery</div>
         <div class="sos-actions">
-          <button class="btn-sm btn-nav" onclick="NavigationEngine.navigateToNextCharger(window.SyncEngine.getChargers().find(x=>x.id==='${fast.id}'), MapEngine.getUserCoords())">
-            🧭 Navigate in Google Maps
+          <button class="btn-sm btn-nav" onclick="MapEngine.handleRouteDirectToCharger('${fast.id}')">
+            ⚡ Route to Station
           </button>
         </div>
       </div>
@@ -1620,8 +1890,8 @@ function renderSosResults(userCoords) {
         <div class="sos-title">${slow.name}</div>
         <div class="sos-details">Standard 3-Pin Plug Socket • Requires ~${slowBatReq}% Battery</div>
         <div class="sos-actions">
-          <button class="btn-sm btn-nav" onclick="NavigationEngine.navigateToNextCharger(window.SyncEngine.getChargers().find(x=>x.id==='${slow.id}'), MapEngine.getUserCoords())">
-            🧭 Navigate in Google Maps
+          <button class="btn-sm btn-nav" onclick="MapEngine.handleRouteDirectToCharger('${slow.id}')">
+            ⚡ Route to Station
           </button>
         </div>
       </div>
@@ -1639,28 +1909,61 @@ function setupSearchAutocomplete() {
 
   let searchDebounceTimer = null;
 
-  searchInput.addEventListener('input', () => {
-    clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = setTimeout(async () => {
-      const query = searchInput.value.trim();
-      if (query.length < 2) {
+  const handleSearchQuery = async (query) => {
+    if (!query) {
+      resultsContainer.style.display = 'none';
+      resultsContainer.innerHTML = '';
+      return;
+    }
+
+    // If query has URL or coordinate structure, resolve immediately
+    if (query.includes('http') || query.includes('goo.gl') || /(-?\d{1,2}\.\d+)[, ]+(-?\d{1,3}\.\d+)/.test(query)) {
+      resultsContainer.innerHTML = '<div class="dropdown-header">🔍 Resolving Location Link / Coordinates...</div>';
+      resultsContainer.style.display = 'block';
+      const resolved = await Utilities.resolveLocationInput(query);
+      if (resolved) {
+        searchInput.value = resolved.name;
         resultsContainer.style.display = 'none';
-        resultsContainer.innerHTML = '';
+        const map = MapEngine.getMap();
+        if (map) map.flyTo([resolved.lat, resolved.lng], 15, { animate: true });
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast(`📍 Pinned: ${resolved.name}`);
+        }
         return;
       }
+    }
 
-      // 1. Search in local chargers by name/address first
-      const allChargers = SyncEngine.getChargers();
-      const lowerQuery = query.toLowerCase();
-      const localMatches = allChargers.filter(c =>
-        c.name.toLowerCase().includes(lowerQuery) || (c.address && c.address.toLowerCase().includes(lowerQuery))
-      ).slice(0, 4);
+    if (query.length < 2) {
+      resultsContainer.style.display = 'none';
+      resultsContainer.innerHTML = '';
+      return;
+    }
 
-      // 2. Search online via Nominatim OpenStreetMap
-      const osmMatches = await Utilities.searchPlace(query);
+    // 1. Search in local chargers by name/address first
+    const allChargers = SyncEngine.getChargers();
+    const lowerQuery = query.toLowerCase();
+    const localMatches = allChargers.filter(c =>
+      c.name.toLowerCase().includes(lowerQuery) || (c.address && c.address.toLowerCase().includes(lowerQuery))
+    ).slice(0, 4);
 
-      renderSearchResults(localMatches, osmMatches);
-    }, 220);
+    // 2. Search online via Photon (South India proximity bias) + Nominatim fallback
+    const osmMatches = await Utilities.searchPlace(query);
+
+    renderSearchResults(localMatches, osmMatches);
+  };
+
+  searchInput.addEventListener('paste', (e) => {
+    const pasted = (e.clipboardData || window.clipboardData).getData('text');
+    if (pasted && pasted.trim()) {
+      setTimeout(() => handleSearchQuery(pasted.trim()), 20);
+    }
+  });
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      handleSearchQuery(searchInput.value.trim());
+    }, 180);
   });
 
   // Hide dropdown when clicking outside
@@ -2009,6 +2312,31 @@ function setupCorridorDistanceSelector() {
       let nextIdx = (distSequence.indexOf(current) + 1) % distSequence.length;
       if (nextIdx < 0) nextIdx = 1; // default to '5'
       applyBuffer(distSequence[nextIdx]);
+    });
+  }
+}
+
+function setupDriveModeControls() {
+  const btnExit = document.getElementById('btn-exit-drive-mode');
+  if (btnExit) {
+    btnExit.addEventListener('click', () => {
+      if (window.DriveEngine) window.DriveEngine.exitDriveMode();
+    });
+  }
+
+  const btnRecenter = document.getElementById('btn-recenter-nav');
+  if (btnRecenter) {
+    btnRecenter.addEventListener('click', () => {
+      if (window.MapEngine) {
+        window.MapEngine.setAutoFollow(true);
+      }
+    });
+  }
+
+  const btnSound = document.getElementById('btn-hud-sound-toggle');
+  if (btnSound) {
+    btnSound.addEventListener('click', () => {
+      if (window.DriveEngine) window.DriveEngine.toggleSound();
     });
   }
 }

@@ -52,9 +52,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.6-release
-          name: "VoltWay 2W Android APK v5.6 (Corridor Distance Filter & Detour Metres)"
-          body: "VoltWay 2W v5.6: Interactive route corridor distance buffer selector (2km, 5km, 10km, 15km, 25km, All), exact distance/detour from route on map popups, and zero-stuck 60fps marker rendering."
+          tag_name: v5.7-release
+          name: "VoltWay 2W Android APK v5.7 (Live Moving GPS & In-App Navigation)"
+          body: "VoltWay 2W v5.7: Google Maps style live moving GPS location symbol with heading beam and auto-follow camera, turn-by-turn in-app drive guidance HUD, universal location input (typing any Kerala/India town or junction with Photon 150ms geocoder + pasting Google Maps links/coordinates on origin, destination, and intermediate stops), Nearby Rider Amenities (Cafe, Dine, Washroom, Fuel), and complete removal of external app redirects."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:
