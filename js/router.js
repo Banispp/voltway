@@ -96,6 +96,8 @@ const RouteEngine = (function () {
     return minDistance === Infinity ? null : Math.round(minDistance * 10) / 10;
   }
 
+  let lastSnappedSegmentIndex = 0;
+
   /**
    * Slices active route at rider's current position for real-time traversed route trimming & road matching.
    * Returns:
@@ -116,15 +118,30 @@ const RouteEngine = (function () {
     let closestIndex = 0;
     let closestT = 0;
 
-    for (let s = 0; s < coords.length - 1; s++) {
+    // Search forward from near the last known segment index to prevent jumping back
+    const startIdx = Math.max(0, lastSnappedSegmentIndex - 2);
+    for (let s = startIdx; s < coords.length - 1; s++) {
       const res = distToSegment(p, coords[s], coords[s + 1]);
       if (res.distance < minDistance) {
         minDistance = res.distance;
         closestIndex = s;
         closestT = res.t;
       }
-      if (minDistance <= 0.008) break; // Within 8 meters of road: fast exit
     }
+
+    // Fallback if off-route (> 55m), search the earlier segments
+    if (minDistance > 0.055 && startIdx > 0) {
+      for (let s = 0; s < startIdx; s++) {
+        const res = distToSegment(p, coords[s], coords[s + 1]);
+        if (res.distance < minDistance) {
+          minDistance = res.distance;
+          closestIndex = s;
+          closestT = res.t;
+        }
+      }
+    }
+
+    lastSnappedSegmentIndex = closestIndex;
 
     const v = coords[closestIndex];
     const w = coords[closestIndex + 1];
@@ -276,6 +293,7 @@ const RouteEngine = (function () {
 
     currentOrigin = origin;
     currentDestination = destination;
+    lastSnappedSegmentIndex = 0;
 
     if (manualWaypoints !== null) {
       intermediateWaypoints = sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
@@ -1029,6 +1047,7 @@ const RouteEngine = (function () {
     selectedRouteIndex = 0;
     corridorChargers = [];
     intermediateWaypoints = [];
+    lastSnappedSegmentIndex = 0;
     notify();
   }
 

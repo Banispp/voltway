@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.24-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.25-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.24-release
-          name: "VoltWay 2W Android APK v5.24 (Google Maps Navigation Parity: Traversed Route Trimming, Road Snapping, Off-Route U-Turn Rerouting, Forward Lookahead Camera)"
-          body: "VoltWay 2W v5.24: True Google Maps navigation parity: 1) Traversed route lines dynamically erased behind rider; 2) Off-route deviation detection (>45m) with automatic background rerouting and 'Make a U-turn when possible' voice guidance; 3) Map matching / road snapping keeping rider puck centered on the road; 4) Forward-biased driving camera lookahead (lower 30% view) with 6-second auto-recenter; 5) Stationary browsing map fixed North-Up (no spinning), rotating only during active navigation; 6) Repositioned fullscreen and theme toggle buttons with clean clearance, removed drawer map theme segmented bar."
+          tag_name: v5.25-release
+          name: "VoltWay 2W Android APK v5.25 (Zero-Vibration 360° Compass, Speed-Adaptive Dynamic Zoom, Dead Reckoning 60fps Gliding)"
+          body: "VoltWay 2W v5.25: Fixed map and puck vibration: 1) Eliminated stationary GPS drift jitter fighting with compass sensor; 2) Continuous 3D line-of-sight unit vector with zero gimbal lock/singularity across 0° flat to 90° vertical handlebar mount; 3) Dead reckoning 60fps smooth marker interpolation eliminating teleporting jumps; 4) Speed-adaptive dynamic zoom (17.5 close-up, 16.5 city, 15.5 highway); 5) Forward-scanning route segment index preventing backward track snapping; 6) Sub-pixel DOM transform deadband eliminating micro-tremors."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

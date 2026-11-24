@@ -1006,17 +1006,18 @@ const MapEngine = (function () {
       let bDiff = (targetBearing - currentRenderedBearing + 180) % 360 - 180;
       if (bDiff < -180) bDiff += 360;
 
-      // Silky smooth exponential damping (ease-out) at native display refresh rate
-      if (Math.abs(bDiff) > 0.3) {
-        currentRenderedBearing = (currentRenderedBearing + bDiff * 0.20 + 360) % 360;
-        map.setBearing(currentRenderedBearing);
-        updatePuckHeading(userHeading);
-        scheduleBearingAnimation();
-      } else {
+      // When difference is tiny (< 0.2°), snap exactly to target and stop animation to prevent jitter
+      if (Math.abs(bDiff) < 0.2) {
         currentRenderedBearing = targetBearing;
         map.setBearing(currentRenderedBearing);
         updatePuckHeading(userHeading);
+        return;
       }
+
+      currentRenderedBearing = (currentRenderedBearing + bDiff * 0.16 + 360) % 360;
+      map.setBearing(currentRenderedBearing);
+      updatePuckHeading(userHeading);
+      scheduleBearingAnimation();
     });
   }
 
@@ -1025,8 +1026,8 @@ const MapEngine = (function () {
     compassListenerAttached = true;
 
     const onOrientation = (e) => {
-      // If moving at high speed (> 1.5 m/s or 5.4 km/h), GPS trajectory course is prioritized over magnetic sensor
-      if (userCoords && userCoords.speed != null && userCoords.speed > 1.5 && userCoords.heading != null) {
+      // If moving at driving speed (>= 1.4 m/s or 5 km/h), GPS trajectory course takes priority over magnetic sensor
+      if (userCoords && userCoords.speed != null && userCoords.speed >= 1.4 && userCoords.heading != null) {
         return;
       }
 
@@ -1044,16 +1045,15 @@ const MapEngine = (function () {
         const cB = Math.cos(b), sB = Math.sin(b);
         const cG = Math.cos(g), sG = Math.sin(g);
 
-        // Accurate 3D forward vector transformation onto Earth horizontal plane [East, North]
-        // Blends smoothly from flat device (+Y) to vertical 90° handlebar mount (-Z) with zero gimbal lock
-        const east = cB * (-sA * cB) - sB * (cA * sG + sA * sB * cG);
-        const north = cB * (cA * cB) - sB * (sA * sG - cA * sB * cG);
+        // Continuous 3D line-of-sight unit vector onto Earth horizontal plane [East, North]
+        // Constant unit length across all angles (flat 0° -> 45° -> vertical 90° -> 110° handlebar mount)
+        // Completely eliminates mathematical singularity, angle flipping, and vibration at 90°!
+        const x2 = -sB * sG;
+        const y2 = cB * cB + sB * sB * cG;
+        const xE = x2 * cA - y2 * sA;
+        const yN = x2 * sA + y2 * cA;
 
-        if (Math.hypot(east, north) > 0.02) {
-          heading = (Math.atan2(east, north) * (180 / Math.PI) + 360) % 360;
-        } else {
-          heading = (360 - (e.alpha || 0)) % 360;
-        }
+        heading = (Math.atan2(xE, yN) * 180 / Math.PI + 360) % 360;
       }
 
       // Account for screen orientation (e.g. landscape 90° or 270°)
@@ -1065,15 +1065,15 @@ const MapEngine = (function () {
         let diff = (heading - userHeading + 180) % 360 - 180;
         if (diff < -180) diff += 360;
 
-        // 1. DEADBAND: Ignore angular jitters smaller than 2.0° when holding or mounted
-        // Eliminates the back-and-forth jitter and trembling completely!
-        if (Math.abs(diff) < 2.0) {
+        // 1. DEADBAND: Ignore angular jitters smaller than 1.8° when holding or stationary
+        // Eliminates back-and-forth micro-trembling completely!
+        if (Math.abs(diff) < 1.8) {
           return;
         }
 
         // 2. ADAPTIVE EXPONENTIAL MOVING AVERAGE (EMA):
-        // 0.14 for butter-smooth subtle movements; 0.35 for rapid deliberate turns
-        const alpha = Math.abs(diff) > 25 ? 0.35 : 0.14;
+        // 0.10 for butter-smooth subtle movements; 0.35 for deliberate turns
+        const alpha = Math.abs(diff) > 40 ? 0.35 : (Math.abs(diff) > 15 ? 0.20 : 0.10);
         userHeading = (userHeading + diff * alpha + 360) % 360;
         updatePuckHeading(userHeading);
 
@@ -1105,15 +1105,75 @@ const MapEngine = (function () {
     }
   }
 
+  let lastPuckRotDeg = null;
+
   function updatePuckHeading(heading) {
     if (heading == null) return;
     const mapBearing = (map && typeof map.getBearing === 'function') ? map.getBearing() : 0;
     // Relative heading of rider/phone on the rotated map canvas
     const rotDeg = Math.round((heading - mapBearing + 360) % 360);
+
+    // Suppress tiny sub-pixel tremors (< 1.0 deg) to prevent micro-vibration
+    if (lastPuckRotDeg !== null && Math.abs((rotDeg - lastPuckRotDeg + 180) % 360 - 180) < 1.0) {
+      return;
+    }
+    lastPuckRotDeg = rotDeg;
+
     const cone = document.querySelector('.puck-heading-cone');
     const arrow = document.querySelector('.puck-arrow-icon');
     if (cone) cone.style.transform = `rotate(${rotDeg}deg)`;
     if (arrow) arrow.style.transform = `rotate(${rotDeg}deg)`;
+  }
+
+  let markerAnimRaf = null;
+  let markerCurrentLat = null;
+  let markerCurrentLng = null;
+
+  function animateMarkerTo(targetLat, targetLng) {
+    if (markerCurrentLat == null || markerCurrentLng == null) {
+      markerCurrentLat = targetLat;
+      markerCurrentLng = targetLng;
+      if (userLocationMarker) userLocationMarker.setLatLng([targetLat, targetLng]);
+      if (userAccuracyCircle) userAccuracyCircle.setLatLng([targetLat, targetLng]);
+      return;
+    }
+
+    const dLat = targetLat - markerCurrentLat;
+    const dLng = targetLng - markerCurrentLng;
+    // If movement is negligible or a massive jump (> 250m), snap directly
+    if (Math.hypot(dLat, dLng) > 0.0025 || Math.hypot(dLat, dLng) < 0.000005) {
+      markerCurrentLat = targetLat;
+      markerCurrentLng = targetLng;
+      if (userLocationMarker) userLocationMarker.setLatLng([targetLat, targetLng]);
+      if (userAccuracyCircle) userAccuracyCircle.setLatLng([targetLat, targetLng]);
+      return;
+    }
+
+    const startLat = markerCurrentLat;
+    const startLng = markerCurrentLng;
+    const startTime = performance.now();
+    const duration = 700; // 700ms smooth interpolation between 1Hz GPS updates
+
+    if (markerAnimRaf) cancelAnimationFrame(markerAnimRaf);
+
+    function step(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      // Cubic ease-out
+      const ease = 1 - Math.pow(1 - progress, 3);
+      markerCurrentLat = startLat + dLat * ease;
+      markerCurrentLng = startLng + dLng * ease;
+
+      if (userLocationMarker) userLocationMarker.setLatLng([markerCurrentLat, markerCurrentLng]);
+      if (userAccuracyCircle) userAccuracyCircle.setLatLng([markerCurrentLat, markerCurrentLng]);
+
+      if (progress < 1) {
+        markerAnimRaf = requestAnimationFrame(step);
+      } else {
+        markerAnimRaf = null;
+      }
+    }
+    markerAnimRaf = requestAnimationFrame(step);
   }
 
   function updateUserPuck(lat, lng, accuracy = 15, heading = 0) {
@@ -1158,9 +1218,11 @@ const MapEngine = (function () {
         icon: puckIcon,
         zIndexOffset: 30000
       }).addTo(map);
+      markerCurrentLat = renderLat;
+      markerCurrentLng = renderLng;
       updatePuckHeading(heading);
     } else {
-      userLocationMarker.setLatLng([renderLat, renderLng]);
+      animateMarkerTo(renderLat, renderLng);
       updatePuckHeading(heading);
     }
 
@@ -1176,7 +1238,6 @@ const MapEngine = (function () {
         interactive: false
       }).addTo(map);
     } else {
-      userAccuracyCircle.setLatLng([renderLat, renderLng]);
       userAccuracyCircle.setRadius(safeRadius);
     }
 
@@ -1207,6 +1268,28 @@ const MapEngine = (function () {
   /**
    * Continuous Live GPS Tracking (Google Maps real-time movement)
    */
+  let lastZoomAdjustTime = 0;
+  function updateSpeedAdaptiveZoom(speedMps) {
+    if (!map || !window.DriveEngine || !window.DriveEngine.isActive() || !isAutoFollow) return;
+    const now = Date.now();
+    if (now - lastZoomAdjustTime < 2500) return; // Throttle zoom adjustments to once every 2.5s
+
+    const speedKmh = (speedMps || 0) * 3.6;
+    let targetZoom = 17.5;
+    if (speedKmh > 65) {
+      targetZoom = 15.5; // Highway high-speed lookahead
+    } else if (speedKmh > 35) {
+      targetZoom = 16.5; // City cruising
+    } else {
+      targetZoom = 17.5; // Slow driving / turns / intersections
+    }
+
+    if (Math.abs(map.getZoom() - targetZoom) >= 0.5) {
+      lastZoomAdjustTime = now;
+      map.setZoom(targetZoom, { animate: true });
+    }
+  }
+
   function startLiveTracking(autoCenter = false) {
     initCompass(); // Activate real-time compass hardware tracking
 
@@ -1225,22 +1308,37 @@ const MapEngine = (function () {
       const speed = pos.coords.speed; // m/s
       let heading = pos.coords.heading;
 
-      // If phone hardware heading is provided by GPS, use it
-      if (heading != null && !isNaN(heading) && heading !== 0) {
-        userHeading = heading;
-      } else if (userCoords && (Math.abs(lat - userCoords.lat) > 0.00003 || Math.abs(lng - userCoords.lng) > 0.00003)) {
-        // Calculate movement delta bearing when moving (>3 meters)
-        const dLat = (lat - userCoords.lat) * Math.PI / 180;
-        const dLng = (lng - userCoords.lng) * Math.PI / 180;
-        const y = Math.sin(dLng) * Math.cos(lat * Math.PI / 180);
-        const x = Math.cos(userCoords.lat * Math.PI / 180) * Math.sin(lat * Math.PI / 180) -
-                  Math.sin(userCoords.lat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) * Math.cos(dLng);
-        userHeading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+      // ONLY update heading from GPS if actually moving at real speed (>= 1.4 m/s or 5 km/h)!
+      // When stationary or walking slowly, the smoothed hardware compass controls heading without interference from stationary GPS jitter!
+      if (speed != null && speed >= 1.4) {
+        if (heading != null && !isNaN(heading) && heading > 0) {
+          let gDiff = (heading - userHeading + 180) % 360 - 180;
+          if (gDiff < -180) gDiff += 360;
+          userHeading = (userHeading + gDiff * 0.20 + 360) % 360;
+        } else if (userCoords) {
+          const distM = window.Utilities ? window.Utilities.haversine(userCoords.lat, userCoords.lng, lat, lng) * 1000 : 0;
+          if (distM >= 5) {
+            const dLat = (lat - userCoords.lat) * Math.PI / 180;
+            const dLng = (lng - userCoords.lng) * Math.PI / 180;
+            const y = Math.sin(dLng) * Math.cos(lat * Math.PI / 180);
+            const x = Math.cos(userCoords.lat * Math.PI / 180) * Math.sin(lat * Math.PI / 180) -
+                      Math.sin(userCoords.lat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) * Math.cos(dLng);
+            const moveHeading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+            let mDiff = (moveHeading - userHeading + 180) % 360 - 180;
+            if (mDiff < -180) mDiff += 360;
+            userHeading = (userHeading + mDiff * 0.20 + 360) % 360;
+          }
+        }
       }
 
       userCoords = { lat, lng, accuracy, heading: userHeading, speed };
 
       updateUserPuck(lat, lng, accuracy, userHeading);
+
+      // Speed-Adaptive Dynamic Zoom (Google Maps standard)
+      if (window.DriveEngine && window.DriveEngine.isActive() && isAutoFollow && map) {
+        updateSpeedAdaptiveZoom(speed);
+      }
 
       if (isAutoFollow && map) {
         if (window.DriveEngine && window.DriveEngine.isActive()) {
