@@ -48,13 +48,26 @@ jobs:
           name: VoltWay-Android-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
+      - name: Clean up Old GitHub Releases and Tags
+        if: github.ref == 'refs/heads/master'
+        run: |
+          echo "Listing and removing any previous releases..."
+          gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
+            if [ -n "$id" ] && [ "$tag" != "v5.19-release" ]; then
+              echo "Deleting old release: $tag (id: $id)"
+              gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
+            fi
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.18-release
-          name: "VoltWay 2W Android APK v5.18 (Google Maps Dark Mode, 360 Smooth Map Rotation, Manual Corridor Input)"
-          body: "VoltWay 2W v5.18: Added Google Maps style dark mode map tiles (CartoDB Dark Matter); fixed map rotation bug and eliminated gimbal lock for smooth 360-degree rotation across flat/upright/mount angles; replaced corridor buffer dropdown with manual typing input (km); removed link paste logic; removed fast charge preset buttons while improving the target limit slider."
+          tag_name: v5.19-release
+          name: "VoltWay 2W Android APK v5.19 (Google Maps Human Voice Guidance, Repository Clean-up)"
+          body: "VoltWay 2W v5.19: Turn-by-turn Google Maps style human voice navigation ('Turn right', 'Turn left', 'In 100 meters', 'Destination on right', upcoming fast charging stop alerts); calibrated natural voice selection and cadence; Web Audio dual-tone EV alert chimes; unlocked audio pre-warming on user gesture; purged all older APK releases and cleaned repository."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

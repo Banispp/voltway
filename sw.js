@@ -1,21 +1,21 @@
-// VoltWay 2W Service Worker - Version 5.18 (Google Maps Dark Mode, 360 Smooth Map Rotation, Manual Corridor Input)
+// VoltWay 2W Service Worker - Version 5.19 (Google Maps Human Voice Guidance, Repository Clean-up)
 // Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v5-18-fresh';
+const CACHE_NAME = 'voltway-2w-v5-19-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css?v=5.18',
-  './js/leaflet-rotate.js?v=5.18',
-  './js/app.js?v=5.18',
-  './js/map.js?v=5.18',
-  './js/router.js?v=5.18',
-  './js/battery.js?v=5.18',
-  './js/navigator.js?v=5.18',
-  './js/sync.js?v=5.18',
-  './js/utilities.js?v=5.18',
-  './chargers_db.js?v=5.18',
+  './css/app.css?v=5.19',
+  './js/leaflet-rotate.js?v=5.19',
+  './js/app.js?v=5.19',
+  './js/map.js?v=5.19',
+  './js/router.js?v=5.19',
+  './js/battery.js?v=5.19',
+  './js/navigator.js?v=5.19',
+  './js/sync.js?v=5.19',
+  './js/utilities.js?v=5.19',
+  './chargers_db.js?v=5.19',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -28,7 +28,7 @@ const ASSETS_TO_CACHE = [
 
 // Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
-  console.log('[VoltWay SW] Installing fresh v5.18 service worker...');
+  console.log('[VoltWay SW] Installing fresh v5.19 service worker...');
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -41,7 +41,7 @@ self.addEventListener('install', (event) => {
 
 // Activate: delete ALL old caches immediately & claim clients
 self.addEventListener('activate', (event) => {
-  console.log('[VoltWay SW] Activating fresh v5.18 service worker...');
+  console.log('[VoltWay SW] Activating fresh v5.19 service worker...');
   event.waitUntil(
     caches.keys().then((keyList) => {
       return Promise.all(
