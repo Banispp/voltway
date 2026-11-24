@@ -506,16 +506,14 @@ function setupBatteryControls() {
     });
   }
 
-  // Fast Charge Target SoC Limit (User Configurable)
+  // Fast Charge Target SoC Limit (User Configurable Slider)
   const targetChargeSlider = document.getElementById('target-charge-slider');
   const targetChargeVal = document.getElementById('target-charge-val');
-  const targetPresets = document.querySelectorAll('.btn-target-preset');
 
   if (targetChargeSlider && targetChargeVal) {
     targetChargeSlider.addEventListener('input', (e) => {
       const val = parseInt(e.target.value, 10);
       targetChargeVal.textContent = `${val}%`;
-      targetPresets.forEach(b => b.classList.toggle('active', parseInt(b.getAttribute('data-pct'), 10) === val));
       BatteryEngine.setTargetChargePct(val);
       const route = RouteEngine.getActiveRoute();
       if (route) {
@@ -523,21 +521,6 @@ function setupBatteryControls() {
       }
     });
   }
-
-  targetPresets.forEach(btn => {
-    btn.addEventListener('click', () => {
-      targetPresets.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const val = parseInt(btn.getAttribute('data-pct'), 10);
-      if (targetChargeSlider) targetChargeSlider.value = val;
-      if (targetChargeVal) targetChargeVal.textContent = `${val}%`;
-      BatteryEngine.setTargetChargePct(val);
-      const route = RouteEngine.getActiveRoute();
-      if (route) {
-        onRouteStateChange({ activeRoute: route, corridorChargers: RouteEngine.getCorridorChargers(), waypoints: RouteEngine.getWaypoints() });
-      }
-    });
-  });
 }
 
 function onBatteryStateChange(state) {
@@ -618,7 +601,7 @@ function renderIntermediateStops() {
       </div>
       <div class="autocomplete-wrapper">
         <div class="input-row">
-          <input type="text" class="input-text input-stop-text" placeholder="Intermediate stop, town, or paste Google Maps link..." value="${stop.name || ''}" autocomplete="off">
+          <input type="text" class="input-text input-stop-text" placeholder="Intermediate stop, town, or address..." value="${stop.name || ''}" autocomplete="off">
         </div>
         <div class="autocomplete-dropdown"></div>
       </div>
@@ -1261,63 +1244,33 @@ const DriveEngine = (function () {
 window.DriveEngine = DriveEngine;
 
 /**
- * Universal Autocomplete & Link Paste Handler for ALL Location Inputs
+ * Universal Autocomplete Handler for Location Inputs
  * Works seamlessly across:
  * - Starting Origin (A)
  * - Final Destination (D)
  * - All Intermediate Stops (B, C, ...)
- * Supports BOTH typing any town/village (via Photon 150ms geocoder)
- * AND pasting Google Maps links / shared texts / raw coordinates!
+ * Supports typing any town/village (via Photon 150ms geocoder)
+ * and raw GPS coordinates (e.g. 10.52, 76.21).
  */
 function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
   if (!inputEl || !dropdownEl) return;
   let timer = null;
 
-  // Resolve special URLs, short links, or coordinates instantly
-  const handlePastedOrSpecialInput = async (rawText) => {
+  // Resolve raw coordinates directly if entered (e.g. "10.52, 76.21")
+  const handleCoordsInput = (rawText) => {
     if (!rawText) return false;
-    const text = rawText.trim();
-    const hasUrl = text.includes('http://') || text.includes('https://') || text.includes('goo.gl');
-    const hasCoords = /(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)/.test(text);
-
-    if (hasUrl || hasCoords) {
-      dropdownEl.innerHTML = '<div class="dropdown-header">🔍 Resolving Location Link / Coordinates...</div>';
-      dropdownEl.style.display = 'block';
-
-      try {
-        // Check if user pasted a multi-stop directions route
-        let targetUrl = text;
-        if (text.includes('goo.gl')) {
-          const urlMatch = text.match(/https?:\/\/[^\s]+/i);
-          if (urlMatch) {
-            const exp = await Utilities.unshortenUrl(urlMatch[0]);
-            if (exp) targetUrl = exp;
-          }
-        }
-        const directions = Utilities.parseGoogleMapsDirectionsUrl(targetUrl);
-        if (directions && directions.origin && directions.destination && window.importDirectionsRoute) {
-          dropdownEl.style.display = 'none';
-          dropdownEl.innerHTML = '';
-          await window.importDirectionsRoute(directions);
-          return true;
-        }
-
-        const resolved = await Utilities.resolveLocationInput(text);
-        if (resolved) {
-          inputEl.value = resolved.name;
-          dropdownEl.style.display = 'none';
-          dropdownEl.innerHTML = '';
-          onSelect(resolved);
-          if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-            window.SyncEngine.showAutoUpdateToast(`📍 Location Detected: ${resolved.name}`);
-          }
-          return true;
-        }
-      } catch (err) {
-        console.warn('[VoltWay Autocomplete] Link resolve error:', err);
+    const match = rawText.trim().match(/^(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)$/);
+    if (match) {
+      const lat = parseFloat(match[1]);
+      const lng = parseFloat(match[2]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        const point = { lat, lng, name: `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})` };
+        inputEl.value = point.name;
+        dropdownEl.style.display = 'none';
+        dropdownEl.innerHTML = '';
+        onSelect(point);
+        return true;
       }
-      dropdownEl.style.display = 'none';
-      return false;
     }
     return false;
   };
@@ -1380,42 +1333,11 @@ function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
       return;
     }
 
-    // If query has URL or coordinate structure, resolve immediately
-    if (query.includes('http') || query.includes('goo.gl') || /(-?\d{1,2}\.\d+)[, ]+(-?\d{1,3}\.\d+)/.test(query)) {
-      const handled = await handlePastedOrSpecialInput(query);
+    // If query has raw coordinate structure (e.g. 10.52, 76.21), resolve immediately
+    if (/^(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)$/.test(query.trim())) {
+      const handled = handleCoordsInput(query.trim());
       if (handled) return;
     }
-
-    const qLower = query.toLowerCase();
-
-    // 1. Instant local places & chargers matching (0ms)
-    const localPlaces = Utilities.getLocalPlaces ? Utilities.getLocalPlaces(query) : [];
-    const allChargers = SyncEngine.getChargers();
-    const matchedChargers = allChargers.filter(c =>
-      c.name.toLowerCase().includes(qLower) || (c.address && c.address.toLowerCase().includes(qLower))
-    ).slice(0, 5);
-
-    renderDropdown(query, localPlaces, matchedChargers);
-
-    // 2. Query Photon Komoot Geocoder in background (handles all Kerala towns and Indian cities within 150ms)
-    if (query.length >= 2) {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        const fullPlaces = await Utilities.searchPlace(query);
-        renderDropdown(query, fullPlaces, matchedChargers);
-      }, 150);
-    }
-  };
-
-  // Paste Event Listener (detects links and coordinates instantly on paste)
-  inputEl.addEventListener('paste', (e) => {
-    const pasted = (e.clipboardData || window.clipboardData).getData('text');
-    if (pasted && pasted.trim()) {
-      setTimeout(() => {
-        handlePastedOrSpecialInput(pasted.trim());
-      }, 20);
-    }
-  });
 
   inputEl.addEventListener('input', () => {
     executeSearch(inputEl.value.trim());
@@ -1487,10 +1409,10 @@ function onRouteStateChange(routeState) {
   if (corridorControl) corridorControl.style.display = 'block';
   if (mapCorridorPill) mapCorridorPill.style.display = 'inline-flex';
   if (corridorBufferBadge) corridorBufferBadge.textContent = bufferText;
-  const mapSelect = document.getElementById('select-map-corridor');
-  const drawerSelect = document.getElementById('select-drawer-corridor');
-  if (mapSelect) mapSelect.value = bufferValStr;
-  if (drawerSelect) drawerSelect.value = bufferValStr;
+  const mapInput = document.getElementById('input-map-corridor') || document.getElementById('select-map-corridor');
+  const drawerInput = document.getElementById('input-drawer-corridor') || document.getElementById('select-drawer-corridor');
+  if (mapInput) mapInput.value = bufferValStr;
+  if (drawerInput) drawerInput.value = bufferValStr;
 
   // 1. Render all alternative routes on map with active selected highlight
   const shouldFit = window.__isNewRouteCalculation === true;
@@ -2154,37 +2076,16 @@ function setupSearchAutocomplete() {
       return;
     }
 
-    // If query has URL or coordinate structure, resolve immediately
-    if (query.includes('http') || query.includes('goo.gl') || /(-?\d{1,2}\.\d+)[, ]+(-?\d{1,3}\.\d+)/.test(query)) {
-      resultsContainer.innerHTML = '<div class="dropdown-header">🔍 Resolving Location Link / Coordinates...</div>';
-      resultsContainer.style.display = 'block';
-
-      // Check if directions URL
-      let targetUrl = query;
-      if (query.includes('goo.gl')) {
-        const urlM = query.match(/https?:\/\/[^\s]+/i);
-        if (urlM) {
-          const exp = await Utilities.unshortenUrl(urlM[0]);
-          if (exp) targetUrl = exp;
-        }
-      }
-      const directions = Utilities.parseGoogleMapsDirectionsUrl(targetUrl);
-      if (directions && directions.origin && directions.destination && window.importDirectionsRoute) {
-        resultsContainer.style.display = 'none';
-        resultsContainer.innerHTML = '';
-        await window.importDirectionsRoute(directions);
-        return;
-      }
-
-      const resolved = await Utilities.resolveLocationInput(query);
-      if (resolved) {
-        searchInput.value = resolved.name;
+    // If query has raw coordinate structure (e.g. 10.52, 76.21), fly directly to it
+    const coordMatch = query.match(/^(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)$/);
+    if (coordMatch) {
+      const lat = parseFloat(coordMatch[1]);
+      const lng = parseFloat(coordMatch[2]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        searchInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
         resultsContainer.style.display = 'none';
         const map = MapEngine.getMap();
-        if (map) map.flyTo([resolved.lat, resolved.lng], 15, { animate: true });
-        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-          window.SyncEngine.showAutoUpdateToast(`📍 Pinned: ${resolved.name}`);
-        }
+        if (map) map.flyTo([lat, lng], 15, { animate: true });
         return;
       }
     }
@@ -2439,31 +2340,44 @@ async function checkSharedRouteParams() {
   }
 }
 
-// --- Route Corridor Buffer Distance Filter (User-selectable: 2km, 5km, 10km, 15km, 25km, All via Dropdown) ---
+// --- Route Corridor Buffer Distance Filter (User-typeable manual number input in km) ---
 function setupCorridorDistanceSelector() {
-  const mapSelect = document.getElementById('select-map-corridor');
-  const drawerSelect = document.getElementById('select-drawer-corridor');
+  const mapInput = document.getElementById('input-map-corridor') || document.getElementById('select-map-corridor');
+  const drawerInput = document.getElementById('input-drawer-corridor') || document.getElementById('select-drawer-corridor');
   const badgeEl = document.getElementById('corridor-buffer-badge');
 
-  function applyBuffer(distStr, sourceEl) {
-    const bufferVal = distStr === 'all' ? 'all' : Number(distStr);
+  let debounceTimer = null;
+
+  function applyBuffer(val, sourceEl) {
+    if (val === '' || val === null) return;
+    let bufferVal = val === 'all' ? 'all' : parseFloat(val);
+    if (typeof bufferVal === 'number') {
+      if (isNaN(bufferVal) || bufferVal <= 0) bufferVal = 5;
+      if (bufferVal > 100) bufferVal = 100;
+    }
+
     if (window.RouteEngine) {
       window.RouteEngine.setCorridorBufferKm(bufferVal);
     }
-    if (mapSelect && mapSelect !== sourceEl) mapSelect.value = distStr;
-    if (drawerSelect && drawerSelect !== sourceEl) drawerSelect.value = distStr;
-    const label = distStr === 'all' ? 'All in View' : `Within ${distStr} km`;
+    const valStr = String(bufferVal);
+    if (mapInput && mapInput !== sourceEl) mapInput.value = valStr;
+    if (drawerInput && drawerInput !== sourceEl) drawerInput.value = valStr;
+    const label = bufferVal === 'all' ? 'All in View' : `Within ${bufferVal} km`;
     if (badgeEl) badgeEl.textContent = label;
-    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast(`🛣️ Route corridor: ${label}`);
-    }
   }
 
-  if (mapSelect) {
-    mapSelect.addEventListener('change', (e) => applyBuffer(e.target.value, mapSelect));
+  function handleInputDebounced(val, sourceEl) {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => applyBuffer(val, sourceEl), 250);
   }
-  if (drawerSelect) {
-    drawerSelect.addEventListener('change', (e) => applyBuffer(e.target.value, drawerSelect));
+
+  if (mapInput) {
+    mapInput.addEventListener('input', (e) => handleInputDebounced(e.target.value, mapInput));
+    mapInput.addEventListener('change', (e) => applyBuffer(e.target.value, mapInput));
+  }
+  if (drawerInput) {
+    drawerInput.addEventListener('input', (e) => handleInputDebounced(e.target.value, drawerInput));
+    drawerInput.addEventListener('change', (e) => applyBuffer(e.target.value, drawerInput));
   }
 }
 

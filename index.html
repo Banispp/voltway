@@ -20,10 +20,10 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <!-- Leaflet 360 Full Map Rotation & Touch Gestures Plugin -->
-  <script src="js/leaflet-rotate.js?v=5.17"></script>
+  <script src="js/leaflet-rotate.js?v=5.18"></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=5.17">
+  <link rel="stylesheet" href="css/app.css?v=5.18">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -31,15 +31,15 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v5-17-fresh') {
+            if (name !== 'voltway-2w-v5-18-fresh') {
               caches.delete(name);
             }
           });
         });
       }
       try {
-        if (localStorage.getItem('voltway_installed_ver') !== 'voltway-2w-v5-17-fresh') {
-          localStorage.setItem('voltway_installed_ver', 'voltway-2w-v5-17-fresh');
+        if (localStorage.getItem('voltway_installed_ver') !== 'voltway-2w-v5-18-fresh') {
+          localStorage.setItem('voltway_installed_ver', 'voltway-2w-v5-18-fresh');
           localStorage.setItem('voltway_state_filter', 'all');
         }
       } catch (e) {}
@@ -66,7 +66,7 @@
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action btn-version-pill" title="Clear Cache & Force Refresh">
-          v5.17
+          v5.18
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -109,18 +109,14 @@
         </button>
       </div>
 
-      <!-- Floating Route Corridor Buffer Dropdown Pill on Map (Visible when Route is Active) -->
+      <!-- Floating Route Corridor Buffer Manual Number Input Pill on Map (Visible when Route is Active) -->
       <div id="map-route-corridor-pill" class="map-route-corridor-pill" style="display: none;">
         <span class="pill-corridor-icon">🛣️</span>
         <span class="pill-corridor-text">Corridor:</span>
-        <select id="select-map-corridor" class="select-corridor-dropdown" title="Select route corridor buffer distance">
-          <option value="2">Within 2 km</option>
-          <option value="5" selected>Within 5 km</option>
-          <option value="10">Within 10 km</option>
-          <option value="15">Within 15 km</option>
-          <option value="25">Within 25 km</option>
-          <option value="all">All in View</option>
-        </select>
+        <div class="corridor-manual-input-box map-pill-corridor-box">
+          <input type="number" id="input-map-corridor" class="corridor-number-input pill-corridor-input" min="1" max="100" value="5" placeholder="5" title="Type corridor buffer distance in km">
+          <span class="corridor-unit-tag">km</span>
+        </div>
       </div>
     </div>
 
@@ -228,7 +224,7 @@
             <span class="input-label">🔍 Search Area / Place / Charger</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="search-places-input" class="input-text" placeholder="Search city, town, charger, or paste link..." autocomplete="off">
+                <input type="text" id="search-places-input" class="input-text" placeholder="Search city, town, or EV charger..." autocomplete="off">
               </div>
               <div id="search-dropdown" class="autocomplete-dropdown"></div>
             </div>
@@ -239,7 +235,7 @@
             <span class="input-label">Starting Point (A)</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="input-origin" class="input-text" placeholder="Starting town, GPS, or paste Google Maps link..." value="Current Location (GPS)" autocomplete="off">
+                <input type="text" id="input-origin" class="input-text" placeholder="Starting town or GPS location..." value="Current Location (GPS)" autocomplete="off">
                 <button id="btn-use-gps-origin" class="btn-addon" title="Use Current GPS Location">📍 GPS</button>
               </div>
               <div id="origin-suggestions" class="autocomplete-dropdown"></div>
@@ -260,7 +256,7 @@
             <span class="input-label">Final Destination (D)</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="input-destination" class="input-text" placeholder="Destination town or paste Google Maps link..." autocomplete="off">
+                <input type="text" id="input-destination" class="input-text" placeholder="Destination town, city, or address..." autocomplete="off">
               </div>
               <div id="dest-suggestions" class="autocomplete-dropdown"></div>
             </div>
@@ -398,14 +394,10 @@
               <div class="corridor-buffer-control" id="corridor-buffer-control">
                 <div class="corridor-buffer-header" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                   <span class="corridor-buffer-sub" style="margin: 0; font-size: 0.8rem; font-weight: 700; color: #94a3b8;">🛣️ Route Search Buffer:</span>
-                  <select id="select-drawer-corridor" class="select-corridor-dropdown" title="Select corridor buffer distance">
-                    <option value="2">Within 2 km (Strict)</option>
-                    <option value="5" selected>Within 5 km (Recommended)</option>
-                    <option value="10">Within 10 km</option>
-                    <option value="15">Within 15 km</option>
-                    <option value="25">Within 25 km</option>
-                    <option value="all">All Chargers in View</option>
-                  </select>
+                  <div class="corridor-manual-input-box">
+                    <input type="number" id="input-drawer-corridor" class="corridor-number-input" min="1" max="100" value="5" placeholder="5" title="Type corridor buffer distance in km">
+                    <span class="corridor-unit-tag">km</span>
+                  </div>
                 </div>
               </div>
 
@@ -460,12 +452,6 @@
                 </div>
               </div>
               <input type="range" id="target-charge-slider" class="battery-slider" min="50" max="100" value="80" style="accent-color: var(--color-ather); margin-top: 8px;">
-              <div class="target-charge-presets" style="display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;">
-                <button type="button" class="btn-target-preset active" data-pct="80">80% (Rapid ⚡)</button>
-                <button type="button" class="btn-target-preset" data-pct="85">85%</button>
-                <button type="button" class="btn-target-preset" data-pct="90">90%</button>
-                <button type="button" class="btn-target-preset" data-pct="100">100% (Full 🔋)</button>
-              </div>
             </div>
 
             <!-- Live Range Radius Metrics -->
@@ -638,15 +624,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.17"></script>
+  <script src="chargers_db.js?v=5.18"></script>
 
-  <!-- Application Engine Scripts with Version 5.17 Cache Buster -->
-  <script src="js/battery.js?v=5.17"></script>
-  <script src="js/sync.js?v=5.17"></script>
-  <script src="js/navigator.js?v=5.17"></script>
-  <script src="js/router.js?v=5.17"></script>
-  <script src="js/utilities.js?v=5.17"></script>
-  <script src="js/map.js?v=5.17"></script>
-  <script src="js/app.js?v=5.17"></script>
+  <!-- Application Engine Scripts with Version 5.18 Cache Buster -->
+  <script src="js/battery.js?v=5.18"></script>
+  <script src="js/sync.js?v=5.18"></script>
+  <script src="js/navigator.js?v=5.18"></script>
+  <script src="js/router.js?v=5.18"></script>
+  <script src="js/utilities.js?v=5.18"></script>
+  <script src="js/map.js?v=5.18"></script>
+  <script src="js/app.js?v=5.18"></script>
 </body>
 </html>

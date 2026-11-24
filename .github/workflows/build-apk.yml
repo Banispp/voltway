@@ -52,9 +52,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.17-release
-          name: "VoltWay 2W Android APK v5.17 (Professional Cockpit UI/UX Redesign, Precision Sliders & Ergonomics)"
-          body: "VoltWay 2W v5.17: Comprehensive professional UI/UX redesign and design system standardization. Modern OLED cockpit dark mode theme, consistent spacing scale, unified glassmorphism top and header bars, polished custom range sliders, ergonomic touch targets (>=44px), refined navigation cards, seamless responsive layout across all phone screen sizes, and zero logic regressions."
+          tag_name: v5.18-release
+          name: "VoltWay 2W Android APK v5.18 (Google Maps Dark Mode, 360 Smooth Map Rotation, Manual Corridor Input)"
+          body: "VoltWay 2W v5.18: Added Google Maps style dark mode map tiles (CartoDB Dark Matter); fixed map rotation bug and eliminated gimbal lock for smooth 360-degree rotation across flat/upright/mount angles; replaced corridor buffer dropdown with manual typing input (km); removed link paste logic; removed fast charge preset buttons while improving the target limit slider."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

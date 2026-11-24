@@ -83,7 +83,7 @@ const MapEngine = (function () {
       .addAttribution('&copy; <a href="https://openstreetmap.org" target="_blank">OSM</a> | VoltWay 2W')
       .addTo(map);
 
-    setTileTheme('daylight');
+    setTileTheme('dark');
 
     markersLayer = L.layerGroup().addTo(map);
     routeLayer = L.layerGroup().addTo(map);
@@ -102,24 +102,35 @@ const MapEngine = (function () {
       }
     });
 
+    // Start compass sensor immediately on map initialization
+    initCompass();
     locateUser(false);
 
     return map;
   }
 
-  function setTileTheme(theme = 'daylight') {
-    currentTileTheme = 'daylight';
+  function setTileTheme(theme = 'dark') {
+    currentTileTheme = theme;
     if (tileLayer) map.removeLayer(tileLayer);
 
-    // High-visibility crisp daytime OpenStreetMap tiles
-    tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      subdomains: ['a', 'b', 'c']
-    }).addTo(map);
+    if (theme === 'dark') {
+      // Google Maps Style Dark Mode: CartoDB Dark Matter tiles with high-contrast road geometries
+      tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        subdomains: ['a', 'b', 'c', 'd'],
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> &copy; <a href="https://carto.com/attributions" target="_blank">CARTO</a> | VoltWay 2W'
+      }).addTo(map);
+    } else {
+      tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        subdomains: ['a', 'b', 'c'],
+        attribution: '&copy; <a href="https://openstreetmap.org" target="_blank">OSM</a> | VoltWay 2W'
+      }).addTo(map);
+    }
   }
 
   function toggleTileTheme() {
-    setTileTheme(currentTileTheme === 'dark' ? 'sunlight' : 'dark');
+    setTileTheme(currentTileTheme === 'dark' ? 'daylight' : 'dark');
     return currentTileTheme;
   }
 
@@ -897,46 +908,46 @@ const MapEngine = (function () {
   }
 
   /**
-   * Google Maps Style Live Navigation Puck:
-   * Smooth animated dot with directional heading cone and pulsing accuracy halo
+   * Google Maps Style Live Navigation Puck & 360° Real-Time Map Rotation:
+   * Smooth animated dot with directional heading cone, pulsing accuracy halo,
+   * and 3D gimbal-lock free compass compensation across all orientations (flat, upright, landscape).
    */
   let compassListenerAttached = false;
+  let isCompassMode = true; // Auto-rotate map with mobile phone orientation by default
+  let lastBearingUpdate = 0;
+
   function initCompass() {
     if (compassListenerAttached) return;
     compassListenerAttached = true;
 
     const onOrientation = (e) => {
-      // If moving (> 1.2 m/s), GPS course track is far more accurate than magnetic sensor
-      if (userCoords && userCoords.speed != null && userCoords.speed > 1.2) {
+      // If moving at high speed (> 2.0 m/s), GPS course track is used instead of magnetic sensor
+      if (userCoords && userCoords.speed != null && userCoords.speed > 2.0) {
         return;
       }
 
       let heading = null;
       if (e.webkitCompassHeading != null) {
+        // iOS Safari hardware calibrated compass heading
         heading = e.webkitCompassHeading;
       } else if (e.alpha != null) {
-        // If device provides beta (pitch) and gamma (roll), compute 3D tilt-compensated azimuth
-        // to prevent 90° gimbal lock spinning when phone is upright on a mount
-        if (e.beta != null && e.gamma != null) {
-          const degToRad = Math.PI / 180;
-          const a = e.alpha * degToRad;
-          const b = e.beta * degToRad;
-          const g = e.gamma * degToRad;
-          const cA = Math.cos(a), sA = Math.sin(a);
-          const cB = Math.cos(b), sB = Math.sin(b);
-          const cG = Math.cos(g), sG = Math.sin(g);
+        // Android DeviceOrientation (Euler: alpha around Z, beta around X, gamma around Y)
+        const degToRad = Math.PI / 180;
+        const a = (e.alpha || 0) * degToRad;
+        const b = (e.beta || 0) * degToRad;
+        const g = (e.gamma || 0) * degToRad;
+        const cA = Math.cos(a), sA = Math.sin(a);
+        const cB = Math.cos(b), sB = Math.sin(b);
+        const cG = Math.cos(g), sG = Math.sin(g);
 
-          // Projected horizontal magnetic vector
-          const rA = -cA * sG - sA * sB * cG;
-          const rB = -sA * sG + cA * sB * cG;
-          if (Math.hypot(rA, rB) > 0.05) {
-            heading = Math.atan2(rA, rB) * (180 / Math.PI);
-            if (heading < 0) heading += 360;
-          } else {
-            heading = (360 - e.alpha) % 360;
-          }
+        // Blended forward direction vector [0, cB, -sB]^T in world ground plane (East, North)
+        // Eliminates 90° gimbal-lock / spinning when phone is upright on a handlebar mount
+        const vx = cB * (-sA * cB) - sB * (cA * sG + sA * sB * cG);
+        const vy = cB * (cA * cB) - sB * (sA * sG - cA * sB * cG);
+        if (Math.hypot(vx, vy) > 0.01) {
+          heading = (Math.atan2(-vx, vy) * (180 / Math.PI) + 360) % 360;
         } else {
-          heading = (360 - e.alpha) % 360;
+          heading = (360 - (e.alpha || 0)) % 360;
         }
       }
 
@@ -945,12 +956,21 @@ const MapEngine = (function () {
       if (heading != null && !isNaN(heading)) {
         heading = (heading + screenAngle + 360) % 360;
 
-        // Smooth low-pass filter
+        // Smooth low-pass circular filter
         let diff = (heading - userHeading + 180) % 360 - 180;
         if (diff < -180) diff += 360;
-        if (Math.abs(diff) > 1.5) {
-          userHeading = (userHeading + diff * 0.25 + 360) % 360;
+        if (Math.abs(diff) > 0.6) {
+          userHeading = (userHeading + diff * 0.35 + 360) % 360;
           updatePuckHeading(userHeading);
+
+          // Smoothly rotate the map in real-time as the phone turns in any direction
+          const now = Date.now();
+          if (now - lastBearingUpdate > 60 && map && typeof map.setBearing === 'function') {
+            if (isCompassMode || isAutoFollow || (window.DriveEngine && window.DriveEngine.isActive())) {
+              lastBearingUpdate = now;
+              map.setBearing(userHeading);
+            }
+          }
         }
       }
     };
@@ -959,6 +979,17 @@ const MapEngine = (function () {
       window.addEventListener('deviceorientationabsolute', onOrientation, { passive: true });
     } else if ('ondeviceorientation' in window) {
       window.addEventListener('deviceorientation', onOrientation, { passive: true });
+    }
+
+    // iOS 13+ permission request if applicable
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      window.addEventListener('click', () => {
+        DeviceOrientationEvent.requestPermission().then(state => {
+          if (state === 'granted') {
+            window.addEventListener('deviceorientation', onOrientation, { passive: true });
+          }
+        }).catch(() => {});
+      }, { once: true });
     }
   }
 
@@ -1123,6 +1154,7 @@ const MapEngine = (function () {
   async function locateUser(panTo = true) {
     if (panTo) {
       isAutoFollow = true;
+      isCompassMode = true;
     }
 
     startLiveTracking(panTo);
@@ -1130,6 +1162,9 @@ const MapEngine = (function () {
     // If we already have live coordinates, pan smoothly
     if (userCoords && panTo && map) {
       map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
+      if (typeof map.setBearing === 'function' && userHeading != null) {
+        map.setBearing(userHeading);
+      }
       updateGpsButtonUi();
       return userCoords;
     }
