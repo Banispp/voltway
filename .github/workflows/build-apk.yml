@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.36-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.37-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.36-release
-          name: "VoltWay 2W Android APK v5.36 (Native Android TTS Bridge & Exact Zero-Lag Recenter)"
-          body: "VoltWay 2W v5.36: 1) Native Android TextToSpeech Bridge: Injected native Java TTS JavascriptInterface (window.AndroidTTS) into MainActivity.java with Android 11+ TTS service queries in AndroidManifest.xml, bypassing WebView TTS limitations and guaranteeing loud, reliable turn voice prompts; 2) Exact Vehicle Centering: Removed 60m forward offset that was displacing rider location on recenter; 3) Zero-Lag Route Overview Return: Instantly restores Zoom 17.5 and road bearing without conflicting CSS pan/rotate animations."
+          tag_name: v5.37-release
+          name: "VoltWay 2W Android APK v5.37 (Clean Automotive Visual HUD Navigation)"
+          body: "VoltWay 2W v5.37: 1) Clean Visual HUD Navigation: Completely eliminated background SpeechSynthesis / TTS timers and audio chime overhead as requested, maximizing battery life and eliminating all navigation lag; 2) Streamlined Automotive Turn Cards: Large intuitive turn arrows, real-time distance countdown, subsequent maneuver preview ('Then ↱'), upcoming charger station badges, live floating speedometer, and road callout pill; 3) Zero-lag camera recentering with exact vehicle tracking."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

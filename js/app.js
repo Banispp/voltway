@@ -934,297 +934,17 @@ function setupRoutePlanner() {
 }
 
 /**
- * VoltWay In-App Turn-by-Turn DriveEngine (v5.19 Google Maps Style Human Voice Navigation):
- * Standalone automotive HUD, human-voice turn maneuvers ('Turn right', 'Turn left', 'In 100 meters'),
- * high-definition audio alert chimes, automatic voice selection (Google TTS / Natural human voices),
- * audio context pre-warming, and upcoming charger notifications.
+ * VoltWay In-App Turn-by-Turn DriveEngine (Automotive Visual HUD Navigation):
+ * Standalone automotive HUD, turn maneuvers, distance counting, next-turn card,
+ * upcoming charger notifications, speedometer, and road pill.
  */
 const DriveEngine = (function () {
   let active = false;
   let steps = [];
   let currentStepIdx = 0;
-  let soundEnabled = true;
-  try {
-    const savedSound = localStorage.getItem('voltway_sound_enabled');
-    if (savedSound !== null) soundEnabled = (savedSound === 'true');
-  } catch (e) {}
-  let voiceEnabled = true;
-  let announced500 = false;
-  let announced100 = false;
-  let announcedTurn = false;
-  let announcedCharger = false;
   let lastStepIdx = -1;
-  let lastChimeStepIdx = -1;
   let offRouteCount = 0;
   let isRecalculating = false;
-  let lastUturnAnnouncedTime = 0;
-  let lastRerouteAnnouncedTime = 0;
-  let voices = [];
-  let audioCtx = null;
-
-  function getAudioContext() {
-    try {
-      if (!audioCtx) {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (AudioCtx) audioCtx = new AudioCtx();
-      }
-      if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      return audioCtx;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function primeAudioEngine() {
-    try {
-      const ctx = getAudioContext();
-      if (ctx && ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-      }
-      if ('speechSynthesis' in window) {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-      }
-    } catch (e) {}
-  }
-
-  function loadVoices() {
-    if ('speechSynthesis' in window) {
-      voices = window.speechSynthesis.getVoices() || [];
-    }
-  }
-
-  function initVoices() {
-    loadVoices();
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        loadVoices();
-      };
-      setTimeout(loadVoices, 200);
-      setTimeout(loadVoices, 800);
-      setTimeout(loadVoices, 2000);
-    }
-  }
-  initVoices();
-
-  function selectBestHumanVoice() {
-    if (!('speechSynthesis' in window)) return null;
-    if (!voices || voices.length === 0) {
-      loadVoices();
-    }
-    if (!voices || voices.length === 0) return null;
-
-    const enVoices = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith('en'));
-    const pool = enVoices.length > 0 ? enVoices : voices;
-
-    let best = null;
-    let maxScore = -999;
-
-    pool.forEach(v => {
-      let score = 0;
-      const name = (v.name || '').toLowerCase();
-      const lang = (v.lang || '').toLowerCase();
-
-      // Premium & Google TTS priority (Google Maps standard)
-      if (name.includes('google')) score += 55;
-      if (name.includes('natural') || name.includes('neural')) score += 50;
-      if (name.includes('premium') || name.includes('online')) score += 35;
-
-      // Female voices (Google Maps standard navigation persona)
-      if (name.includes('female') || name.includes('samantha') || name.includes('zira') || name.includes('jenny') || name.includes('aria')) {
-        score += 30;
-      }
-
-      // Dialect preferences: Indian English, UK English, US English
-      if (lang === 'en-in' || lang.startsWith('en_in')) score += 25;
-      else if (lang === 'en-gb' || lang.startsWith('en_gb')) score += 20;
-      else if (lang === 'en-us' || lang.startsWith('en_us')) score += 18;
-
-      // Penalize robotic synth engines
-      if (name.includes('espeak') || name.includes('compact') || name.includes('generic')) score -= 45;
-      if (v.localService === false) score += 10;
-
-      if (score > maxScore) {
-        maxScore = score;
-        best = v;
-      }
-    });
-
-    return best || pool[0];
-  }
-
-  function playChime(type = 'turn') {
-    if (!soundEnabled) return;
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-
-      const triggerTone = () => {
-        try {
-          const now = ctx.currentTime;
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-
-          if (type === 'arrive') {
-            // Cheerful 3-tone arrival chime (C5 -> E5 -> G5)
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(523.25, now);
-            osc.frequency.setValueAtTime(659.25, now + 0.12);
-            osc.frequency.setValueAtTime(783.99, now + 0.24);
-            gain.gain.setValueAtTime(0.28, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-            osc.start(now);
-            osc.stop(now + 0.55);
-          } else {
-            // Crisp Google Maps 2-tone alert chime (G5 784Hz -> C6 1046.5Hz)
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(783.99, now);
-            osc.frequency.setValueAtTime(1046.5, now + 0.08);
-            gain.gain.setValueAtTime(0.28, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-            osc.start(now);
-            osc.stop(now + 0.35);
-          }
-        } catch (e) {}
-      };
-
-      if (ctx.state === 'suspended') {
-        ctx.resume().then(triggerTone).catch(() => {});
-      } else {
-        triggerTone();
-      }
-    } catch (e) {}
-  }
-
-  let voiceKeepAliveTimer = null;
-
-  function speakVoice(text, priority = false) {
-    if (!soundEnabled || !voiceEnabled || !text) return;
-
-    // 1. Ultra-reliable Native Android TTS Interface (Always works in Android APK)
-    if (window.AndroidTTS && typeof window.AndroidTTS.speak === 'function') {
-      try {
-        console.log('[VoltWay Voice] Speaking via Native AndroidTTS:', text);
-        window.AndroidTTS.speak(text);
-        return;
-      } catch (err) {
-        console.warn('[VoltWay Voice] AndroidTTS exception, falling back:', err);
-      }
-    }
-
-    // 2. Browser Web Speech API fallback (For desktop / standalone Chrome)
-    if (!('speechSynthesis' in window)) return;
-    try {
-      if (voiceKeepAliveTimer) {
-        clearInterval(voiceKeepAliveTimer);
-        voiceKeepAliveTimer = null;
-      }
-
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 0.96; // Google Maps natural human cadence
-      utter.pitch = 1.0;
-      utter.volume = 1.0; // Loudest, clearest level
-
-      const voice = selectBestHumanVoice();
-      if (voice) {
-        utter.voice = voice;
-        utter.lang = voice.lang || 'en-IN';
-      } else {
-        const sysLang = (navigator.language || '').toLowerCase();
-        utter.lang = sysLang.startsWith('en') ? navigator.language : 'en-US';
-      }
-
-      utter.onend = () => {
-        if (voiceKeepAliveTimer) {
-          clearInterval(voiceKeepAliveTimer);
-          voiceKeepAliveTimer = null;
-        }
-        window._voltwayActiveUtterance = null;
-      };
-
-      utter.onerror = (e) => {
-        if (voiceKeepAliveTimer) {
-          clearInterval(voiceKeepAliveTimer);
-          voiceKeepAliveTimer = null;
-        }
-        window._voltwayActiveUtterance = null;
-        console.warn('[VoltWay Voice] TTS note:', e);
-      };
-
-      // Store in window to prevent aggressive Chromium garbage collection cutting off speech
-      window._voltwayActiveUtterance = utter;
-
-      const doSpeak = () => {
-        try {
-          if (window.speechSynthesis.paused) {
-            window.speechSynthesis.resume();
-          }
-          window.speechSynthesis.speak(utter);
-          // Android Chrome keep-alive
-          voiceKeepAliveTimer = setInterval(() => {
-            if (window.speechSynthesis.paused) {
-              window.speechSynthesis.resume();
-            }
-          }, 3500);
-        } catch (e) {}
-      };
-
-      if (priority || window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-        window.speechSynthesis.cancel();
-        // Give native Android TTS service binder 45ms to cancel before dispatching new speech
-        setTimeout(doSpeak, 45);
-      } else {
-        doSpeak();
-      }
-    } catch (e) {
-      console.warn('[VoltWay Voice] TTS error:', e);
-    }
-  }
-
-  function cleanRoadForSpeech(name) {
-    if (!name) return '';
-    let n = name.trim();
-    if (/^(unnamed|service\s*road|ramp|link|path|track|road)$/i.test(n)) return '';
-    n = n.replace(/\bNH\s*(\d+)/gi, 'National Highway $1');
-    n = n.replace(/\bSH\s*(\d+)/gi, 'State Highway $1');
-    n = n.replace(/\bRd\b/gi, 'Road');
-    n = n.replace(/\bSt\b/gi, 'Street');
-    n = n.replace(/\bAve\b/gi, 'Avenue');
-    n = n.replace(/\bHwy\b/gi, 'Highway');
-    n = n.replace(/\bJn\b|\bJct\b/gi, 'Junction');
-    n = n.replace(/\bByp\b/gi, 'Bypass');
-    if (n.includes('/')) n = n.split('/')[0].trim();
-    return n;
-  }
-
-  function getManeuverSpeech(type, modifier, roadName) {
-    const t = (type || 'continue').toLowerCase();
-    const mod = (modifier || '').replace('_', ' ').toLowerCase();
-    const road = cleanRoadForSpeech(roadName);
-
-    let action = '';
-    if (t === 'arrive' || t.includes('dest')) {
-      return { isDest: true, action: 'arrive', road };
-    }
-    if (mod.includes('uturn')) action = 'make a U-turn';
-    else if (mod.includes('slight left')) action = 'keep slight left';
-    else if (mod.includes('slight right')) action = 'keep slight right';
-    else if (mod.includes('sharp left')) action = 'take sharp left';
-    else if (mod.includes('sharp right')) action = 'take sharp right';
-    else if (mod.includes('left')) action = 'turn left';
-    else if (mod.includes('right')) action = 'turn right';
-    else if (t.includes('roundabout') || t.includes('rotary')) action = 'enter the roundabout';
-    else if (t.includes('fork')) action = mod ? `take the fork on the ${mod}` : 'keep to the fork';
-    else if (t.includes('ramp')) action = 'take the ramp';
-    else action = 'continue straight';
-
-    return { isDest: false, action, road };
-  }
 
   function getTurnSymbol(type, modifier) {
     const mod = (modifier || '').toLowerCase();
@@ -1257,15 +977,10 @@ const DriveEngine = (function () {
       return;
     }
 
-    primeAudioEngine();
-
     active = true;
     lastStepIdx = -1;
-    lastChimeStepIdx = -1;
-    announced500 = false;
-    announced100 = false;
-    announcedTurn = false;
-    announcedCharger = false;
+    offRouteCount = 0;
+    isRecalculating = false;
 
     // Flatten steps across all route legs
     steps = [];
@@ -1320,13 +1035,16 @@ const DriveEngine = (function () {
     if (speedometer) speedometer.style.display = 'flex';
     if (roadPill) roadPill.style.display = 'flex';
 
-    // Start live auto-follow on map
+    // Start live auto-follow on map and snap camera to rider position
     if (window.MapEngine) {
       window.MapEngine.setAutoFollow(true);
       window.MapEngine.locateUser(true);
       setTimeout(() => {
         const m = window.MapEngine.getMap();
         if (m) m.invalidateSize();
+        if (typeof window.MapEngine.recenterCamera === 'function') {
+          window.MapEngine.recenterCamera(17.5);
+        }
       }, 100);
     }
 
@@ -1340,26 +1058,6 @@ const DriveEngine = (function () {
       btnNavCompassInit.title = 'Route Locked Mode (Click to follow phone heading)';
     }
 
-    // Sync saved sound toggle state to HUD button
-    const btnSoundInit = document.getElementById('btn-hud-sound-toggle');
-    if (btnSoundInit) {
-      btnSoundInit.innerHTML = soundEnabled ? '🔊' : '🔇';
-      btnSoundInit.title = soundEnabled ? 'Voice & Audio guidance active' : 'Voice guidance muted';
-    }
-
-    // Play startup chime and speak welcome guidance with first maneuver
-    playChime('turn');
-    const destName = (activeRoute.destination && activeRoute.destination.name) || 'destination';
-    const cleanDest = cleanRoadForSpeech(destName) || destName.split(',')[0].trim();
-
-    const targetStep = steps[currentStepIdx] || steps[0];
-    const speech = getManeuverSpeech(targetStep.type, targetStep.modifier, targetStep.name);
-    const distMeters = Math.round(targetStep.distance || 250);
-    const distStr = distMeters < 1000 ? `${Math.max(50, Math.round(distMeters / 10) * 10)} meters` : `${(distMeters / 1000).toFixed(1)} kilometers`;
-    const actionPhrase = speech.road ? `${speech.action} onto ${speech.road}` : speech.action;
-
-    speakVoice(`Starting navigation to ${cleanDest}. In ${distStr}, ${actionPhrase}. Drive safely!`, true);
-
     // Render initial guidance display
     updateHudDisplay(null);
   }
@@ -1367,13 +1065,6 @@ const DriveEngine = (function () {
   function exitDriveMode() {
     active = false;
     document.body.classList.remove('nav-active');
-
-    if (window.AndroidTTS && typeof window.AndroidTTS.stop === 'function') {
-      try { window.AndroidTTS.stop(); } catch (e) {}
-    }
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
 
     const hudWrapper = document.getElementById('nav-driving-hud-wrapper');
     const bottomBar = document.getElementById('nav-bottom-bar');
@@ -1414,34 +1105,6 @@ const DriveEngine = (function () {
     }
   }
 
-  function toggleSound() {
-    soundEnabled = !soundEnabled;
-    try {
-      localStorage.setItem('voltway_sound_enabled', String(soundEnabled));
-    } catch (e) {}
-    primeAudioEngine();
-    const btn = document.getElementById('btn-hud-sound-toggle');
-    if (btn) {
-      btn.innerHTML = soundEnabled ? '🔊' : '🔇';
-      btn.title = soundEnabled ? 'Voice & Audio guidance active' : 'Voice guidance muted';
-    }
-    if (soundEnabled) {
-      playChime('turn');
-      speakVoice('Voice guidance active', true);
-    } else {
-      if (window.AndroidTTS && typeof window.AndroidTTS.stop === 'function') {
-        try { window.AndroidTTS.stop(); } catch (e) {}
-      }
-      speakVoice('Voice guidance muted', true);
-      setTimeout(() => {
-        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      }, 1000);
-    }
-    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast(soundEnabled ? '🔊 Voice navigation active' : '🔇 Voice navigation muted');
-    }
-  }
-
   async function checkOffRouteAndRecalculate(userCoords, activeRoute) {
     if (isRecalculating || !userCoords || !activeRoute || !window.RouteEngine) return;
 
@@ -1454,32 +1117,12 @@ const DriveEngine = (function () {
 
     if (distFromRouteKm == null) return;
 
-    const now = Date.now();
-
-    // 1. Heading check for U-Turn:
-    // If rider is traveling in reverse / opposite direction on route segment (difference > 135°)
-    if (slice && userCoords.heading != null && userCoords.speed != null && userCoords.speed > 1.2) {
-      let hDiff = Math.abs((userCoords.heading - slice.segmentBearing + 180) % 360 - 180);
-      if (hDiff > 135) {
-        if (now - lastUturnAnnouncedTime > 15000) { // 15-second throttle
-          lastUturnAnnouncedTime = now;
-          playChime('turn');
-          speakVoice('Make a U-turn when possible', true);
-        }
-      }
-    }
-
-    // 2. Off-Route Deviation Check (> 45 meters / 0.045 km)
+    // Off-Route Deviation Check (> 45 meters / 0.045 km)
     if (distFromRouteKm > 0.045) {
       offRouteCount++;
       if (offRouteCount >= 2) {
         offRouteCount = 0;
         isRecalculating = true;
-        if (now - lastRerouteAnnouncedTime > 12000) {
-          lastRerouteAnnouncedTime = now;
-          speakVoice('Rerouting...', true);
-          playChime('turn');
-        }
         try {
           // Preserve remaining intermediate charging stops
           const currentWaypoints = window.RouteEngine.getWaypoints ? window.RouteEngine.getWaypoints() : (activeRoute.waypoints || []);
@@ -1501,7 +1144,9 @@ const DriveEngine = (function () {
           });
           currentStepIdx = steps.length > 1 && steps[0].type === 'depart' ? 1 : 0;
           lastStepIdx = -1;
-          speakVoice('New route found', true);
+          if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+            window.SyncEngine.showAutoUpdateToast('🔄 Rerouted to destination');
+          }
         } catch (err) {
           console.warn('[VoltWay Nav] Auto recalculation note:', err);
         } finally {
@@ -1526,70 +1171,13 @@ const DriveEngine = (function () {
 
     if (currentStepIdx !== lastStepIdx) {
       lastStepIdx = currentStepIdx;
-      announced500 = false;
-      announced100 = false;
-      announcedTurn = false;
-      announcedCharger = false;
-
-      // Google Maps style prompt immediately after completing prior maneuver
-      const nextSpeech = getManeuverSpeech(curStep.type, curStep.modifier, curStep.name);
-      if (userCoords && curStep.lat != null && curStep.lng != null && window.Utilities) {
-        const dM = Math.round(window.Utilities.haversine(userCoords.lat, userCoords.lng, curStep.lat, curStep.lng) * 1000);
-        if (dM > 130) {
-          const dStr = dM < 1000 ? `${Math.round(dM / 50) * 50} meters` : `${(dM / 1000).toFixed(1)} kilometers`;
-          speakVoice(nextSpeech.road ? `In ${dStr}, ${nextSpeech.action} onto ${nextSpeech.road}` : `In ${dStr}, ${nextSpeech.action}`);
-        }
-      }
     }
 
-    const speech = getManeuverSpeech(curStep.type, curStep.modifier, curStep.name);
     let distText = 'In 200 m';
 
     if (userCoords && curStep && curStep.lat != null && curStep.lng != null && window.Utilities) {
       const dKm = window.Utilities.haversine(userCoords.lat, userCoords.lng, curStep.lat, curStep.lng);
       const dMeters = Math.round(dKm * 1000);
-
-      // Voice announcements based on distance to maneuver (Google Maps style)
-      if (dMeters <= 500 && dMeters > 130 && !announced500) {
-        announced500 = true;
-        playChime('turn');
-        if (speech.isDest) {
-          speakVoice('In 500 meters, your destination is on the right');
-        } else {
-          speakVoice(speech.road ? `In 500 meters, ${speech.action} onto ${speech.road}` : `In 500 meters, ${speech.action}`);
-        }
-      } else if (dMeters <= 130 && dMeters > 35 && !announced100) {
-        announced100 = true;
-        playChime('turn');
-        const promptM = Math.max(40, Math.round(dMeters / 10) * 10);
-        if (speech.isDest) {
-          speakVoice(`In ${promptM} meters, destination is on the right`, true);
-        } else {
-          speakVoice(speech.road ? `In ${promptM} meters, ${speech.action} onto ${speech.road}` : `In ${promptM} meters, ${speech.action}`, true);
-        }
-      } else if (dMeters <= 35 && !announcedTurn) {
-        announcedTurn = true;
-        playChime(speech.isDest ? 'arrive' : 'turn');
-        if (speech.isDest) {
-          speakVoice('You have arrived at your destination, on the right', true);
-        } else {
-          speakVoice(speech.road ? `${speech.action} onto ${speech.road}` : `${speech.action} now`, true);
-        }
-      }
-
-      // Check upcoming charger alert
-      const waypoints = activeRoute.waypoints || [];
-      if (waypoints.length > 0 && !announcedCharger) {
-        const firstWp = waypoints[0];
-        if (firstWp && firstWp.lat != null && firstWp.lng != null) {
-          const wpDistM = window.Utilities.haversine(userCoords.lat, userCoords.lng, firstWp.lat, firstWp.lng) * 1000;
-          if (wpDistM <= 500 && wpDistM > 100) {
-            announcedCharger = true;
-            const net = (firstWp.network || 'EV Fast').toUpperCase();
-            speakVoice(`Approaching ${net} fast charging stop in 500 meters`);
-          }
-        }
-      }
 
       // Advance to next maneuver if within 30 meters or passing intersection
       if (currentStepIdx < steps.length - 1) {
@@ -1603,10 +1191,6 @@ const DriveEngine = (function () {
         }
         if (shouldAdvance) {
           currentStepIdx++;
-          if (currentStepIdx !== lastChimeStepIdx) {
-            lastChimeStepIdx = currentStepIdx;
-            playChime('turn');
-          }
         }
       }
 
@@ -1718,7 +1302,7 @@ const DriveEngine = (function () {
   return {
     startDriveMode,
     exitDriveMode,
-    toggleSound,
+    toggleSound: () => {},
     onLocationUpdate,
     isActive: () => active
   };
@@ -2926,13 +2510,6 @@ function setupDriveModeControls() {
   if (btnExit) {
     btnExit.addEventListener('click', () => {
       if (window.DriveEngine) window.DriveEngine.exitDriveMode();
-    });
-  }
-
-  const btnSound = document.getElementById('btn-hud-sound-toggle');
-  if (btnSound) {
-    btnSound.addEventListener('click', () => {
-      if (window.DriveEngine) window.DriveEngine.toggleSound();
     });
   }
 
