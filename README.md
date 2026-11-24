@@ -1,115 +1,110 @@
-# ⚡ VoltWay 2W: Android EV Route Planner (Ather & Bolt.Earth)
+# ⚡ VoltWay 2W: Indian 2-Wheeler EV Route Planner & Navigation Cockpit (v5.20)
 
-A production-ready, **zero-server-cost** Android EV Route Planner application engineered specifically for 2-wheeler electric vehicle riders (optimized for **Ather 450X, Ather 450 Apex, Ather Rizta, Bolt.Earth, Ola, TVS iQube**, and all 2W EVs).
+[![Build VoltWay Android APK](https://github.com/Banispp/voltway/actions/workflows/build-apk.yml/badge.svg)](https://github.com/Banispp/voltway/actions/workflows/build-apk.yml)
+[![Auto-Sync EV Chargers Database](https://github.com/Banispp/voltway/actions/workflows/auto_sync_chargers.yml/badge.svg)](https://github.com/Banispp/voltway/actions/workflows/auto_sync_chargers.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Banispp/voltway?label=Latest%20APK&color=00e676)](https://github.com/Banispp/voltway/releases/latest)
 
-Utilizes 100% free open-source mapping and routing APIs (Leaflet.js, OpenStreetMap, OSRM, Nominatim) with client-side persistence and deep-linking into native Google Maps for turn-by-turn voice navigation.
+A high-performance, **zero-server-cost** Android EV Route Planner application engineered specifically for Indian 2-wheeler electric vehicle riders (optimized for **Ather 450X, Ather Rizta, Ather 450 Apex, Hero VIDA V1, Ola S1 Pro, TVS iQube, Bajaj Chetak**, and all 2W EVs).
+
+Combines free open-source mapping (Leaflet, OpenStreetMap, CartoDB Dark Matter, OSRM) with **turn-by-turn human voice navigation**, **360° tilt-compensated compass rotation** for handlebar mounts, and an embedded offline database of **11,450 genuine 2W chargers**.
 
 ---
 
-## 🚀 Key Features
+## 🚀 Key Highlights & Capabilities (v5.20)
 
-### 1. Charger Networks & Connector Filtering
-- **Ather Grid Fast Chargers (3,572 stations)**: High-speed DC fast chargers compatible with 2-wheelers, fetched straight from official Ather Energy infrastructure.
-- **Bolt.Earth Fast Chargers (262 stations)**: 2-wheeler compatible DC and fast AC points.
-- **Bolt.Earth Slow Chargers (893 stations)**: Standard 15A / 3-pin AC plug sockets for portable chargers.
-- **Strict 4-Wheeler Car Exclusion**: Car-exclusive high-power CCS2 and GB/T car guns are automatically filtered out.
+### 1. Complete Pan-India 2W Charger Coverage (11,450 Stations)
+- ⚡ **Ather Grid Fast Chargers (3,572 stations)**: Official Ather Energy high-speed DC fast chargers with live slot availability.
+- ⚡ **Hero VIDA Fast Chargers (611 stations)**: Official Type 7 LEV DC Fast Chargers across Indian metro corridors.
+- ⚡ **Bolt.Earth Fast Chargers (550 stations)**: 3.3 kW+ LEV DC and fast AC chargers verified for 2W EVs.
+- 🔌 **Bolt.Earth 15A Sockets (6,717 stations)**: Standard 15A 3-pin AC plug points for portable travel chargers.
+- 🛡️ **Zero Car Clutter**: Car-exclusive CCS2 and GB/T car guns are strictly excluded.
 
-### 2. Map UI & Distinct Visual Pins
-- **Leaflet.js + OSM Engine**: Completely free tiles with zero API keys or monthly bills.
-- **Distinct Pin Badges & Color Coding**:
-  - ⚡ **Ather Grid Fast**: Emerald Neon Green (`#00E676`) with glowing badge.
-  - ⚡ **Bolt.Earth Fast**: Vivid Neon Amber/Orange (`#FF9100`).
-  - 🔌 **Bolt.Earth 15A Socket**: Electric Blue (`#00B0FF`) with plug icon.
-- **Sticky Filter Chips Bar**:
-  - `[✓] Ather Grid (Fast)` (3,572)
-  - `[✓] Bolt.Earth (Fast)` (262)
-  - `[✓] Bolt.Earth (Slow 15A)` (893)
-  - Instant marker visibility toggle.
-- **Sunlight Readability Mode**: Toggle between AMOLED pitch-dark night mode and an ultra-high-contrast sunlight mode designed for handlebar phone mounts under bright tropical sun.
+### 2. Turn-by-Turn Google Maps Style Human Voice Navigation
+- **Natural Human Speech Synthesis**: Automatically selects Google Natural TTS Female voices (`Google UK English Female`, `Google English India`, `Google US English`, `Samantha`) rather than robotic offline fallbacks.
+- **Intelligent Distance Trigger Announcements**:
+  - **At 500 Meters**: *"In 500 meters, turn right onto National Highway 66"* / *"In 500 meters, your destination is on the right"*
+  - **At 100 Meters**: Melodic alert chime + *"In 100 meters, turn left"*
+  - **At Junction (< 35m)**: Chime + *"Turn left now onto Main Road"*
+  - **Charging Stop Proximity**: *"Approaching Ather Fast Charging stop in 500 meters"*
+  - **Arrival**: Harmonic 3-tone arrival chime + *"You have arrived at your destination"*
+- **Audio Pre-Warming & Mobile Gesture Unlock**: AudioContext and speech engines are primed on user touch to prevent Android WebView silent-playback restrictions.
+- **Interactive Sound Toggle & Test**: Tap the HUD speaker icon to hear immediate human voice feedback (*"Voice guidance active"*).
+- **Secondary Google Maps Deep Link**: 1-tap launcher to export the entire multi-stop route into native Google Maps app.
 
-### 3. Battery Consumption & Range Engine
-- **User Inputs**: Current Battery % (slider & number box) and customizable efficiency (`km / 1%`).
-- **Vehicle Profiles**:
-  - Ather 450X (3.7 kWh & 2.9 kWh)
-  - Ather Rizta (3.7 kWh)
-  - Ather 450 Apex (Warp+)
-  - Ola S1 Pro Gen 2
-  - TVS iQube
-  - Bajaj Chetak
-  - Hero Vida V1 Pro
-- **Riding Mode Presets**:
-  - 🟢 **Eco Mode**: 1% = 1.0 km (100 km / 100%)
-  - 🟡 **Ride Mode**: 1% = 0.8 km (80 km / 100%)
-  - 🔴 **Sport / Warp Mode**: 1% = 0.6 km (60 km / 100%)
-- **Safety Reserve Margin**:
-  - Configurable safety reserve buffer (default: 15%).
-  - `Reachable Distance (km) = (Current Battery % - Reserve %) * Efficiency`
-  - Safe Range Ring overlay rendered directly on the map around your position.
-  - Range warning banner alerting you if destination or next stop drops below safety buffer.
+### 3. Cockpit UI, Dark Mode & 360° Handlebar Mount Rotation
+- **Google Maps Dark Mode Tiles**: High-contrast CartoDB Dark Matter tile layer with dark OLED background for reduced battery drain and glare-free night riding.
+- **360° Tilt-Compensated Compass Tracking**: Utilizes a 3D gimbal-lock-free orientation vector `[0, cos(B), -sin(B)]^T` that keeps the map perfectly aligned with the rider's heading whether handheld, flat on a table, or mounted 90° upright on a motorcycle/scooter handlebar.
+- **Automotive Driving HUD**: Shows upcoming maneuver icon, live remaining meters, street name, next charging stop badge, live ETA, and total trip duration.
 
-### 4. Route Planning & Corridor Discovery
-- **OSRM (Open Source Routing Machine)**: 100% free public driving route computation between Origin (A) and Destination (D).
-- **Corridor Discovery**: Automatically identifies all compatible 2W chargers within 2.5 km of the route line.
-- **Automatic Charging Stop Optimizer**: If trip distance exceeds current battery range, automatically discovers and suggests optimal intermediate stops (Point B, Point C) prioritized before battery hits reserve margin.
+### 4. Route Corridor & Battery Safety Range Engine
+- **Manual Corridor Buffer Input**: Custom numeric input allowing riders to search chargers within any custom corridor distance (e.g. 5 km, 10 km, 25 km).
+- **Battery SoC & Range Model**:
+  - `Reachable Distance (km) = (Current Battery % - Reserve %) * Efficiency (km / 1%)`
+  - Real-time Safe Range Ring overlaid directly around the rider's live position.
+  - Interactive Fast Charge Target Limit slider (50% to 100%).
+  - Pre-configured vehicle profiles for Ather, Ola, TVS, Bajaj, and VIDA.
+  - Automatic intermediate charger stop suggestions along the travel corridor.
 
-### 5. Native Google Maps Multi-Stop Navigation
-- **1-Tap "Start Full Trip in Google Maps"**:
-  Launches universal waypoint URL:
-  `https://www.google.com/maps/dir/?api=1&origin={Origin}&destination={Dest}&waypoints={Stop1}|{Stop2}&travelmode=driving`
-  Pre-populates turn-by-turn voice navigation with all intermediate charger stops in Google Maps.
-- **1-Tap "Navigate to Next Charger"**: Direct navigation to the immediate next waypoint.
+### 5. Automated CI/CD & Database Maintenance
+- **GitHub Actions APK Build (`build-apk.yml`)**: Compiles and packages native Android APKs via Capacitor and automatically purges old releases, keeping only the single newest release on GitHub.
+- **Automated Database Auto-Sync (`auto_sync_chargers.yml`)**: Runs twice daily to deep-scan all 384 national zoom-18 cells across India, fetching newly installed Ather, VIDA, and Bolt.Earth stations.
 
-### 6. Rider Utilities
-- **SOS / Nearest Charger**: Instant 1-tap geolocation pinpointing the closest fast charger & closest 15A socket with distance in km, battery required to reach, and direct directions.
-- **Charging Time Estimator**:
-  - Fast Charger: Estimates duration to 80% SoC (~1 km/min or ~35 mins for 20-80%).
-  - Slow 15A Socket: Estimates duration and charge gain (~18-20% per hour).
+---
 
-### 7. Zero-Server Architecture & Data Sync
-- Pre-packaged embedded database of **4,727 genuine 2W chargers** (`chargers_db.js` / `chargers_db.json`).
-- Live client-side querying of Bolt.Earth API with CORS enabled.
-- Offline persistence via IndexedDB & Progressive Web App Service Worker.
-- In-app "Install App" button for 1-tap installation on Android smartphones.
+## 📥 Android APK Download
+
+- **Latest Release**: [VoltWay.apk](file:///c:/Users/banis/OneDrive/Desktop/ather/VoltWay.apk)
+- **GitHub Releases Page**: [https://github.com/Banispp/voltway/releases/latest](https://github.com/Banispp/voltway/releases/latest)
 
 ---
 
 ## 🏃 Running Locally
 
 ```bash
-# Start local preview server
+# Start local preview server with CORS support
 python serve.py
 ```
-Open [http://localhost:8080](http://localhost:8080) in your browser.
+Open [http://localhost:8080](http://localhost:8080) in your web browser.
 
 ---
 
-## 📂 Project Structure
+## 📂 Repository Structure
 
 ```
 ather/
-├── index.html                   # Single-Page Application (PWA)
+├── index.html                   # Single-Page Application (PWA) with v5.20 cache busters
 ├── manifest.json                # Web App Manifest for Android installation
-├── sw.js                        # Service Worker for 100% offline caching
+├── sw.js                        # Offline caching Service Worker (v5.20)
 ├── serve.py                     # Zero-dependency local preview server
-├── chargers_db.js               # Bundled database of 4,727 2W chargers
-├── chargers_db.json             # Raw GeoJSON/JSON charger points
+├── chargers_db.js               # Bundled database of 11,450 2W chargers
+├── chargers_db.json             # GeoJSON database for OTA sync
 ├── ather_grid_chargers.json     # 3,572 clean Ather Grid stations
-├── bolt_chargers.json           # 1,155 clean Bolt.Earth stations
+├── vida_chargers.json           # 611 Hero VIDA Type 7 LEV fast chargers
+├── bolt_chargers.json           # 7,267 Bolt.Earth fast & 15A sockets
 ├── ANDROID_PACKAGING_GUIDE.md   # Android APK & PWA packaging instructions
 ├── capacitor.config.json        # Capacitor Android native configuration
 ├── css/
-│   └── app.css                  # Modern EV dashboard & Sunlight contrast theme
+│   └── app.css                  # Modern EV dashboard & Dark Matter styling
 ├── js/
-│   ├── app.js                   # Master controller & UI event binding
-│   ├── map.js                   # Leaflet map, custom pins & safe range rings
+│   ├── app.js                   # Master controller, DriveEngine human voice navigation HUD
+│   ├── map.js                   # Leaflet map, 360° tilt-compensated rotation, CartoDB Dark Matter
 │   ├── router.js                # OSRM router & corridor waypoint optimizer
 │   ├── battery.js               # Battery consumption model & vehicle presets
 │   ├── navigator.js             # Google Maps multi-stop deep linking engine
-│   ├── sync.js                  # Live Bolt.Earth & Ather IndexedDB sync
-│   └── utilities.js             # SOS nearest locator & charging time calculator
+│   ├── sync.js                  # Live database OTA update & IndexedDB sync
+│   ├── utilities.js             # SOS nearest locator & charging time calculator
+│   └── leaflet-rotate.js        # Leaflet 360° map canvas rotation plugin
 ├── icons/                       # PWA & Android app icons (192px, 512px, SVG)
 └── scripts/
-    ├── download_ather.py        # Updates Ather Grid data from official API
-    ├── download_bolt.py         # Updates Bolt.Earth data from live API
-    └── merge_and_update.py      # Re-generates database bundles
+    ├── sync_all_networks.py     # Master national deep-scan harvester
+    ├── download_ather.py        # Ather Energy official API sync
+    ├── download_vida.py         # Hero VIDA official API sync
+    ├── harvest_bolt_national.py # Bolt.Earth national zoom-18 cell harvester
+    ├── merge_and_update.py      # Re-generates database bundles
+    └── inject_permissions.py    # Injects Android permissions for Capacitor APK build
 ```
+
+---
+
+## 📄 License
+MIT License. Open-source for all electric vehicle riders across India.

@@ -1,91 +1,99 @@
-# VoltWay 2W - Android Installation & Deployment Guide
+# VoltWay 2W - Android Installation, Packaging & CI/CD Guide (v5.20)
 
-VoltWay 2W is a **100% zero-server-cost**, production-ready Android EV Route Planner application engineered specifically for 2-wheeler electric vehicles (Ather 450X, Ather Rizta, Bolt.Earth users, Ola, TVS iQube, and other 2W EVs).
+VoltWay 2W is a **100% zero-server-cost**, production-ready Android EV Route Planner application engineered specifically for Indian 2-wheeler electric vehicles (Ather 450X, Ather Rizta, Hero VIDA, Bolt.Earth users, Ola, TVS iQube, Bajaj Chetak, and other 2W EVs).
 
 ---
 
-## ⚡ Key Highlights & Zero-Server Architecture
+## ⚡ Highlights & Architecture (v5.20)
 
-1. **4,727 Pre-Packaged 2W Compatible Chargers Out-of-the-Box**:
-   - **3,572 Ather Grid DC Fast Chargers** fetched directly from Ather Energy's official endpoints.
-   - **1,155 Bolt.Earth Chargers** (262 Fast Chargers + 893 15A / 3-pin Slow Sockets) with **car-exclusive CCS2 chargers automatically filtered out**.
-2. **Live Auto-Sync Without Server Costs**:
-   - Directly queries Bolt.Earth's live discovery API (`https://api.bolt.earth/discovery/v1/chargers/clusters`) with CORS enabled as you pan and plan routes.
+1. **11,450 Pre-Packaged 2W Compatible Chargers Out-of-the-Box**:
+   - **3,572 Ather Grid DC Fast Chargers** fetched directly from Ather Energy endpoints.
+   - **611 Hero VIDA Type 7 LEV Fast Chargers** fetched from Hero VIDA API.
+   - **7,267 Bolt.Earth Chargers** (550 Fast Chargers + 6,717 15A / 3-pin Slow Sockets) with **car-exclusive CCS2 chargers automatically filtered out**.
+2. **Turn-by-Turn Human Voice Guidance (Google Maps Style)**:
+   - Built-in In-App Drive Guidance HUD with natural human voice prompts (*"In 100 meters, turn right"*, *"Destination on right"*).
+   - Dynamic selection of high-fidelity Google Natural TTS voices.
+   - Web Audio dual-tone EV alert chimes (G5 -> C6).
+   - Audio pre-warming on user gesture to prevent WebView playback muting.
+3. **CartoDB Dark Matter & 360° Tilt-Compensated Rotation**:
+   - Google Maps style dark mode tiles for night visibility and battery saving.
+   - 3D orientation vector `[0, cos(B), -sin(B)]^T` for flawless 360° map rotation on motorcycle/scooter handlebar mounts.
+4. **Live Auto-Sync & Zero Server Costs**:
+   - Directly queries Bolt.Earth and remote database OTA updates.
    - Saves all points offline into client **IndexedDB** & **Service Worker Cache**.
-3. **Turn-by-Turn Voice Navigation Deep-Linking**:
-   - 1-tap **"Start Full Trip in Google Maps"** constructs a universal multi-stop link (`A -> B -> C -> D`) that opens natively in Google Maps.
-   - 1-tap **"Navigate to Next Charger"** for instant intermediate stop routing.
-4. **Intelligent EV Range & Buffer Engine**:
+5. **Intelligent EV Range & Buffer Engine**:
    - `Reachable Distance (km) = (Current Battery % - Reserve %) * Efficiency`
    - Real-time Safe Range Ring overlaid directly on the Leaflet map.
-   - Automatic suggestion of optimal charging waypoints along the route corridor (within 2.5 km).
-5. **Sunlight-Readability Mode**:
-   - High-contrast outdoor mode engineered for bright tropical sunlight on two-wheeler handlebar mounts.
+   - Customizable corridor search buffer (typed in km).
+   - Fast Charge Target SoC Limit slider.
 
 ---
 
 ## 📲 How to Install as an Android App
 
-### Method 1: Instant PWA Installation (Recommended - No Dev Tools Required)
+### Method 1: Download Pre-Built Android APK (Instant)
 
-1. Host the folder on **GitHub Pages** (100% free forever) or any static host (Netlify, Vercel, Firebase Free Tier).
-   - Alternatively, run `python serve.py` on your computer and connect from your Android phone on the same Wi-Fi (`http://<your-computer-ip>:8080`).
-2. Open the URL in **Google Chrome** on your Android smartphone.
-3. Tap the **"📲 Install App"** button in the header (or tap Chrome's three-dot menu `⋮` -> **"Install App"** or **"Add to Home Screen"**).
-4. VoltWay 2W installs directly onto your Android app drawer and home screen with its custom icon, splash screen, and full-screen standalone experience (no browser URL bar).
-5. **Works 100% Offline!** All 4,727 chargers, mapping engine, and calculators run even without cell reception on highways.
+Every push to the `master` branch triggers an automated GitHub Actions CI/CD pipeline that compiles and publishes the latest signed debug APK:
+
+1. Download the latest build directly: [VoltWay.apk](file:///c:/Users/banis/OneDrive/Desktop/ather/VoltWay.apk)
+2. Or download from GitHub Releases: [https://github.com/Banispp/voltway/releases/latest](https://github.com/Banispp/voltway/releases/latest)
+3. Transfer the `.apk` file to your Android phone and install!
 
 ---
 
-### Method 2: Generate Signed Android APK with PWABuilder (2 Minutes)
+### Method 2: Instant PWA Installation (Browser-to-App)
 
-Microsoft PWABuilder lets you wrap any PWA into a native Google Play Store `.apk` / `.aab` package with zero Java/Kotlin coding:
-
-1. Push this repository to GitHub and enable **GitHub Pages** in Repository Settings.
-2. Visit [https://www.pwabuilder.com/](https://www.pwabuilder.com/).
-3. Enter your GitHub Pages URL (e.g. `https://<username>.github.io/<repo>/`).
-4. Click **"Package for Android"**.
-5. Download your ready-to-install Android `.apk` or publish directly to the Google Play Store!
+1. Host the folder on **GitHub Pages**, **Vercel**, **Netlify**, or run `python serve.py` locally.
+2. Open the URL in **Google Chrome** on your Android smartphone.
+3. Tap the **"📲 Install App"** button in the top bar (or tap Chrome's three-dot menu `⋮` -> **"Install App"** / **"Add to Home Screen"**).
+4. VoltWay 2W installs directly onto your phone's app drawer with custom splash screen and standalone fullscreen experience.
+5. **Works 100% Offline!** All 11,450 chargers, map engines, and calculators run without cellular coverage.
 
 ---
 
 ### Method 3: Native Android Studio Build with Capacitor
 
-If you want to compile a raw native Android Studio APK locally:
+To build or customize the native Android project locally:
 
 ```bash
-# 1. Install Capacitor CLI (if Node is installed)
-npm install @capacitor/core @capacitor/cli @capacitor/android
+# 1. Prepare web directory
+mkdir -p www
+cp -r index.html manifest.json sw.js chargers_db.js chargers_db.json css js icons www/
 
-# 2. Add Android platform
+# 2. Install Capacitor dependencies
+npm init -y
+npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/geolocation
+
+# 3. Add and sync Android platform
 npx cap add android
+npx cap sync android
 
-# 3. Copy web assets and sync
-npx cap copy
-npx cap sync
+# 4. Inject runtime GPS and audio permissions
+python scripts/inject_permissions.py
 
-# 4. Open in Android Studio
-npx cap open android
+# 5. Build debug APK using Gradle
+cd android
+./gradlew assembleDebug
+
+# Output APK path:
+# android/app/build/outputs/apk/debug/app-debug.apk
 ```
-In Android Studio:
-- Select **Build** -> **Build Bundle(s) / APK(s)** -> **Build APK(s)**.
-- Transfer the generated `app-debug.apk` to your phone and install!
 
 ---
 
-## 🛠️ Automated Scripts & Data Refresh
+## 🛠️ Automated Sync & Harvest Scripts
 
-To update the bundled chargers database with the latest stations:
+To update the bundled chargers database across all 3 major Indian 2W networks:
 
 ```bash
-# Fetch latest Ather Grid chargers from Ather Energy
-python scripts/download_ather.py
-
-# Fetch latest Bolt.Earth chargers from live API
-python scripts/download_bolt.py
-
-# Merge and update chargers_db.json & chargers_db.js
-python scripts/merge_and_update.py
+# Master deep scan across Ather, Hero VIDA, and Bolt.Earth (384 national cells)
+python scripts/sync_all_networks.py
 ```
 
-You can even set up a free **GitHub Actions** cron workflow that runs these scripts weekly to automatically keep the database fresh!
+This runs:
+1. `scripts/download_ather.py` — Official Ather Grid API
+2. `scripts/download_vida.py` — Official Hero VIDA API
+3. `scripts/harvest_bolt_national.py` — Bolt.Earth unclustered zoom-18 deep harvester
+4. `scripts/merge_and_update.py` — Re-generates `chargers_db.js` and `chargers_db.json`
+
+The GitHub Actions workflow (`.github/workflows/auto_sync_chargers.yml`) executes this scan automatically twice every day at 00:00 and 12:00 UTC.
