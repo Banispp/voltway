@@ -1403,7 +1403,7 @@ const MapEngine = (function () {
     }
   }
 
-  function recenterCamera() {
+  function recenterCamera(forcedZoom = null) {
     if (recenterTimer) {
       clearTimeout(recenterTimer);
       recenterTimer = null;
@@ -1434,27 +1434,24 @@ const MapEngine = (function () {
             desiredHeading = slice.segmentBearing;
           }
         }
-        const lookaheadKm = 0.06;
-        const rad = (desiredHeading || 0) * Math.PI / 180;
-        const lookLat = userCoords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
-        const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
-        // Snappy, fast recenter in drive mode (0.2s duration)
-        map.panTo([lookLat, lookLng], { animate: true, duration: 0.20 });
+        
+        // Exact user position centering (Zero offset - 100% exact alignment, no shift)
+        const targetZoom = forcedZoom || (map.getZoom() < 16 ? 17.5 : map.getZoom());
+        map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: false });
+
         if (typeof map.setBearing === 'function' && desiredHeading != null) {
           targetBearing = (360 - desiredHeading + 360) % 360;
-          scheduleBearingAnimation();
+          currentRenderedBearing = targetBearing;
+          map.setBearing(targetBearing);
         }
       } else {
-        // Fast, crisp 0.25s recenter in normal browsing mode
-        const targetZoom = Math.max(15, map.getZoom());
-        if (map.getZoom() !== targetZoom) {
-          map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: true, duration: 0.25 });
-        } else {
-          map.panTo([userCoords.lat, userCoords.lng], { animate: true, duration: 0.25 });
-        }
-        if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
+        // Fast, instant, 100% accurate centering in normal browsing mode
+        const targetZoom = forcedZoom || Math.max(16, map.getZoom());
+        map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: false });
+        if (typeof map.setBearing === 'function') {
           targetBearing = 0;
-          scheduleBearingAnimation();
+          currentRenderedBearing = 0;
+          map.setBearing(0);
         }
       }
     } else {

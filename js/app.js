@@ -1104,7 +1104,21 @@ const DriveEngine = (function () {
   let voiceKeepAliveTimer = null;
 
   function speakVoice(text, priority = false) {
-    if (!soundEnabled || !voiceEnabled || !('speechSynthesis' in window) || !text) return;
+    if (!soundEnabled || !voiceEnabled || !text) return;
+
+    // 1. Ultra-reliable Native Android TTS Interface (Always works in Android APK)
+    if (window.AndroidTTS && typeof window.AndroidTTS.speak === 'function') {
+      try {
+        console.log('[VoltWay Voice] Speaking via Native AndroidTTS:', text);
+        window.AndroidTTS.speak(text);
+        return;
+      } catch (err) {
+        console.warn('[VoltWay Voice] AndroidTTS exception, falling back:', err);
+      }
+    }
+
+    // 2. Browser Web Speech API fallback (For desktop / standalone Chrome)
+    if (!('speechSynthesis' in window)) return;
     try {
       if (voiceKeepAliveTimer) {
         clearInterval(voiceKeepAliveTimer);
@@ -1354,6 +1368,9 @@ const DriveEngine = (function () {
     active = false;
     document.body.classList.remove('nav-active');
 
+    if (window.AndroidTTS && typeof window.AndroidTTS.stop === 'function') {
+      try { window.AndroidTTS.stop(); } catch (e) {}
+    }
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -1412,6 +1429,9 @@ const DriveEngine = (function () {
       playChime('turn');
       speakVoice('Voice guidance active', true);
     } else {
+      if (window.AndroidTTS && typeof window.AndroidTTS.stop === 'function') {
+        try { window.AndroidTTS.stop(); } catch (e) {}
+      }
       speakVoice('Voice guidance muted', true);
       setTimeout(() => {
         if ('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -2919,7 +2939,8 @@ function setupDriveModeControls() {
   const btnRoutesToggle = document.getElementById('btn-nav-routes-toggle');
   if (btnRoutesToggle) {
     let isOverviewMode = false;
-    btnRoutesToggle.addEventListener('click', (e) => {
+
+    const handleToggleOverview = (e) => {
       e.stopPropagation();
       e.preventDefault();
       if (!window.MapEngine) return;
@@ -2929,7 +2950,7 @@ function setupDriveModeControls() {
 
       isOverviewMode = !isOverviewMode;
       if (isOverviewMode) {
-        // Toggle Route Overview: Show full route & fit bounds
+        // Toggle Route Overview: Show full route
         window.MapEngine.setAutoFollow(false);
         if (typeof m.setBearing === 'function') {
           m.setBearing(0);
@@ -2937,7 +2958,7 @@ function setupDriveModeControls() {
         if (activeRoute.coordinates && activeRoute.coordinates.length > 0) {
           m.fitBounds(L.latLngBounds(activeRoute.coordinates), {
             padding: [70, 50],
-            animate: true
+            animate: false
           });
         }
         btnRoutesToggle.classList.add('active-overview');
@@ -2946,15 +2967,18 @@ function setupDriveModeControls() {
           window.SyncEngine.showAutoUpdateToast('🗺️ Route Overview Mode');
         }
       } else {
-        // Toggle Re-center: Resume turn-by-turn follow
-        window.MapEngine.recenterCamera();
+        // Toggle Re-center: Resume turn-by-turn follow at exact rider location with 17.5 zoom and zero offset!
+        window.MapEngine.recenterCamera(17.5);
         btnRoutesToggle.classList.remove('active-overview');
         btnRoutesToggle.title = 'Route Overview & Alternatives';
         if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
           window.SyncEngine.showAutoUpdateToast('📍 Resuming Navigation Follow');
         }
       }
-    });
+    };
+
+    btnRoutesToggle.addEventListener('click', handleToggleOverview);
+    btnRoutesToggle.addEventListener('touchstart', handleToggleOverview, { passive: false });
   }
 
   // Floating Theme Switcher Button (Dark / Daylight Tile Toggle)
@@ -3000,7 +3024,7 @@ function setupDriveModeControls() {
   // Floating GPS Re-center Button (Instant Snappy Recenter)
   const btnFloatGps = document.getElementById('btn-float-gps');
   if (btnFloatGps) {
-    btnFloatGps.addEventListener('click', (e) => {
+    const handleRecenter = (e) => {
       e.stopPropagation();
       e.preventDefault();
       if (window.MapEngine && window.MapEngine.recenterCamera) {
@@ -3009,7 +3033,9 @@ function setupDriveModeControls() {
           window.SyncEngine.showAutoUpdateToast('🎯 Re-centered');
         }
       }
-    });
+    };
+    btnFloatGps.addEventListener('click', handleRecenter);
+    btnFloatGps.addEventListener('touchstart', handleRecenter, { passive: false });
   }
 
   const btnFloatingStart = document.getElementById('btn-floating-start-nav');
