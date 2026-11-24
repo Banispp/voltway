@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.37-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.38-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.37-release
-          name: "VoltWay 2W Android APK v5.37 (Clean Automotive Visual HUD Navigation)"
-          body: "VoltWay 2W v5.37: 1) Clean Visual HUD Navigation: Completely eliminated background SpeechSynthesis / TTS timers and audio chime overhead as requested, maximizing battery life and eliminating all navigation lag; 2) Streamlined Automotive Turn Cards: Large intuitive turn arrows, real-time distance countdown, subsequent maneuver preview ('Then ↱'), upcoming charger station badges, live floating speedometer, and road callout pill; 3) Zero-lag camera recentering with exact vehicle tracking."
+          tag_name: v5.38-release
+          name: "VoltWay 2W Android APK v5.38 (Re-Center Button Color & State Fix)"
+          body: "VoltWay 2W v5.38: 1) Fixed Re-Center Button Color: Removed permanent green background from the floating GPS re-center button; it now displays a momentary tap pulse and smoothly returns to the sleek normal dark styling, preventing the button from staying green; 2) Synchronized Route Overview & Re-Center State: Recenter actions now automatically reset any active overview toggle, ensuring buttons never get stuck in green or active states."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

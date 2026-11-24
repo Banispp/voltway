@@ -2517,6 +2517,12 @@ function setupDriveModeControls() {
   if (btnRoutesToggle) {
     let isOverviewMode = false;
 
+    window._voltwayResetOverviewMode = () => {
+      isOverviewMode = false;
+      btnRoutesToggle.classList.remove('active-overview');
+      btnRoutesToggle.title = 'Route Overview & Alternatives';
+    };
+
     const handleToggleOverview = (e) => {
       e.stopPropagation();
       e.preventDefault();

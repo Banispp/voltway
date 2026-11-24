@@ -1249,13 +1249,8 @@ const MapEngine = (function () {
   function updateGpsButtonUi() {
     const gpsBtn = document.getElementById('btn-float-gps');
     if (gpsBtn) {
-      if (isAutoFollow) {
-        gpsBtn.classList.add('tracking-active');
-        gpsBtn.title = 'GPS Tracking Active (Auto-Following)';
-      } else {
-        gpsBtn.classList.remove('tracking-active');
-        gpsBtn.title = 'Center on My GPS Location';
-      }
+      gpsBtn.classList.remove('tracking-active');
+      gpsBtn.title = isAutoFollow ? 'GPS Tracking Active (Auto-Following)' : 'Center on My GPS Location';
     }
   }
 
@@ -1458,6 +1453,25 @@ const MapEngine = (function () {
       locateUser(true);
     }
     updateGpsButtonUi();
+
+    // Momentary tap pulse on GPS button (smoothly returns to normal after 450ms)
+    const gpsBtn = document.getElementById('btn-float-gps');
+    if (gpsBtn) {
+      gpsBtn.classList.add('recenter-flash');
+      setTimeout(() => {
+        gpsBtn.classList.remove('recenter-flash');
+      }, 450);
+    }
+
+    // Reset Route Overview toggle if active
+    const btnRoutes = document.getElementById('btn-nav-routes-toggle');
+    if (btnRoutes) {
+      btnRoutes.classList.remove('active-overview');
+      btnRoutes.title = 'Route Overview & Alternatives';
+    }
+    if (window._voltwayResetOverviewMode) {
+      window._voltwayResetOverviewMode();
+    }
   }
 
   function isAutoFollowActive() {

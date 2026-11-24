@@ -608,7 +608,7 @@ html, body {
   cursor: pointer;
   box-shadow: var(--shadow-md);
   z-index: 1010;
-  transition: transform 0.1s ease, bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s;
+  transition: transform 0.15s ease, bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   will-change: transform;
   touch-action: manipulation;
   pointer-events: auto !important;
@@ -627,11 +627,10 @@ html, body {
   transition: transform 0.06s ease !important;
 }
 
-.btn-float-gps.tracking-active {
-  background: var(--color-ather) !important;
-  color: #052e16 !important;
-  box-shadow: 0 0 16px rgba(0, 230, 118, 0.75) !important;
-  border: 2px solid #ffffff !important;
+.btn-float-gps.recenter-flash {
+  border-color: #00e676 !important;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.6) !important;
+  transform: scale(0.92);
 }
 
 /* Floating Fullscreen Map Button */
