@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.32-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.33-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.32-release
-          name: "VoltWay 2W Android APK v5.32 (Accurate Forward Arrow, Zero-Vibration Compass, Reliable Theme Toggle)"
-          body: "VoltWay 2W v5.32: 1) Fixed Theme Toggle: Removed duplicate inline onclick handler so dark/daylight mode toggles cleanly on single click; 2) Compass Removed from Pre-start Screen: Compass button now exclusively appears only during active Turn-by-Turn navigation; 3) Correct Forward Arrow Math: Fixed 180-degree reversed angle in Free Compass Mode so arrow points forward into the road and matches physical phone orientation; 4) Zero-Vibration Puck: Added smooth 0.22s cubic-bezier CSS transition and 3.5-degree deadband to eliminate micro-vibrations; 5) Short English Toast Notifications: Clean status alerts ('Compass Mode ON', 'Route Locked', 'Dark Mode', 'Daylight Mode')."
+          tag_name: v5.33-release
+          name: "VoltWay 2W Android APK v5.33 (Lightning-Fast Zero-Lag Recenter & Instant Tactile Response)"
+          body: "VoltWay 2W v5.33: 1) Lightning-Fast Recenter: Replaced slow 1.5s Leaflet flyTo animation with snappy 0.25s camera snap; 2) Instant GPS Recovery: Instant fallback to cached last-known position prevents multi-second GPS freeze; 3) Direct Event Binding: Removed inline onclick and added high-priority touch listener for instant button reaction; 4) Tactile Tap Feedback: Instant 80ms active scale press animation."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

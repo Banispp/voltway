@@ -1391,6 +1391,21 @@ const MapEngine = (function () {
       recenterTimer = null;
     }
     isAutoFollow = true;
+    isUserInteracting = false;
+
+    // Fast recovery if userCoords is null: recover from cached last-known position immediately
+    if (!userCoords) {
+      try {
+        const cached = localStorage.getItem('voltway_last_known_pos');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.lat && parsed.lng) {
+            userCoords = { lat: parsed.lat, lng: parsed.lng, accuracy: 20, heading: 0, speed: 0 };
+            updateUserPuck(parsed.lat, parsed.lng, 20, 0);
+          }
+        }
+      } catch (e) {}
+    }
 
     if (userCoords && map) {
       if (window.DriveEngine && window.DriveEngine.isActive()) {
@@ -1405,18 +1420,27 @@ const MapEngine = (function () {
         const rad = (desiredHeading || 0) * Math.PI / 180;
         const lookLat = userCoords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
         const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
-        map.setView([lookLat, lookLng], 17, { animate: false });
+        // Snappy, fast recenter in drive mode (0.2s duration)
+        map.panTo([lookLat, lookLng], { animate: true, duration: 0.20 });
         if (typeof map.setBearing === 'function' && desiredHeading != null) {
           targetBearing = (360 - desiredHeading + 360) % 360;
           scheduleBearingAnimation();
         }
       } else {
-        map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
+        // Fast, crisp 0.25s recenter in normal browsing mode
+        const targetZoom = Math.max(15, map.getZoom());
+        if (map.getZoom() !== targetZoom) {
+          map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: true, duration: 0.25 });
+        } else {
+          map.panTo([userCoords.lat, userCoords.lng], { animate: true, duration: 0.25 });
+        }
         if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
           targetBearing = 0;
           scheduleBearingAnimation();
         }
       }
+    } else {
+      locateUser(true);
     }
     updateGpsButtonUi();
   }
@@ -1433,7 +1457,7 @@ const MapEngine = (function () {
 
     startLiveTracking(panTo);
 
-    // If we already have live coordinates, pan smoothly
+    // If we already have live coordinates, pan quickly with 0.25s snappy response
     if (userCoords && panTo && map) {
       if (window.DriveEngine && window.DriveEngine.isActive()) {
         let desiredHeading = userHeading;
@@ -1447,13 +1471,18 @@ const MapEngine = (function () {
         const rad = (desiredHeading || 0) * Math.PI / 180;
         const lookLat = userCoords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
         const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
-        map.setView([lookLat, lookLng], 17, { animate: false });
+        map.panTo([lookLat, lookLng], { animate: true, duration: 0.20 });
         if (typeof map.setBearing === 'function' && desiredHeading != null) {
           targetBearing = (360 - desiredHeading + 360) % 360;
           scheduleBearingAnimation();
         }
       } else {
-        map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
+        const targetZoom = Math.max(15, map.getZoom());
+        if (map.getZoom() !== targetZoom) {
+          map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: true, duration: 0.25 });
+        } else {
+          map.panTo([userCoords.lat, userCoords.lng], { animate: true, duration: 0.25 });
+        }
         if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
           targetBearing = 0;
           scheduleBearingAnimation();
@@ -1521,13 +1550,18 @@ const MapEngine = (function () {
           const rad = (desiredHeading || 0) * Math.PI / 180;
           const lookLat = coords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
           const lookLng = coords.lng + (lookaheadKm / (111.32 * Math.cos(coords.lat * Math.PI / 180))) * Math.sin(rad);
-          map.setView([lookLat, lookLng], 17, { animate: false });
+          map.panTo([lookLat, lookLng], { animate: true, duration: 0.20 });
           if (typeof map.setBearing === 'function' && desiredHeading != null) {
             targetBearing = (360 - desiredHeading + 360) % 360;
             scheduleBearingAnimation();
           }
         } else {
-          map.setView([coords.lat, coords.lng], 16, { animate: true });
+          const targetZoom = Math.max(15, map.getZoom());
+          if (map.getZoom() !== targetZoom) {
+            map.setView([coords.lat, coords.lng], targetZoom, { animate: true, duration: 0.25 });
+          } else {
+            map.panTo([coords.lat, coords.lng], { animate: true, duration: 0.25 });
+          }
           if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
             targetBearing = 0;
             scheduleBearingAnimation();

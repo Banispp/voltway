@@ -2852,6 +2852,21 @@ function setupDriveModeControls() {
     });
   }
 
+  // Floating GPS Re-center Button (Instant Snappy Recenter)
+  const btnFloatGps = document.getElementById('btn-float-gps');
+  if (btnFloatGps) {
+    btnFloatGps.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (window.MapEngine && window.MapEngine.recenterCamera) {
+        window.MapEngine.recenterCamera();
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('🎯 Re-centered');
+        }
+      }
+    });
+  }
+
   const btnFloatingStart = document.getElementById('btn-floating-start-nav');
   if (btnFloatingStart) {
     btnFloatingStart.addEventListener('click', () => {

@@ -608,9 +608,12 @@ html, body {
   cursor: pointer;
   box-shadow: var(--shadow-md);
   z-index: 1010;
-  transition: transform 0.2s, bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s;
+  transition: transform 0.1s ease, bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s;
   will-change: transform;
   touch-action: manipulation;
+  pointer-events: auto !important;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .btn-float-gps:hover {
@@ -620,7 +623,8 @@ html, body {
 }
 
 .btn-float-gps:active {
-  transform: scale(0.92);
+  transform: scale(0.88) !important;
+  transition: transform 0.06s ease !important;
 }
 
 .btn-float-gps.tracking-active {
