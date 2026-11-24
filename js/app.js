@@ -1238,10 +1238,8 @@ const DriveEngine = (function () {
 
     const hud = document.getElementById('nav-driving-hud');
     const bottomBar = document.getElementById('nav-bottom-bar');
-    const recenterBtn = document.getElementById('btn-recenter-nav');
     if (hud) hud.style.display = 'none';
     if (bottomBar) bottomBar.style.display = 'none';
-    if (recenterBtn) recenterBtn.style.display = 'none';
 
     if (window.MapEngine) {
       window.MapEngine.setAutoFollow(false);
@@ -2674,22 +2672,6 @@ function setupDriveModeControls() {
   if (btnExit) {
     btnExit.addEventListener('click', () => {
       if (window.DriveEngine) window.DriveEngine.exitDriveMode();
-    });
-  }
-
-  const btnRecenter = document.getElementById('btn-recenter-nav');
-  if (btnRecenter) {
-    btnRecenter.addEventListener('click', () => {
-      if (window.MapEngine) {
-        window.MapEngine.setAutoFollow(true);
-        const coords = window.MapEngine.getUserCoords();
-        if (coords) {
-          const map = window.MapEngine.getMap();
-          if (map) map.setView([coords.lat, coords.lng], 16, { animate: true });
-        } else {
-          window.MapEngine.locateUser(true);
-        }
-      }
     });
   }
 

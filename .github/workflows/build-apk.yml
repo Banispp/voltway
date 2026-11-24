@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.25-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.26-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.25-release
-          name: "VoltWay 2W Android APK v5.25 (Zero-Vibration 360° Compass, Speed-Adaptive Dynamic Zoom, Dead Reckoning 60fps Gliding)"
-          body: "VoltWay 2W v5.25: Fixed map and puck vibration: 1) Eliminated stationary GPS drift jitter fighting with compass sensor; 2) Continuous 3D line-of-sight unit vector with zero gimbal lock/singularity across 0° flat to 90° vertical handlebar mount; 3) Dead reckoning 60fps smooth marker interpolation eliminating teleporting jumps; 4) Speed-adaptive dynamic zoom (17.5 close-up, 16.5 city, 15.5 highway); 5) Forward-scanning route segment index preventing backward track snapping; 6) Sub-pixel DOM transform deadband eliminating micro-tremors."
+          tag_name: v5.26-release
+          name: "VoltWay 2W Android APK v5.26 (Google Maps Course-Up Navigation, Forward-Locked Driving Puck, Clean UI)"
+          body: "VoltWay 2W v5.26: 1) Fixed puck heading inversion during Turn-by-Turn Course-Up navigation by correctly locking driving cone and chevron forward (0° straight UP towards road ahead) with true course-up canvas rotation; 2) Removed redundant Recenter button, unified on native 🎯 GPS float button; 3) Cleaned bracketed Malayalam text from map color toasts; 4) Removed subtitle paragraph from EV Sync modal."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

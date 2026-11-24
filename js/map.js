@@ -108,9 +108,6 @@ const MapEngine = (function () {
       updateGpsButtonUi();
 
       if (window.DriveEngine && window.DriveEngine.isActive()) {
-        const recenterBtn = document.getElementById('btn-recenter-nav');
-        if (recenterBtn) recenterBtn.style.display = 'flex';
-
         // Auto recenter after 6 seconds of touch inactivity (Google Maps behavior)
         if (recenterTimer) clearTimeout(recenterTimer);
         recenterTimer = setTimeout(() => {
@@ -134,9 +131,6 @@ const MapEngine = (function () {
     initCompass();
     locateUser(false);
 
-    const recenterEl = document.getElementById('btn-recenter-nav');
-    if (recenterEl) recenterEl.addEventListener('click', recenterCamera);
-
     return map;
   }
 
@@ -154,14 +148,14 @@ const MapEngine = (function () {
       if (mapEl) mapEl.classList.add('map-dark-mode');
       if (themeBtnIcon) themeBtnIcon.textContent = '☀️';
       if (themeBtn) {
-        themeBtn.setAttribute('title', 'Switch to Normal Map (സാധാ മാപ്പ്)');
+        themeBtn.setAttribute('title', 'Switch to Normal Map');
         themeBtn.style.color = '#fbbf24';
       }
     } else {
       if (mapEl) mapEl.classList.remove('map-dark-mode');
       if (themeBtnIcon) themeBtnIcon.textContent = '🌙';
       if (themeBtn) {
-        themeBtn.setAttribute('title', 'Switch to Dark Google Map (ഡാർക്ക് മാപ്പ്)');
+        themeBtn.setAttribute('title', 'Switch to Dark Google Map');
         themeBtn.style.color = '#38bdf8';
       }
     }
@@ -180,7 +174,7 @@ const MapEngine = (function () {
     const nextTheme = (currentTileTheme === 'dark') ? 'daylight' : 'dark';
     setTileTheme(nextTheme);
     if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 Dark Map Mode Active' : '🗺️ Normal Map Active (സാധാ മാപ്പ്)');
+      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 Dark Map Mode Active' : '🗺️ Normal Map Active');
     }
     return nextTheme;
   }
@@ -1081,7 +1075,7 @@ const MapEngine = (function () {
         // In real Google Maps, map canvas ONLY rotates when Turn-by-Turn Navigation is ACTIVE and following rider!
         // When stationary / browsing, map stays steady North-Up while only the puck light cone turns.
         if (window.DriveEngine && window.DriveEngine.isActive() && isAutoFollow) {
-          targetBearing = userHeading;
+          targetBearing = (360 - userHeading + 360) % 360;
           scheduleBearingAnimation();
         }
       }
@@ -1109,9 +1103,17 @@ const MapEngine = (function () {
 
   function updatePuckHeading(heading) {
     if (heading == null) return;
-    const mapBearing = (map && typeof map.getBearing === 'function') ? map.getBearing() : 0;
-    // Relative heading of rider/phone on the rotated map canvas
-    const rotDeg = Math.round((heading - mapBearing + 360) % 360);
+    let rotDeg = 0;
+    if (window.DriveEngine && window.DriveEngine.isActive()) {
+      // In Google Maps Turn-by-Turn Driving Navigation:
+      // The camera is Course-Up (locked facing the road ahead).
+      // The vehicle's heading cone and directional arrow always point straight UP (0 deg) into the road ahead.
+      rotDeg = 0;
+    } else {
+      const mapBearing = (map && typeof map.getBearing === 'function') ? map.getBearing() : 0;
+      // In walking / browsing mode: map is North-Up (mapBearing 0), cone rotates freely with physical compass
+      rotDeg = Math.round((heading - mapBearing + 360) % 360);
+    }
 
     // Suppress tiny sub-pixel tremors (< 1.0 deg) to prevent micro-vibration
     if (lastPuckRotDeg !== null && Math.abs((rotDeg - lastPuckRotDeg + 180) % 360 - 180) < 1.0) {
@@ -1255,14 +1257,6 @@ const MapEngine = (function () {
         gpsBtn.title = 'Center on My GPS Location';
       }
     }
-    const recenterBtn = document.getElementById('btn-recenter-nav');
-    if (recenterBtn) {
-      if (isAutoFollow || !userCoords) {
-        recenterBtn.style.display = 'none';
-      } else {
-        recenterBtn.style.display = 'flex';
-      }
-    }
   }
 
   /**
@@ -1344,7 +1338,7 @@ const MapEngine = (function () {
         if (window.DriveEngine && window.DriveEngine.isActive()) {
           // Driving Mode: Course-Up bearing & Forward-Biased Camera Lookahead
           if (typeof map.setBearing === 'function' && userHeading != null) {
-            targetBearing = userHeading;
+            targetBearing = (360 - userHeading + 360) % 360;
             scheduleBearingAnimation();
           }
           // Shift camera ~60m forward along userHeading so puck is in lower 30% of screen
@@ -1392,8 +1386,6 @@ const MapEngine = (function () {
       recenterTimer = null;
     }
     isAutoFollow = true;
-    const recenterBtn = document.getElementById('btn-recenter-nav');
-    if (recenterBtn) recenterBtn.style.display = 'none';
 
     if (userCoords && map) {
       if (window.DriveEngine && window.DriveEngine.isActive()) {
@@ -1403,7 +1395,7 @@ const MapEngine = (function () {
         const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
         map.setView([lookLat, lookLng], 17, { animate: true });
         if (typeof map.setBearing === 'function' && userHeading != null) {
-          targetBearing = userHeading;
+          targetBearing = (360 - userHeading + 360) % 360;
           scheduleBearingAnimation();
         }
       } else {
@@ -1500,8 +1492,16 @@ const MapEngine = (function () {
           const lookLat = coords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
           const lookLng = coords.lng + (lookaheadKm / (111.32 * Math.cos(coords.lat * Math.PI / 180))) * Math.sin(rad);
           map.setView([lookLat, lookLng], 17, { animate: true });
+          if (typeof map.setBearing === 'function' && userHeading != null) {
+            targetBearing = (360 - userHeading + 360) % 360;
+            scheduleBearingAnimation();
+          }
         } else {
           map.setView([coords.lat, coords.lng], 16, { animate: true });
+          if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
+            targetBearing = 0;
+            scheduleBearingAnimation();
+          }
         }
       }
 
