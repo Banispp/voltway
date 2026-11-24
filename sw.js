@@ -28,7 +28,7 @@ const ASSETS_TO_CACHE = [
 
 // Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
-  console.log('[VoltWay SW] Installing fresh v5.28 service worker...');
+  console.log('[VoltWay SW] Installing fresh v5.29 service worker...');
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -41,7 +41,7 @@ self.addEventListener('install', (event) => {
 
 // Activate: delete ALL old caches immediately & claim clients
 self.addEventListener('activate', (event) => {
-  console.log('[VoltWay SW] Activating fresh v5.28 service worker...');
+  console.log('[VoltWay SW] Activating fresh v5.29 service worker...');
   event.waitUntil(
     caches.keys().then((keyList) => {
       return Promise.all(

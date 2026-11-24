@@ -1506,11 +1506,19 @@ const MapEngine = (function () {
       window.setPlannerDest(c);
     }
 
-    // If origin is not set, use user's GPS coords
-    if (userCoords && (!window.originPoint || !window.originPoint.lat)) {
-      window.originPoint = { lat: userCoords.lat, lng: userCoords.lng, name: 'Current Location (GPS)' };
-      const origInput = document.getElementById('input-origin');
-      if (origInput) origInput.value = 'Current Location (GPS)';
+    // If origin is not set, use user's GPS coords or map center
+    const curOrigin = (typeof window.getPlannerOrigin === 'function') ? window.getPlannerOrigin() : null;
+    if (!curOrigin || !curOrigin.lat) {
+      if (userCoords) {
+        if (window.setPlannerOrigin) {
+          window.setPlannerOrigin({ lat: userCoords.lat, lng: userCoords.lng, name: 'Current Location (GPS)' });
+        }
+      } else if (map) {
+        const center = map.getCenter();
+        if (window.setPlannerOrigin) {
+          window.setPlannerOrigin({ lat: center.lat, lng: center.lng, name: 'Map Center' });
+        }
+      }
     }
 
     // Switch to Route tab and trigger calculation

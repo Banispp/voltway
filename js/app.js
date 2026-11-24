@@ -792,7 +792,13 @@ function setupRoutePlanner() {
         }
         if (!originPoint) {
           const userC = MapEngine.getUserCoords();
-          originPoint = userC ? { ...userC, name: 'Current Location' } : { lat: 12.9716, lng: 77.5946, name: 'MG Road, Bangalore' };
+          if (userC && userC.lat) {
+            originPoint = { ...userC, name: 'Current Location (GPS)' };
+          } else {
+            const m = MapEngine.getMap();
+            const c = m ? m.getCenter() : { lat: 10.5276, lng: 76.2144 };
+            originPoint = { lat: c.lat, lng: c.lng, name: 'Current Map Location' };
+          }
           if (originInput) originInput.value = originPoint.name;
         }
       }
@@ -2075,6 +2081,14 @@ function activateTabSilently(tabTarget) {
 }
 
 // Global helpers to set origin / destination directly from map charger clicks (WITHOUT popping up the bottom drawer)
+window.getPlannerOrigin = function () {
+  return originPoint;
+};
+
+window.getPlannerDest = function () {
+  return destinationPoint;
+};
+
 window.setPlannerOrigin = function (point) {
   originPoint = point;
   const input = document.getElementById('input-origin');

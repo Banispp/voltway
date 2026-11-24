@@ -277,43 +277,110 @@ const RouteEngine = (function () {
 
   /**
    * Helper to fetch a route from redundant multi-server cluster
-   * Guarantees real road geometry and eliminates straight-line failures
+   * Uses Hedged Parallel Racing (staggered mirror queries) and 9-second mobile timeout
+   * Guarantees real road geometry with turns/curves and completely eliminates straight-line failures.
    */
   async function fetchOsrmRaw(points) {
-    const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
-    let lastErr = null;
+    if (!points || points.length < 2) {
+      throw new Error('At least 2 points are required for routing');
+    }
 
-    for (let i = 0; i < ROUTING_SERVERS.length; i++) {
-      const server = ROUTING_SERVERS[i];
+    // 1. Sanitize & parse coordinates into valid high-precision floats
+    const cleanPoints = points.map((p, idx) => {
+      const lat = parseFloat(p.lat);
+      const lng = parseFloat(p.lng);
+      if (isNaN(lat) || isNaN(lng)) {
+        throw new Error(`Invalid route coordinate at index ${idx}: lat=${p.lat}, lng=${p.lng}`);
+      }
+      return { lat, lng };
+    });
+
+    const coordsStr = cleanPoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+
+    // Helper to query a single mirror server
+    async function queryMirror(serverUrl, allowAlternatives = true, timeoutMs = 9000) {
       let controller = null;
       let timeoutId = null;
-
       try {
         if (typeof AbortController !== 'undefined') {
           controller = new AbortController();
-          timeoutId = setTimeout(() => controller.abort(), 4000);
+          timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         }
 
-        const url = `${server}/${coordsStr}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+        const altParam = allowAlternatives ? '&alternatives=true' : '';
+        const url = `${serverUrl}/${coordsStr}?overview=full&geometries=geojson&steps=true${altParam}`;
         const fetchOpts = controller ? { signal: controller.signal } : {};
         const resp = await fetch(url, fetchOpts);
         if (timeoutId) clearTimeout(timeoutId);
 
         if (!resp.ok) {
+          // If alternatives=true caused 400 (common on some servers with multiple waypoints), retry without alternatives
+          if (allowAlternatives && resp.status >= 400 && resp.status < 500) {
+            return await queryMirror(serverUrl, false, 6000);
+          }
           throw new Error(`HTTP ${resp.status}`);
         }
+
         const data = await resp.json();
-        if (data.routes && data.routes.length > 0) {
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
           return data.routes;
         }
+
+        if (allowAlternatives) {
+          return await queryMirror(serverUrl, false, 6000);
+        }
+        throw new Error(`OSRM code: ${data.code || 'NoRoute'}`);
       } catch (err) {
         if (timeoutId) clearTimeout(timeoutId);
-        lastErr = err;
-        console.warn(`[VoltWay Router] Routing mirror ${server} failed (${err.message}), trying next mirror...`);
+        throw err;
       }
     }
 
-    throw lastErr || new Error('All routing cluster mirrors failed');
+    // 2. Hedged Parallel Racing across mirrors:
+    // Launch server 0 immediately; if not resolved within 1200ms, launch server 1; then server 2.
+    // The first mirror to successfully return driving road geometry wins!
+    return new Promise((resolve, reject) => {
+      let resolved = false;
+      let activeCount = 0;
+      let errors = [];
+
+      function tryServer(index) {
+        if (resolved || index >= ROUTING_SERVERS.length) return;
+        activeCount++;
+        const sUrl = ROUTING_SERVERS[index];
+
+        queryMirror(sUrl, true, 9000)
+          .then(routes => {
+            if (!resolved && routes && routes.length > 0) {
+              resolved = true;
+              resolve(routes);
+            }
+          })
+          .catch(err => {
+            errors.push(`${sUrl}: ${err.message}`);
+            activeCount--;
+            // If another mirror is waiting, trigger it immediately
+            if (!resolved && index + 1 < ROUTING_SERVERS.length) {
+              tryServer(index + 1);
+            } else if (activeCount === 0 && !resolved) {
+              reject(new Error(`All routing mirrors failed (${errors.join('; ')})`));
+            }
+          });
+      }
+
+      // Start primary mirror immediately
+      tryServer(0);
+
+      // If primary doesn't resolve within 1200ms, start second mirror in parallel
+      setTimeout(() => {
+        if (!resolved) tryServer(1);
+      }, 1200);
+
+      // If still not resolved within 2500ms, start third mirror in parallel
+      setTimeout(() => {
+        if (!resolved) tryServer(2);
+      }, 2500);
+    });
   }
 
   /**
@@ -450,35 +517,9 @@ const RouteEngine = (function () {
     } catch (err) {
       console.error('All routing cluster mirrors failed:', err);
       if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast('⚠️ Offline: Direct GPS course shown. Reconnecting...');
+        window.SyncEngine.showAutoUpdateToast('⚠️ Network Error: Could not reach routing servers. Please check your data connection.');
       }
-      // Fallback: create straight-line route estimate only if completely offline
-      const directDist = haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng);
-      const estRoadDist = Math.round(directDist * 1.25 * 10) / 10;
-      activeRoute = {
-        id: 'route-fallback',
-        name: 'Estimated Direct Route',
-        roadName: 'Direct Road',
-        origin,
-        destination,
-        waypoints: [...intermediateWaypoints],
-        distanceKm: estRoadDist,
-        durationMins: Math.round(estRoadDist * 2),
-        timeDiffMins: 0,
-        geometry: {
-          type: 'LineString',
-          coordinates: [[origin.lng, origin.lat], [destination.lng, destination.lat]]
-        },
-        coordinates: [[origin.lat, origin.lng], [destination.lat, destination.lng]],
-        isFallback: true
-      };
-
-      allRoutes = [activeRoute];
-      selectedRouteIndex = 0;
-
-      findCorridorChargers(activeRoute.coordinates);
-      notify();
-      return activeRoute;
+      throw new Error('Could not calculate road route. Please verify your internet connection and try again.');
     }
   }
 

@@ -557,7 +557,7 @@ html, body {
 /* Floating Map Theme Switcher Button (Dark Mode / Normal Daylight Map) */
 .btn-toggle-map-theme {
   position: fixed;
-  top: 208px;
+  top: 198px;
   right: 14px;
   width: 44px;
   height: 44px;
@@ -573,7 +573,7 @@ html, body {
   justify-content: center;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  z-index: 990;
+  z-index: 1010;
   transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   touch-action: manipulation;
 }
@@ -590,7 +590,7 @@ html, body {
 
 /* Floating GPS Centering Button */
 .btn-float-gps {
-  position: absolute;
+  position: fixed;
   right: 14px;
   bottom: calc(112px + env(safe-area-inset-bottom, 0px));
   width: 46px;
@@ -606,7 +606,7 @@ html, body {
   justify-content: center;
   cursor: pointer;
   box-shadow: var(--shadow-md);
-  z-index: 998;
+  z-index: 1010;
   transition: transform 0.2s, bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s;
   will-change: transform;
   touch-action: manipulation;
@@ -632,7 +632,7 @@ html, body {
 /* Floating Fullscreen Map Button */
 .btn-toggle-fullscreen {
   position: fixed;
-  top: 155px;
+  top: 251px;
   right: 14px;
   width: 44px;
   height: 44px;
@@ -648,7 +648,7 @@ html, body {
   justify-content: center;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  z-index: 990;
+  z-index: 1010;
   transition: all 0.15s ease;
   touch-action: manipulation;
 }
@@ -682,7 +682,7 @@ html, body {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  z-index: 999;
+  z-index: 1015;
   transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   animation: startNavGlow 2.5s infinite alternate;
 }
@@ -699,14 +699,15 @@ html, body {
 
 /* Leaflet 360 Map Rotation Compass Control */
 .leaflet-top.leaflet-right {
-  top: 190px !important;
+  top: 145px !important;
   right: 14px !important;
-  z-index: 990 !important;
+  z-index: 1010 !important;
 }
 
 body.nav-active .leaflet-top.leaflet-right {
-  top: 90px !important;
+  top: calc(140px + env(safe-area-inset-top, 0px)) !important;
   right: 14px !important;
+  z-index: 1050 !important;
 }
 
 .leaflet-control-rotate {
@@ -3383,6 +3384,7 @@ body.manual-fullscreen #map {
 
 body.manual-fullscreen .btn-toggle-fullscreen {
   top: 16px !important;
+  right: 14px !important;
   z-index: 1060 !important;
   border-color: #38bdf8 !important;
   color: #38bdf8 !important;
@@ -3390,13 +3392,26 @@ body.manual-fullscreen .btn-toggle-fullscreen {
 
 body.manual-fullscreen .btn-toggle-map-theme {
   top: 68px !important;
+  right: 14px !important;
+  z-index: 1060 !important;
+}
+
+body.manual-fullscreen .leaflet-top.leaflet-right {
+  top: 120px !important;
+  right: 14px !important;
+  z-index: 1060 !important;
+}
+
+body.manual-fullscreen .btn-float-gps {
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+  right: 14px !important;
   z-index: 1060 !important;
 }
 
 body.nav-active .btn-toggle-map-theme {
-  top: 16px !important;
-  right: 64px !important;
-  z-index: 1060 !important;
+  top: calc(194px + env(safe-area-inset-top, 0px)) !important;
+  right: 14px !important;
+  z-index: 1050 !important;
 }
 
 /* --------------------------------------------------------------------------
