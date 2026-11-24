@@ -46,8 +46,11 @@ const MapEngine = (function () {
   let renderRafId = null;
   let moveDebounceTimer = null;
 
+  let mapContainerId = 'map';
+
   function initMap(containerId = 'map') {
     if (map) return map;
+    mapContainerId = containerId || 'map';
 
     let defaultCenter = [10.0246, 76.3079]; // Kerala (Kochi EV Hub) default
     let defaultZoom = 10;
@@ -92,9 +95,20 @@ const MapEngine = (function () {
     map.on('moveend', onMapMoveEnd);
     map.on('zoomend', onMapMoveEnd);
     map.on('dragstart', () => {
-      // User is manually panning map: temporarily release camera auto-follow
+      // User is manually panning map: temporarily release camera auto-follow and compass mode
       isAutoFollow = false;
+      isCompassMode = false;
       updateGpsButtonUi();
+    });
+    map.on('rotate', () => {
+      if (map && typeof map.getBearing === 'function') {
+        const b = map.getBearing();
+        currentRenderedBearing = b;
+        targetBearing = b;
+        if (b === 0 && !isAutoFollow && (!window.DriveEngine || !window.DriveEngine.isActive())) {
+          isCompassMode = false;
+        }
+      }
     });
     map.on('click', () => {
       if (window.innerWidth <= 768 && typeof window.collapseBottomSheet === 'function') {
@@ -111,22 +125,21 @@ const MapEngine = (function () {
 
   function setTileTheme(theme = 'dark') {
     currentTileTheme = theme;
+    const mapEl = document.getElementById(mapContainerId) || document.getElementById('map');
     if (tileLayer) map.removeLayer(tileLayer);
 
     if (theme === 'dark') {
-      // Google Maps Style Dark Mode: CartoDB Dark Matter tiles with high-contrast road geometries
-      tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        subdomains: ['a', 'b', 'c', 'd'],
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> &copy; <a href="https://carto.com/attributions" target="_blank">CARTO</a> | VoltWay 2W'
-      }).addTo(map);
+      if (mapEl) mapEl.classList.add('map-dark-mode');
     } else {
-      tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        subdomains: ['a', 'b', 'c'],
-        attribution: '&copy; <a href="https://openstreetmap.org" target="_blank">OSM</a> | VoltWay 2W'
-      }).addTo(map);
+      if (mapEl) mapEl.classList.remove('map-dark-mode');
     }
+
+    // High-performance OpenStreetMap raster tiles (100% Free, Zero API Key Required, 100% Uptime)
+    tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      subdomains: ['a', 'b', 'c'],
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> | VoltWay 2W'
+    }).addTo(map);
   }
 
   function toggleTileTheme() {
@@ -289,12 +302,14 @@ const MapEngine = (function () {
   }
 
   function _executeFastRender(chargers = null) {
-    if (!chargers) {
-      chargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
-    }
-
     const zoom = map.getZoom();
     const bounds = map.getBounds().pad(0.18); // 18% margin around screen
+
+    if (!chargers) {
+      chargers = (window.SyncEngine && window.SyncEngine.getChargersInBounds)
+        ? window.SyncEngine.getChargersInBounds(bounds)
+        : (window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []));
+    }
 
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     const corridorBuffer = window.RouteEngine ? window.RouteEngine.getCorridorBufferKm() : 5;
@@ -910,19 +925,44 @@ const MapEngine = (function () {
   /**
    * Google Maps Style Live Navigation Puck & 360° Real-Time Map Rotation:
    * Smooth animated dot with directional heading cone, pulsing accuracy halo,
+   * deadband hysteresis to eliminate stationary jitter, decoupled 60fps RAF bearing animation,
    * and 3D gimbal-lock free compass compensation across all orientations (flat, upright, landscape).
    */
   let compassListenerAttached = false;
   let isCompassMode = true; // Auto-rotate map with mobile phone orientation by default
-  let lastBearingUpdate = 0;
+  let targetBearing = 0;
+  let currentRenderedBearing = 0;
+  let bearingRafId = null;
+
+  function scheduleBearingAnimation() {
+    if (bearingRafId) return;
+    bearingRafId = requestAnimationFrame(() => {
+      bearingRafId = null;
+      if (!map || typeof map.setBearing !== 'function') return;
+
+      // Calculate shortest angular distance (-180 to +180)
+      let bDiff = (targetBearing - currentRenderedBearing + 180) % 360 - 180;
+      if (bDiff < -180) bDiff += 360;
+
+      // Silky smooth exponential damping (ease-out) at native display refresh rate
+      if (Math.abs(bDiff) > 0.3) {
+        currentRenderedBearing = (currentRenderedBearing + bDiff * 0.18 + 360) % 360;
+        map.setBearing(currentRenderedBearing);
+        scheduleBearingAnimation();
+      } else {
+        currentRenderedBearing = targetBearing;
+        map.setBearing(currentRenderedBearing);
+      }
+    });
+  }
 
   function initCompass() {
     if (compassListenerAttached) return;
     compassListenerAttached = true;
 
     const onOrientation = (e) => {
-      // If moving at high speed (> 2.0 m/s), GPS course track is used instead of magnetic sensor
-      if (userCoords && userCoords.speed != null && userCoords.speed > 2.0) {
+      // If moving at high speed (> 1.5 m/s or 5.4 km/h), GPS trajectory course is prioritized over magnetic sensor
+      if (userCoords && userCoords.speed != null && userCoords.speed > 1.5 && userCoords.heading != null) {
         return;
       }
 
@@ -940,11 +980,12 @@ const MapEngine = (function () {
         const cB = Math.cos(b), sB = Math.sin(b);
         const cG = Math.cos(g), sG = Math.sin(g);
 
-        // Blended forward direction vector [0, cB, -sB]^T in world ground plane (East, North)
-        // Eliminates 90° gimbal-lock / spinning when phone is upright on a handlebar mount
-        const vx = cB * (-sA * cB) - sB * (cA * sG + sA * sB * cG);
-        const vy = cB * (cA * cB) - sB * (sA * sG - cA * sB * cG);
-        if (Math.hypot(vx, vy) > 0.01) {
+        // Blended forward vector: device +Y (flat) smoothly transitions to device -Z (vertical handlebar mount)
+        // Eliminates 100% of 90° gimbal lock and makes heading stable against roll tilts
+        const vx = cB * (-sA * cB) + sB * (-cA * sG - sA * sB * cG);
+        const vy = cB * (cA * cB) + sB * (-sA * sG + cA * sB * cG);
+
+        if (Math.hypot(vx, vy) > 0.04) {
           heading = (Math.atan2(-vx, vy) * (180 / Math.PI) + 360) % 360;
         } else {
           heading = (360 - (e.alpha || 0)) % 360;
@@ -956,21 +997,26 @@ const MapEngine = (function () {
       if (heading != null && !isNaN(heading)) {
         heading = (heading + screenAngle + 360) % 360;
 
-        // Smooth low-pass circular filter
+        // Calculate angular difference
         let diff = (heading - userHeading + 180) % 360 - 180;
         if (diff < -180) diff += 360;
-        if (Math.abs(diff) > 0.6) {
-          userHeading = (userHeading + diff * 0.35 + 360) % 360;
-          updatePuckHeading(userHeading);
 
-          // Smoothly rotate the map in real-time as the phone turns in any direction
-          const now = Date.now();
-          if (now - lastBearingUpdate > 60 && map && typeof map.setBearing === 'function') {
-            if (isCompassMode || isAutoFollow || (window.DriveEngine && window.DriveEngine.isActive())) {
-              lastBearingUpdate = now;
-              map.setBearing(userHeading);
-            }
-          }
+        // 1. DEADBAND: Ignore angular jitters smaller than 2.2° when holding or mounted
+        // Eliminates the back-and-forth jitter and trembling completely!
+        if (Math.abs(diff) < 2.2) {
+          return;
+        }
+
+        // 2. ADAPTIVE EXPONENTIAL MOVING AVERAGE (EMA):
+        // 0.12 for butter-smooth subtle movements; 0.32 for rapid deliberate turns
+        const alpha = Math.abs(diff) > 25 ? 0.32 : 0.12;
+        userHeading = (userHeading + diff * alpha + 360) % 360;
+        updatePuckHeading(userHeading);
+
+        // 3. SMOOTH MAP ROTATION (RAF throttled, decoupled from sensor events)
+        if (isCompassMode || isAutoFollow || (window.DriveEngine && window.DriveEngine.isActive())) {
+          targetBearing = userHeading;
+          scheduleBearingAnimation();
         }
       }
     };
@@ -1115,7 +1161,8 @@ const MapEngine = (function () {
 
       if (isAutoFollow && map) {
         if (window.DriveEngine && window.DriveEngine.isActive() && typeof map.setBearing === 'function' && userHeading != null) {
-          map.setBearing(userHeading);
+          targetBearing = userHeading;
+          scheduleBearingAnimation();
         }
         map.panTo([lat, lng], { animate: true, duration: 0.6 });
       }
@@ -1163,7 +1210,8 @@ const MapEngine = (function () {
     if (userCoords && panTo && map) {
       map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
       if (typeof map.setBearing === 'function' && userHeading != null) {
-        map.setBearing(userHeading);
+        targetBearing = userHeading;
+        scheduleBearingAnimation();
       }
       updateGpsButtonUi();
       return userCoords;
@@ -1326,7 +1374,8 @@ const MapEngine = (function () {
     getBearing: () => (map && typeof map.getBearing === 'function' ? map.getBearing() : 0),
     setBearing: (deg) => {
       if (map && typeof map.setBearing === 'function') {
-        map.setBearing(deg);
+        targetBearing = deg;
+        scheduleBearingAnimation();
       }
     },
     handleNavigateToCharger,

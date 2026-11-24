@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.20-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.21-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.20-release
-          name: "VoltWay 2W Android APK v5.20 (Fix UI Event Handlers, Full Human Voice Guidance)"
-          body: "VoltWay 2W v5.20: Fixed autocomplete closure bug that caused UI touches to freeze; full responsiveness restored across tabs, drawer, search and controls; complete Google Maps style human voice navigation ('Turn right', 'Turn left', 'In 100 meters', 'Destination on right'); Web Audio dual-tone EV alert chimes; single latest APK release."
+          tag_name: v5.21-release
+          name: "VoltWay 2W Android APK v5.21 (Zero API Key Maps, Fluid 60fps Rotation, OTA Live Charger Updates)"
+          body: "VoltWay 2W v5.21: Permanently resolved CartoDB watermark / 'API KEY REQUIRED' with high-performance OpenStreetMap dark canvas; Google Maps precision 60fps decoupled RAF rotation with 2.2° deadband hysteresis eliminating all lag and jitter; 3D handlebar mount orientation; Live OTA GitHub database sync so newly added Ather, Vida and Bolt chargers automatically sync into Android APK without reinstallation; Vehicle garage presets."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

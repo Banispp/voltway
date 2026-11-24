@@ -14,6 +14,64 @@ const SyncEngine = (function () {
   let isSyncing = false;
   const listeners = [];
 
+  // 2D Spatial Grid Index ($0.2^\circ \times 0.2^\circ$ spatial buckets ~ 22km x 22km)
+  const GRID_CELL_SIZE = 0.2;
+  const spatialGrid = new Map();
+
+  function rebuildSpatialGrid() {
+    spatialGrid.clear();
+    for (let i = 0; i < inMemoryChargers.length; i++) {
+      const c = inMemoryChargers[i];
+      if (typeof c.lat !== 'number' || typeof c.lng !== 'number') continue;
+      const key = `${Math.floor(c.lat / GRID_CELL_SIZE)}_${Math.floor(c.lng / GRID_CELL_SIZE)}`;
+      let cell = spatialGrid.get(key);
+      if (!cell) {
+        cell = [];
+        spatialGrid.set(key, cell);
+      }
+      cell.push(c);
+    }
+    console.log(`[VoltWay Grid] Indexed ${inMemoryChargers.length} chargers across ${spatialGrid.size} spatial cells`);
+  }
+
+  function getChargersInBounds(bounds) {
+    if (!bounds) return inMemoryChargers;
+    let south, west, north, east;
+    if (typeof bounds.getSouth === 'function') {
+      south = bounds.getSouth();
+      west = bounds.getWest();
+      north = bounds.getNorth();
+      east = bounds.getEast();
+    } else {
+      south = bounds.south;
+      west = bounds.west;
+      north = bounds.north;
+      east = bounds.east;
+    }
+
+    if (south == null || west == null || north == null || east == null) {
+      return inMemoryChargers;
+    }
+
+    const minLatCell = Math.floor(south / GRID_CELL_SIZE);
+    const maxLatCell = Math.floor(north / GRID_CELL_SIZE);
+    const minLngCell = Math.floor(west / GRID_CELL_SIZE);
+    const maxLngCell = Math.floor(east / GRID_CELL_SIZE);
+
+    const candidates = [];
+    for (let latIdx = minLatCell; latIdx <= maxLatCell; latIdx++) {
+      for (let lngIdx = minLngCell; lngIdx <= maxLngCell; lngIdx++) {
+        const cell = spatialGrid.get(`${latIdx}_${lngIdx}`);
+        if (cell) {
+          for (let i = 0; i < cell.length; i++) {
+            candidates.push(cell[i]);
+          }
+        }
+      }
+    }
+    return candidates;
+  }
+
   function initDB() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -72,6 +130,7 @@ const SyncEngine = (function () {
       }
     }
 
+    rebuildSpatialGrid();
     notify();
 
     // 2. AUTOMATIC BACKGROUND SYNC:
@@ -140,10 +199,31 @@ const SyncEngine = (function () {
 
     try {
       console.log('[VoltWay Sync] Auto-reconciling Ather & Bolt chargers in background...');
-      const resp = await fetch('chargers_db.json?v=' + Date.now(), { cache: 'no-store' });
-      if (!resp.ok) return { added: 0, removed: 0 };
+      let remoteChargers = null;
 
-      const remoteChargers = await resp.json();
+      // 1. In Android APK & PWA: Try fetching live OTA updates directly from remote GitHub repository
+      const remoteRepoUrl = 'https://raw.githubusercontent.com/Banispp/voltway/master/chargers_db.json?v=' + Date.now();
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 7000);
+        const resp = await fetch(remoteRepoUrl, { cache: 'no-store', signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (resp.ok) {
+          remoteChargers = await resp.json();
+          console.log('[VoltWay Sync] Live OTA charger database loaded from GitHub repository!');
+        }
+      } catch (errRemote) {
+        console.warn('[VoltWay Sync] Remote GitHub fetch timed out or offline, falling back to local database.');
+      }
+
+      // 2. Fallback to bundled local chargers_db.json if remote was unavailable
+      if (!remoteChargers) {
+        const resp = await fetch('chargers_db.json?v=' + Date.now(), { cache: 'no-store' });
+        if (resp.ok) {
+          remoteChargers = await resp.json();
+        }
+      }
+
       if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) return { added: 0, removed: 0 };
 
       const stats = reconcileChargers(remoteChargers);
@@ -185,6 +265,7 @@ const SyncEngine = (function () {
     });
 
     inMemoryChargers = authoritativeList;
+    rebuildSpatialGrid();
     if (db) {
       clearAndSaveAllToDB(inMemoryChargers);
     }
@@ -493,6 +574,7 @@ const SyncEngine = (function () {
 
     if (addedCount > 0) {
       inMemoryChargers = Array.from(existingMap.values());
+      rebuildSpatialGrid();
       if (db) saveBatchToDB(toAdd);
       notify();
       if (window.MapEngine && (!window.MapEngine.isPopupOpen || !window.MapEngine.isPopupOpen())) {
@@ -570,6 +652,8 @@ const SyncEngine = (function () {
   return {
     loadInitialChargers,
     getChargers,
+    getChargersInBounds,
+    rebuildSpatialGrid,
     getStats,
     fetchLiveBoltInBounds,
     performFullSync,

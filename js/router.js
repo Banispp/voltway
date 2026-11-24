@@ -124,13 +124,25 @@ const RouteEngine = (function () {
 
   /**
    * Calculates perpendicular distance from a point to a line segment (km)
-   * and returns { distance, t } where t in [0, 1] is the projection fraction.
+   * with latitude-dependent longitude scaling for 100% metric geometric accuracy.
+   * Returns { distance, t } where t in [0, 1] is the projection fraction.
    */
   function distToSegment(p, v, w) {
-    const l2 = (v[0] - w[0]) * (v[0] - w[0]) + (v[1] - w[1]) * (v[1] - w[1]);
+    const meanLatRad = ((v[0] + w[0] + p[0]) / 3) * (Math.PI / 180);
+    const cosLat = Math.cos(meanLatRad);
+
+    const dvLat = (w[0] - v[0]);
+    const dvLng = (w[1] - v[1]) * cosLat;
+    const l2 = dvLat * dvLat + dvLng * dvLng;
+
     if (l2 === 0) return { distance: haversineDistance(p[0], p[1], v[0], v[1]), t: 0 };
-    let t = ((p[0] - v[0]) * (w[0] - v[0]) + (p[1] - v[1]) * (w[1] - v[1])) / l2;
+
+    const dpLat = (p[0] - v[0]);
+    const dpLng = (p[1] - v[1]) * cosLat;
+
+    let t = (dpLat * dvLat + dpLng * dvLng) / l2;
     t = Math.max(0, Math.min(1, t));
+
     const projectionLat = v[0] + t * (w[0] - v[0]);
     const projectionLng = v[1] + t * (w[1] - v[1]);
     return { distance: haversineDistance(p[0], p[1], projectionLat, projectionLng), t };

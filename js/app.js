@@ -909,6 +909,8 @@ const DriveEngine = (function () {
   let announcedCharger = false;
   let lastStepIdx = -1;
   let lastChimeStepIdx = -1;
+  let offRouteCount = 0;
+  let isRecalculating = false;
   let voices = [];
   let audioCtx = null;
 
@@ -1285,10 +1287,55 @@ const DriveEngine = (function () {
     }
   }
 
+  async function checkOffRouteAndRecalculate(userCoords, activeRoute) {
+    if (isRecalculating || !userCoords || !activeRoute || !window.RouteEngine || !window.RouteEngine.getDistanceToActiveRoute) return;
+    const distFromRouteKm = window.RouteEngine.getDistanceToActiveRoute(userCoords.lat, userCoords.lng);
+    if (distFromRouteKm != null && distFromRouteKm > 0.08) {
+      offRouteCount++;
+      if (offRouteCount >= 3) {
+        offRouteCount = 0;
+        isRecalculating = true;
+        speakVoice('Off route. Recalculating route...', true);
+        playChime('turn');
+        try {
+          const originPoint = { lat: userCoords.lat, lng: userCoords.lng, name: 'Current Position' };
+          const newRoute = await window.RouteEngine.calculateRoute(originPoint, activeRoute.destination, activeRoute.waypoints);
+          steps = [];
+          (newRoute.legs || []).forEach(leg => {
+            (leg.steps || []).forEach(s => {
+              steps.push({
+                type: s.maneuver ? s.maneuver.type : 'continue',
+                modifier: s.maneuver ? s.maneuver.modifier : '',
+                name: s.name || '',
+                distance: s.distance || 0,
+                duration: s.duration || 0,
+                lat: s.maneuver && s.maneuver.location ? s.maneuver.location[1] : null,
+                lng: s.maneuver && s.maneuver.location ? s.maneuver.location[0] : null
+              });
+            });
+          });
+          currentStepIdx = steps.length > 1 && steps[0].type === 'depart' ? 1 : 0;
+          lastStepIdx = -1;
+          speakVoice('Route recalculated.', true);
+        } catch (err) {
+          console.warn('[VoltWay Nav] Auto recalculation note:', err);
+        } finally {
+          isRecalculating = false;
+        }
+      }
+    } else {
+      offRouteCount = 0;
+    }
+  }
+
   function updateHudDisplay(userCoords) {
     if (!active) return;
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     if (!activeRoute) return;
+
+    if (userCoords) {
+      checkOffRouteAndRecalculate(userCoords, activeRoute);
+    }
 
     const curStep = steps[currentStepIdx] || steps[steps.length - 1];
 

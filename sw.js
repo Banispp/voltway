@@ -1,21 +1,21 @@
-// VoltWay 2W Service Worker - Version 5.20 (Fix Autocomplete Closure, Restore UI Responsiveness)
+// VoltWay 2W Service Worker - Version 5.21 (Mathematical Precision, Spatial Grid Indexing, Handlebar 3D Compass & Auto-Recalculation)
 // Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v5-20-fresh';
+const CACHE_NAME = 'voltway-2w-v5-21-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css?v=5.20',
-  './js/leaflet-rotate.js?v=5.20',
-  './js/app.js?v=5.20',
-  './js/map.js?v=5.20',
-  './js/router.js?v=5.20',
-  './js/battery.js?v=5.20',
-  './js/navigator.js?v=5.20',
-  './js/sync.js?v=5.20',
-  './js/utilities.js?v=5.20',
-  './chargers_db.js?v=5.20',
+  './css/app.css?v=5.21',
+  './js/leaflet-rotate.js?v=5.21',
+  './js/app.js?v=5.21',
+  './js/map.js?v=5.21',
+  './js/router.js?v=5.21',
+  './js/battery.js?v=5.21',
+  './js/navigator.js?v=5.21',
+  './js/sync.js?v=5.21',
+  './js/utilities.js?v=5.21',
+  './chargers_db.js?v=5.21',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -28,7 +28,7 @@ const ASSETS_TO_CACHE = [
 
 // Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
-  console.log('[VoltWay SW] Installing fresh v5.20 service worker...');
+  console.log('[VoltWay SW] Installing fresh v5.21 service worker...');
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {

@@ -27,6 +27,13 @@ const BatteryEngine = (function () {
       defaultMode: 'RIDE',
       batteryCapacity: 3.7
     },
+    'ather-rizta-29': {
+      name: 'Ather Rizta (2.9 kWh)',
+      brand: 'Ather',
+      modes: { ECO: 1.05, RIDE: 0.85, SPORT: 0.70 },
+      defaultMode: 'RIDE',
+      batteryCapacity: 2.9
+    },
     'ather-450-apex': {
       name: 'Ather 450 Apex (Warp+)',
       brand: 'Ather',
@@ -41,12 +48,26 @@ const BatteryEngine = (function () {
       defaultMode: 'NORMAL',
       batteryCapacity: 4.0
     },
+    'ola-s1-air': {
+      name: 'Ola S1 Air (3.0 kWh)',
+      brand: 'Ola',
+      modes: { ECO: 1.15, NORMAL: 0.90, SPORT: 0.70 },
+      defaultMode: 'NORMAL',
+      batteryCapacity: 3.0
+    },
     'tvs-iqube': {
       name: 'TVS iQube (3.4 kWh)',
       brand: 'TVS',
       modes: { ECO: 1.00, POWER: 0.75 },
       defaultMode: 'ECO',
       batteryCapacity: 3.4
+    },
+    'tvs-iqube-st': {
+      name: 'TVS iQube ST (5.1 kWh)',
+      brand: 'TVS',
+      modes: { ECO: 1.50, POWER: 1.10 },
+      defaultMode: 'ECO',
+      batteryCapacity: 5.1
     },
     'bajaj-chetak': {
       name: 'Bajaj Chetak (3.2 kWh)',
@@ -61,6 +82,34 @@ const BatteryEngine = (function () {
       modes: { ECO: 1.10, RIDE: 0.90, SPORT: 0.70 },
       defaultMode: 'RIDE',
       batteryCapacity: 3.94
+    },
+    'hero-vida-v1-plus': {
+      name: 'Hero Vida V1 Plus (3.44 kWh)',
+      brand: 'Vida',
+      modes: { ECO: 1.00, RIDE: 0.80, SPORT: 0.65 },
+      defaultMode: 'RIDE',
+      batteryCapacity: 3.44
+    },
+    'simple-one': {
+      name: 'Simple One (5.0 kWh)',
+      brand: 'Simple',
+      modes: { ECO: 1.80, RIDE: 1.40, DASH: 1.10, SONIC: 0.85 },
+      defaultMode: 'RIDE',
+      batteryCapacity: 5.0
+    },
+    'ultraviolette-f77': {
+      name: 'Ultraviolette F77 Mach 2 (10.3 kWh)',
+      brand: 'Ultraviolette',
+      modes: { GLIDE: 2.10, COMBAT: 1.65, BALLISTIC: 1.20 },
+      defaultMode: 'COMBAT',
+      batteryCapacity: 10.3
+    },
+    'revolt-rv400': {
+      name: 'Revolt RV400 (3.24 kWh)',
+      brand: 'Revolt',
+      modes: { ECO: 1.20, NORMAL: 0.90, SPORT: 0.65 },
+      defaultMode: 'NORMAL',
+      batteryCapacity: 3.24
     },
     'custom-2w': {
       name: 'Custom 2W Electric Scooter',
@@ -215,8 +264,9 @@ const BatteryEngine = (function () {
     }
 
     const eff = state.efficiency > 0 ? state.efficiency : 0.8;
-    const batteryNeededPct = Math.ceil(distanceKm / eff);
-    const batteryAtArrivalPct = Math.round(state.currentBatteryPct - batteryNeededPct);
+    const batteryNeededPctExact = distanceKm / eff;
+    const batteryNeededPct = Math.round(batteryNeededPctExact);
+    const batteryAtArrivalPct = Math.round(state.currentBatteryPct - batteryNeededPctExact);
 
     let status = 'SAFE';
     let statusText = `Safe to Ride! Arrival at ${batteryAtArrivalPct}% battery`;
