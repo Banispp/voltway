@@ -463,6 +463,15 @@ const RouteEngine = (function () {
         const roadLabel = prominentRoad ? `via ${prominentRoad}` : (idx === 0 ? 'Main Highway' : `Route ${idx + 1}`);
         const name = idx === 0 ? `${roadLabel} (Fastest)` : `${roadLabel} (${distKm} km)`;
 
+        // Calculate accurate road km distance for each intermediate waypoint from OSRM's actual driving legs
+        let cumKm = 0;
+        for (let i = 0; i < cleanWaypoints.length; i++) {
+          if (routeData.legs && routeData.legs[i]) {
+            cumKm += Math.round((routeData.legs[i].distance / 1000) * 10) / 10;
+            cleanWaypoints[i].kmFromOrigin = Math.round(cumKm * 10) / 10;
+          }
+        }
+
         allRoutes.push({
           id: `route-${idx}`,
           name,
@@ -547,8 +556,8 @@ const RouteEngine = (function () {
       selectedRouteIndex = 0;
       activeRoute = allRoutes[0];
 
-      // Cache outward route geometry for locking return corridor
-      if (!isRoundTrip && activeRoute && activeRoute.coordinates && activeRoute.coordinates.length > 10) {
+      // Cache outward route geometry for locking return corridor (do NOT overwrite on return journeys!)
+      if (!isRoundTrip && !isReturnJourney && activeRoute && activeRoute.coordinates && activeRoute.coordinates.length > 10) {
         lastOutwardRoute = {
           origin: { ...origin },
           destination: { ...destination },
@@ -821,73 +830,63 @@ const RouteEngine = (function () {
 
     const isRoundTrip = origin && destination && haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng) < 0.4;
 
-    if (routeCoords && routeCoords.length >= 2) {
-      let turnaroundIdx = Math.floor(routeCoords.length / 2);
-      if (isRoundTrip) {
+    if (isRoundTrip) {
+      // 1. Identify the turnaround waypoint
+      let turnaroundWp = waypoints.find(w => w.id && String(w.id).startsWith('turnaround_'));
+
+      if (!turnaroundWp) {
         let maxD = -1;
-        for (let i = 0; i < routeCoords.length; i++) {
-          const d = haversineDistance(origin.lat, origin.lng, routeCoords[i][0], routeCoords[i][1]);
+        for (const w of waypoints) {
+          if (w.isReturnStop) continue; // Return stops are never the turnaround
+          const d = haversineDistance(origin.lat, origin.lng, w.lat, w.lng);
           if (d > maxD) {
             maxD = d;
-            turnaroundIdx = i;
+            turnaroundWp = w;
           }
         }
       }
 
-      return [...waypoints].sort((a, b) => {
-        let kmA = a.kmFromOrigin;
-        let kmB = b.kmFromOrigin;
+      const outwardStops = [];
+      const returnStops = [];
 
-        if (kmA == null) {
-          if (isRoundTrip && a.isReturnStop) {
-            kmA = calculateKmAlongRoute(a.lat, a.lng, routeCoords, turnaroundIdx, routeCoords.length - 1);
-          } else if (isRoundTrip) {
-            kmA = calculateKmAlongRoute(a.lat, a.lng, routeCoords, 0, turnaroundIdx);
-          } else {
-            kmA = calculateKmAlongRoute(a.lat, a.lng, routeCoords);
-          }
-          a.kmFromOrigin = kmA;
+      for (const w of waypoints) {
+        if (w === turnaroundWp) continue;
+        if (w.isReturnStop || (w.id && String(w.id).includes('_return_'))) {
+          returnStops.push(w);
+        } else {
+          outwardStops.push(w);
         }
+      }
 
-        if (kmB == null) {
-          if (isRoundTrip && b.isReturnStop) {
-            kmB = calculateKmAlongRoute(b.lat, b.lng, routeCoords, turnaroundIdx, routeCoords.length - 1);
-          } else if (isRoundTrip) {
-            kmB = calculateKmAlongRoute(b.lat, b.lng, routeCoords, 0, turnaroundIdx);
-          } else {
-            kmB = calculateKmAlongRoute(b.lat, b.lng, routeCoords);
-          }
-          b.kmFromOrigin = kmB;
-        }
-
-        return kmA - kmB;
+      // Outward stops: sort by distance from origin ASCENDING (0 km -> turnaround)
+      outwardStops.sort((a, b) => {
+        const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
+        const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
+        return dA - dB;
       });
+
+      // Return stops: sort by distance from turnaround ASCENDING (turnaround -> destination)
+      // which is distance from origin DESCENDING (furthest from origin to closest to origin)
+      returnStops.sort((a, b) => {
+        const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
+        const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
+        return dB - dA;
+      });
+
+      const result = [];
+      if (outwardStops.length > 0) result.push(...outwardStops);
+      if (turnaroundWp) result.push(turnaroundWp);
+      if (returnStops.length > 0) result.push(...returnStops);
+      return result;
     }
 
     if (!origin || !destination) return waypoints;
 
-    if (isRoundTrip) {
-      const turnaroundWpIdx = waypoints.findIndex(w => String(w.id).startsWith('turnaround_'));
-      return [...waypoints].sort((a, b) => {
-        const isRetA = a.isReturnStop || (turnaroundWpIdx !== -1 && waypoints.indexOf(a) > turnaroundWpIdx);
-        const isRetB = b.isReturnStop || (turnaroundWpIdx !== -1 && waypoints.indexOf(b) > turnaroundWpIdx);
-        if (!isRetA && isRetB) return -1;
-        if (isRetA && !isRetB) return 1;
-        const distA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
-        const distB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
-        return isRetA ? (distB - distA) : (distA - distB);
-      });
-    }
-
-    // Direct vector projection sorting
-    const dLat = destination.lat - origin.lat;
-    const dLng = destination.lng - origin.lng;
-    const lenSq = dLat * dLat + dLng * dLng || 1;
-
+    // Normal one-way route: sort by distance from origin ascending
     return [...waypoints].sort((a, b) => {
-      const projA = ((a.lat - origin.lat) * dLat + (a.lng - origin.lng) * dLng) / lenSq;
-      const projB = ((b.lat - origin.lat) * dLat + (b.lng - origin.lng) * dLng) / lenSq;
-      return projA - projB;
+      const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
+      const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
+      return dA - dB;
     });
   }
 
@@ -946,14 +945,16 @@ const RouteEngine = (function () {
     }
 
     const isSecondVisit = existingStops.length === 1;
-    const uniqueId = isSecondVisit ? `${baseId}_return_${Date.now()}` : baseId;
+    const shouldBeReturn = isReturn === true || isSecondVisit;
+    const uniqueId = shouldBeReturn ? `${baseId}_return_${Date.now()}` : baseId;
 
     const stopObj = {
       ...charger,
       originalId: baseId,
       id: uniqueId,
-      isReturnStop: isSecondVisit || isReturn === true
+      isReturnStop: shouldBeReturn
     };
+    delete stopObj.kmFromOrigin; // ALWAYS calculate freshly!
 
     if (activeRoute && activeRoute.coordinates) {
       intermediateWaypoints.push(stopObj);

@@ -2117,7 +2117,10 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
 
   let html = '';
   corridorChargers.forEach((c) => {
-    const isWp = waypoints.some(w => w.id === c.id);
+    const baseId = c.originalId || c.id;
+    const matchingWps = waypoints.filter(w => (w.originalId || w.id) === baseId);
+    const isWp = matchingWps.length > 0;
+    const wpCount = matchingWps.length;
     let badgeClass = 'badge-bolt-slow';
     let netName = 'Bolt 15A 🔌';
 
@@ -2150,9 +2153,13 @@ function renderCorridorChargersList(corridorChargers, waypoints) {
         ${window.Utilities && window.Utilities.renderAmenitiesHtml ? window.Utilities.renderAmenitiesHtml(c.lat, c.lng, c.name, c.address) : ''}
         <div class="corridor-card-actions">
           <button class="btn-sm btn-nav" onclick="MapEngine.focusCharger(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">🔍 Show on Map</button>
-          ${isWp
-            ? `<button class="btn-sm btn-remove-stop" onclick="removeWaypointSync('${c.id}')">❌ Remove Stop</button>`
-            : `<button class="btn-sm btn-add-stop" onclick="RouteEngine.addWaypoint(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">➕ Add Stop</button>`
+          ${wpCount === 0
+            ? `<button class="btn-sm btn-add-stop" onclick="RouteEngine.addWaypoint(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'))">➕ Add Stop</button>`
+            : (wpCount === 1
+                ? `<button class="btn-sm btn-add-stop" style="background:#0284c7;color:#fff;font-weight:800;" onclick="RouteEngine.addWaypoint(window.SyncEngine.getChargers().find(x=>x.id==='${c.id}'), true)">➕ Add Return Stop</button>
+                   <button class="btn-sm btn-remove-stop" onclick="removeWaypointSync('${c.id}')">❌ Remove</button>`
+                : `<button class="btn-sm btn-remove-stop" onclick="removeWaypointSync('${c.id}')">❌ Remove Return Stop</button>`
+              )
           }
         </div>
       </div>

@@ -615,11 +615,18 @@ const MapEngine = (function () {
       `;
     } else if (stopIndex !== null) {
       stopActionButtons = `
-        <div style="display: flex; gap: 4px; margin-top: 5px;">
-          <button class="btn-popup-waypoint" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${charger.id}')">
-            ❌ Remove Stop #${stopIndex + 1}
-          </button>
-          <button class="btn-popup-nav" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
+        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 5px;">
+          <div style="display: flex; gap: 4px;">
+            ${stopCount === 1 ? `
+              <button class="btn-popup-waypoint" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: #0284c7; color: #fff; font-weight: 800; border: none; border-radius: 6px;" onclick="MapEngine.handleAddWaypoint('${baseId}', true)" title="Add as Return Trip Stop">
+                ➕ Add Return Stop
+              </button>
+            ` : ''}
+            <button class="btn-popup-waypoint" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 6px;" onclick="RouteEngine.removeWaypoint('${charger.id}')">
+              ❌ Remove Stop #${stopIndex + 1}
+            </button>
+          </div>
+          <button class="btn-popup-nav" style="width: 100%; padding: 6px 8px; font-size: 0.72rem; height: 30px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
             🗺️ Google Maps
           </button>
         </div>

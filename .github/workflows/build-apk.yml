@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.44-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.45-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.44-release
-          name: "VoltWay 2W Android APK v5.44 (Removed Swap Button)"
-          body: "VoltWay 2W v5.44: Removed the Swap button from the Route Planner action bar per user request."
+          tag_name: v5.45-release
+          name: "VoltWay 2W Android APK v5.45 (Bulletproof Same-Charger Return Stops & Symmetrical Corridor)"
+          body: "VoltWay 2W v5.45: Complete fix for same-charger stops on return routes: 1) Added explicit '➕ Add Return Stop' buttons to both map pin popups and corridor charger cards; 2) Fixed waypoint sequencing so outward stops (Stop 1), turnaround point, and return stops (Stop 2) are ordered with mathematical precision; 3) Recalculated leg-by-leg road distances directly from OSRM driving geometry so Stop 1 is visited at outward km (e.g. 25 km) and Stop 2 is visited at return km (e.g. 74 km); 4) Return journeys strictly follow the outward highway corridor."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:
