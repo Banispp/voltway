@@ -584,48 +584,19 @@ const MapEngine = (function () {
 
     const cleanTitle = (isVida ? charger.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : charger.name).replace(/\s*\(Ather Gun.*$/i, '').trim();
 
-    const isMultiStop = coLocated && coLocated.length > 1;
     let stopHeaderBadge = `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
 
-    if (isMultiStop) {
-      stopHeaderBadge = `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${coLocated.map(s => waypoints.indexOf(s) + 1).join(' & #')}</span>`;
-    } else if (stopIndex !== null) {
+    if (stopIndex !== null) {
       stopHeaderBadge = `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`;
     }
 
     let stopActionButtons = '';
-    if (isMultiStop) {
+    if (stopIndex !== null) {
       stopActionButtons = `
         <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 5px;">
-          <div style="font-size: 0.70rem; color: #38bdf8; font-weight: 700; margin-bottom: 2px;">
-            🔄 Scheduled for both Outward (Stop #${waypoints.indexOf(coLocated[0]) + 1}) and Return (Stop #${waypoints.indexOf(coLocated[1]) + 1})
-          </div>
-          <div style="display: flex; gap: 4px;">
-            <button class="btn-popup-waypoint" style="flex: 1; padding: 5px 6px; font-size: 0.68rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${coLocated[0].id}')">
-              ❌ Remove Stop #${waypoints.indexOf(coLocated[0]) + 1}
-            </button>
-            <button class="btn-popup-waypoint" style="flex: 1; padding: 5px 6px; font-size: 0.68rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${coLocated[1].id}')">
-              ❌ Remove Stop #${waypoints.indexOf(coLocated[1]) + 1}
-            </button>
-          </div>
-          <button class="btn-popup-nav" style="width: 100%; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
-            🗺️ Google Maps
+          <button class="btn-popup-waypoint" style="width: 100%; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 6px;" onclick="RouteEngine.removeWaypoint('${charger.id}')">
+            ❌ Remove Stop #${stopIndex + 1}
           </button>
-        </div>
-      `;
-    } else if (stopIndex !== null) {
-      stopActionButtons = `
-        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 5px;">
-          <div style="display: flex; gap: 4px;">
-            ${stopCount === 1 ? `
-              <button class="btn-popup-waypoint" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: #0284c7; color: #fff; font-weight: 800; border: none; border-radius: 6px;" onclick="MapEngine.handleAddWaypoint('${baseId}', true)" title="Add as Return Trip Stop">
-                ➕ Add Return Stop
-              </button>
-            ` : ''}
-            <button class="btn-popup-waypoint" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 6px;" onclick="RouteEngine.removeWaypoint('${charger.id}')">
-              ❌ Remove Stop #${stopIndex + 1}
-            </button>
-          </div>
           <button class="btn-popup-nav" style="width: 100%; padding: 6px 8px; font-size: 0.72rem; height: 30px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
             🗺️ Google Maps
           </button>
@@ -639,19 +610,10 @@ const MapEngine = (function () {
             ➕ Add Stop
           </button>
         `;
-      } else if (stopCount === 1) {
-        waypointControlHtml = `
-          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.68rem; font-weight: 800; background: #0284c7; color: #ffffff;" onclick="MapEngine.handleAddWaypoint('${charger.id}', true)" title="Add as Return Stop">
-            ➕ Add Again (Return)
-          </button>
-          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.68rem; background: rgba(255, 61, 113, 0.2); color: #ff3d71; border-color: #ff3d71;" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
-            ❌ Remove Stop
-          </button>
-        `;
       } else {
         waypointControlHtml = `
           <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.68rem; background: rgba(255, 61, 113, 0.2); color: #ff3d71; border-color: #ff3d71;" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
-            ❌ Remove Return Stop
+            ❌ Remove Stop
           </button>
         `;
       }
@@ -739,17 +701,16 @@ const MapEngine = (function () {
     }
   }
 
-  function handleAddWaypoint(chargerId, isReturn = false) {
+  function handleAddWaypoint(chargerId) {
     const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
     const c = allChargers.find(item => item.id === chargerId);
     if (c && window.RouteEngine) {
-      window.RouteEngine.addWaypoint(c, isReturn);
+      const added = window.RouteEngine.addWaypoint(c);
       if (map) map.closePopup();
 
-      // Show sleek non-intrusive floating toast on map
-      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        const label = isReturn ? `📍 Added Return Stop: ${c.name}` : `📍 Added Stop: ${c.name}`;
-        window.SyncEngine.showAutoUpdateToast(label);
+      // Show sleek non-intrusive floating toast on map only if newly added
+      if (added && window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast(`📍 Added Stop: ${c.name}`);
       }
     }
   }
@@ -976,28 +937,13 @@ const MapEngine = (function () {
 
     // 4. Render Intermediate Highlighted Charging Stops (STOP 1, STOP 2, ...)
     const intermediateStops = activeRoute.waypoints || [];
-    const renderedCoordKeys = new Set();
-
     intermediateStops.forEach((wp, idx) => {
-      const coordKey = `${wp.lat.toFixed(4)},${wp.lng.toFixed(4)}`;
-      if (renderedCoordKeys.has(coordKey)) {
-        return; // Combined marker already rendered for this location
-      }
-      renderedCoordKeys.add(coordKey);
-
-      const coLocated = intermediateStops.filter(s => Math.abs(s.lat - wp.lat) < 0.0003 && Math.abs(s.lng - wp.lng) < 0.0003);
-      const isMulti = coLocated.length > 1;
-      const stopIndices = coLocated.map(s => intermediateStops.indexOf(s));
-      const badgeText = isMulti ? `STOP ${stopIndices.map(i => i + 1).join(' & ')}` : `STOP ${idx + 1}`;
-
       const stopMarker = L.marker([wp.lat, wp.lng], {
-        icon: createHighlightedStopPinIcon(wp, idx, badgeText),
+        icon: createHighlightedStopPinIcon(wp, idx, `STOP ${idx + 1}`),
         zIndexOffset: 20000 + idx
-      }).bindPopup(createChargerPopupHtml(wp, idx, coLocated), { maxWidth: 280, className: 'charger-popup' }).addTo(waypointsLayer);
+      }).bindPopup(createChargerPopupHtml(wp, idx), { maxWidth: 280, className: 'charger-popup' }).addTo(waypointsLayer);
 
-      coLocated.forEach(s => {
-        waypointMarkersMap.set(s.id, stopMarker);
-      });
+      waypointMarkersMap.set(wp.id, stopMarker);
     });
 
     // 5. Render Final Destination Pin

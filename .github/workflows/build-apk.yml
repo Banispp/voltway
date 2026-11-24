@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.47-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.48-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.47-release
-          name: "VoltWay 2W Android APK v5.47 (Dedicated Charging Stops Swap & Dynamic Reordering)"
-          body: "VoltWay 2W v5.47: 1) Removed top-level swap button from start/destination bar per user specification; 2) Added dedicated '⇅ Swap Stops' button directly in the Route Stops list to effortlessly swap charging stops back and forth; 3) Added dynamic stop reorder controls (↑ Move Up, ↓ Move Down, ⇅ Swap Order) on each charging stop item; 4) RouteEngine now preserves manual stop sequences with mathematical accuracy on both one-way and symmetrical round trips."
+          tag_name: v5.48-release
+          name: "VoltWay 2W Android APK v5.48 (Streamlined Routing, Single Charger Stop & UI Cleanup)"
+          body: "VoltWay 2W v5.48: 1) Completely removed complex return logic, route reversal hacks, and coordinate inversion tricks in favor of clean, standard road routing; 2) Removed charging stop swipe/swap controls (⇅ Swap Stops, reordering controls) for a cleaner UI; 3) Enforced strict single-addition constraint: each charger can only be added once as a stop; 4) Cleaned up map popups, corridor charger cards, and waypoint lists."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

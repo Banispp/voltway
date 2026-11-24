@@ -1622,21 +1622,6 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   transform: scale(0.98);
 }
 
-.btn-pill-swap {
-  background: #0b111e;
-  border: 1.5px solid rgba(168, 85, 247, 0.35);
-  color: #c084fc;
-}
-
-.btn-pill-swap:hover {
-  background: rgba(168, 85, 247, 0.12);
-  border-color: #c084fc;
-}
-
-.btn-pill-swap:active {
-  transform: scale(0.96);
-}
-
 .btn-pill-roundtrip {
   background: #0b111e;
   border: 1.5px solid rgba(0, 230, 118, 0.35);
@@ -1730,33 +1715,6 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 .btn-stop-delete:hover {
   background: rgba(239, 68, 68, 0.2);
   border-color: #ef4444;
-}
-
-.btn-stop-swap,
-.btn-waypoint-swap {
-  color: #c084fc;
-}
-
-.btn-stop-swap:hover,
-.btn-waypoint-swap:hover {
-  background: rgba(168, 85, 247, 0.2);
-  border-color: #c084fc;
-}
-
-.btn-pill-swap-stops {
-  background: #0b111e;
-  border: 1.5px solid rgba(168, 85, 247, 0.4);
-  color: #c084fc;
-  transition: all 0.15s ease;
-}
-
-.btn-pill-swap-stops:hover {
-  background: rgba(168, 85, 247, 0.18);
-  border-color: #c084fc;
-}
-
-.btn-pill-swap-stops:active {
-  transform: scale(0.96);
 }
 
 /* Route Charger Network Filter Buttons */

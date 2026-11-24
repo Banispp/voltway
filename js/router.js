@@ -12,43 +12,6 @@ const RouteEngine = (function () {
   let currentDestination = null;
   let corridorChargers = [];
   let intermediateWaypoints = []; // [charger1, charger2, ...]
-  let lastOutwardRoute = null; // Caches latest outward route { origin, destination, coordinates, distanceKm, durationMins, roadName }
-
-  function saveOutwardRoute(data) {
-    lastOutwardRoute = data;
-    try {
-      if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.setItem('voltway_last_outward_route', JSON.stringify(data));
-      }
-    } catch (e) {}
-  }
-
-  function loadOutwardRoute() {
-    if (lastOutwardRoute) return lastOutwardRoute;
-    try {
-      if (typeof sessionStorage !== 'undefined') {
-        const raw = sessionStorage.getItem('voltway_last_outward_route');
-        if (raw) {
-          lastOutwardRoute = JSON.parse(raw);
-        }
-      }
-    } catch (e) {}
-    return lastOutwardRoute;
-  }
-
-  function getCorridorAnchors(coords, count = 3) {
-    if (!coords || coords.length < 25) return [];
-    const anchors = [];
-    const step = Math.floor(coords.length / (count + 1));
-    for (let i = coords.length - step; i >= step; i -= step) {
-      anchors.push({
-        lat: coords[i][0],
-        lng: coords[i][1],
-        _isCorridorGuide: true
-      });
-    }
-    return anchors;
-  }
 
   const ROUTING_SERVERS = [
     'https://routing.openstreetmap.de/routed-car/route/v1/driving',
@@ -423,7 +386,7 @@ const RouteEngine = (function () {
   /**
    * Fetch driving route with Multiple Alternative Routes (Google Maps Style)
    */
-  async function calculateRoute(origin, destination, manualWaypoints = null, skipAutoSort = false) {
+  async function calculateRoute(origin, destination, manualWaypoints = null) {
     if (!origin || !destination) {
       throw new Error('Origin and destination are required');
     }
@@ -433,217 +396,9 @@ const RouteEngine = (function () {
     lastSnappedSegmentIndex = 0;
 
     if (manualWaypoints !== null) {
-      if (skipAutoSort) {
-        intermediateWaypoints = [...manualWaypoints];
-      } else {
-        intermediateWaypoints = sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
-      }
+      intermediateWaypoints = sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
     }
 
-    const isRoundTrip = origin && destination && haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng) < 0.4;
-    const outwardCached = loadOutwardRoute();
-    const isReturnJourney = !isRoundTrip && outwardCached && outwardCached.origin && outwardCached.destination &&
-      haversineDistance(origin.lat, origin.lng, outwardCached.destination.lat, outwardCached.destination.lng) < 1.0 &&
-      haversineDistance(destination.lat, destination.lng, outwardCached.origin.lat, outwardCached.origin.lng) < 1.0;
-
-    allRoutes = [];
-    selectedRouteIndex = 0;
-
-    // =========================================================================
-    // CASE 1: Complete Round Trip (Origin ➔ Turnaround ➔ Origin)
-    // Symmetrical Highway Lock: The return leg follows the EXACT same highway coordinates in reverse!
-    // =========================================================================
-    if (isRoundTrip) {
-      let turnaroundWp = intermediateWaypoints.find(w => w.id && String(w.id).startsWith('turnaround_'));
-      if (!turnaroundWp) {
-        let maxDist = -1;
-        for (const w of intermediateWaypoints) {
-          if (w.isReturnStop || (w.id && String(w.id).includes('_return_'))) continue;
-          const d = haversineDistance(origin.lat, origin.lng, w.lat, w.lng);
-          if (d > maxDist) {
-            maxDist = d;
-            turnaroundWp = w;
-          }
-        }
-      }
-
-      if (turnaroundWp) {
-        const outwardStops = intermediateWaypoints.filter(w => w !== turnaroundWp && !w.isReturnStop && !String(w.id).includes('_return_'));
-        const returnStops = intermediateWaypoints.filter(w => w !== turnaroundWp && (w.isReturnStop || String(w.id).includes('_return_')));
-
-        if (!skipAutoSort) {
-          outwardStops.sort((a, b) => haversineDistance(origin.lat, origin.lng, a.lat, a.lng) - haversineDistance(origin.lat, origin.lng, b.lat, b.lng));
-          returnStops.sort((a, b) => haversineDistance(origin.lat, origin.lng, b.lat, b.lng) - haversineDistance(origin.lat, origin.lng, a.lat, a.lng));
-        }
-
-        const forwardPoints = [origin, ...outwardStops, turnaroundWp];
-        const fwdRoutes = await fetchOsrmRaw(forwardPoints);
-        if (!fwdRoutes || fwdRoutes.length === 0) {
-          throw new Error('No driving route found to turnaround destination');
-        }
-
-        const fwdData = fwdRoutes[0];
-        const fwdCoords = fwdData.geometry.coordinates.map(c => [c[1], c[0]]);
-        const fwdDistKm = Math.round((fwdData.distance / 1000) * 10) / 10;
-        const fwdDurMins = Math.round(fwdData.duration / 60);
-
-        // Outward leg distances
-        let cumKm = 0;
-        for (let i = 0; i < outwardStops.length; i++) {
-          if (fwdData.legs && fwdData.legs[i]) {
-            cumKm += Math.round((fwdData.legs[i].distance / 1000) * 10) / 10;
-            outwardStops[i].kmFromOrigin = Math.round(cumKm * 10) / 10;
-          }
-        }
-        turnaroundWp.kmFromOrigin = fwdDistKm;
-
-        // Mathematical Highway Symmetry: return leg is EXACT reverse of forward highway!
-        const retCoords = fwdCoords.slice().reverse();
-        const roundTripCoords = [...fwdCoords, ...retCoords];
-        const totalDistKm = Math.round(fwdDistKm * 2 * 10) / 10;
-        const totalDurMins = fwdDurMins * 2;
-
-        // Return stop distances along the full round-trip route
-        for (let i = 0; i < returnStops.length; i++) {
-          const rs = returnStops[i];
-          const matchOut = outwardStops.find(o => (o.originalId || o.id) === (rs.originalId || rs.id));
-          if (matchOut && matchOut.kmFromOrigin) {
-            rs.kmFromOrigin = Math.round((fwdDistKm + (fwdDistKm - matchOut.kmFromOrigin)) * 10) / 10;
-          } else {
-            const dTurn = haversineDistance(turnaroundWp.lat, turnaroundWp.lng, rs.lat, rs.lng);
-            const dOrig = haversineDistance(origin.lat, origin.lng, rs.lat, rs.lng);
-            const ratio = dTurn / (dTurn + dOrig || 1);
-            rs.kmFromOrigin = Math.round((fwdDistKm + ratio * fwdDistKm) * 10) / 10;
-          }
-        }
-
-        intermediateWaypoints = [...outwardStops, turnaroundWp, ...returnStops];
-
-        // Synthesize route legs
-        const synthesizedLegs = [];
-        let prevKm = 0;
-        for (let i = 0; i < intermediateWaypoints.length; i++) {
-          const wpKm = intermediateWaypoints[i].kmFromOrigin || prevKm;
-          const legDist = Math.max(0.1, Math.round((wpKm - prevKm) * 10) / 10);
-          synthesizedLegs.push({
-            distance: legDist * 1000,
-            duration: Math.round((legDist / (totalDistKm || 1)) * (totalDurMins * 60)),
-            summary: intermediateWaypoints[i].name || 'Waysegment'
-          });
-          prevKm = wpKm;
-        }
-        const finalLegDist = Math.max(0.1, Math.round((totalDistKm - prevKm) * 10) / 10);
-        synthesizedLegs.push({
-          distance: finalLegDist * 1000,
-          duration: Math.round((finalLegDist / (totalDistKm || 1)) * (totalDurMins * 60)),
-          summary: origin.name || 'Arrival at Origin'
-        });
-
-        const prominentRoad = extractMainRoadName(fwdData.legs) || 'Main Highway';
-        const name = `${prominentRoad} (Round Trip - ${totalDistKm} km)`;
-
-        allRoutes = [{
-          id: 'route-0',
-          name,
-          roadName: prominentRoad,
-          origin,
-          destination,
-          waypoints: [...intermediateWaypoints],
-          distanceKm: totalDistKm,
-          durationMins: totalDurMins,
-          timeDiffMins: 0,
-          geometry: { type: 'LineString', coordinates: roundTripCoords.map(c => [c[1], c[0]]) },
-          coordinates: roundTripCoords,
-          legs: synthesizedLegs,
-          isPrimary: true
-        }];
-
-        saveOutwardRoute({
-          origin: { ...origin },
-          destination: { lat: turnaroundWp.lat, lng: turnaroundWp.lng, name: turnaroundWp.name },
-          coordinates: fwdCoords.slice(),
-          distanceKm: fwdDistKm,
-          durationMins: fwdDurMins,
-          roadName: prominentRoad
-        });
-
-        selectedRouteIndex = 0;
-        activeRoute = allRoutes[0];
-        findCorridorChargers(activeRoute.coordinates);
-        notify();
-        return activeRoute;
-      }
-    }
-
-    // =========================================================================
-    // CASE 2: Return Journey (B ➔ A) after Outward Journey (A ➔ B)
-    // Symmetrical Highway Lock: Retrace the outward journey highway in reverse!
-    // =========================================================================
-    if (isReturnJourney && outwardCached && outwardCached.coordinates && outwardCached.coordinates.length > 10) {
-      const retCoords = outwardCached.coordinates.slice().reverse();
-      const totalDistKm = outwardCached.distanceKm;
-      const totalDurMins = outwardCached.durationMins;
-      const prominentRoad = outwardCached.roadName || 'Main Highway';
-
-      const cleanWaypoints = intermediateWaypoints.filter(w => !w._isCorridorGuide);
-      cleanWaypoints.forEach(wp => {
-        const dOrig = haversineDistance(origin.lat, origin.lng, wp.lat, wp.lng);
-        const dDest = haversineDistance(destination.lat, destination.lng, wp.lat, wp.lng);
-        const ratio = dOrig / (dOrig + dDest || 1);
-        wp.kmFromOrigin = Math.round((ratio * totalDistKm) * 10) / 10;
-      });
-      if (!skipAutoSort) {
-        cleanWaypoints.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
-      }
-      intermediateWaypoints = cleanWaypoints;
-
-      const synthesizedLegs = [];
-      let prevKm = 0;
-      for (let i = 0; i < intermediateWaypoints.length; i++) {
-        const wpKm = intermediateWaypoints[i].kmFromOrigin || prevKm;
-        const legDist = Math.max(0.1, Math.round((wpKm - prevKm) * 10) / 10);
-        synthesizedLegs.push({
-          distance: legDist * 1000,
-          duration: Math.round((legDist / (totalDistKm || 1)) * (totalDurMins * 60)),
-          summary: intermediateWaypoints[i].name || 'Waysegment'
-        });
-        prevKm = wpKm;
-      }
-      const finalLegDist = Math.max(0.1, Math.round((totalDistKm - prevKm) * 10) / 10);
-      synthesizedLegs.push({
-        distance: finalLegDist * 1000,
-        duration: Math.round((finalLegDist / (totalDistKm || 1)) * (totalDurMins * 60)),
-        summary: destination.name || 'Arrival at Destination'
-      });
-
-      const name = `${prominentRoad} (Return Trip - ${totalDistKm} km)`;
-
-      allRoutes = [{
-        id: 'route-0',
-        name,
-        roadName: prominentRoad,
-        origin,
-        destination,
-        waypoints: [...intermediateWaypoints],
-        distanceKm: totalDistKm,
-        durationMins: totalDurMins,
-        timeDiffMins: 0,
-        geometry: { type: 'LineString', coordinates: retCoords.map(c => [c[1], c[0]]) },
-        coordinates: retCoords,
-        legs: synthesizedLegs,
-        isPrimary: true
-      }];
-
-      selectedRouteIndex = 0;
-      activeRoute = allRoutes[0];
-      findCorridorChargers(activeRoute.coordinates);
-      notify();
-      return activeRoute;
-    }
-
-    // =========================================================================
-    // CASE 3: Standard One-Way Route (A ➔ B) via OSRM
-    // =========================================================================
     let points = [origin, ...intermediateWaypoints, destination];
 
     allRoutes = [];
@@ -655,7 +410,7 @@ const RouteEngine = (function () {
         throw new Error('No driving route found');
       }
 
-      const cleanWaypoints = intermediateWaypoints.filter(w => !w._isCorridorGuide);
+      const cleanWaypoints = intermediateWaypoints;
 
       // 1. Process routes returned by OSRM
       primaryRoutes.forEach((routeData, idx) => {
@@ -758,23 +513,11 @@ const RouteEngine = (function () {
       selectedRouteIndex = 0;
       activeRoute = allRoutes[0];
 
-      // Cache outward route geometry for locking return corridor (do NOT overwrite on return journeys!)
-      if (!isRoundTrip && !isReturnJourney && activeRoute && activeRoute.coordinates && activeRoute.coordinates.length > 10) {
-        saveOutwardRoute({
-          origin: { ...origin },
-          destination: { ...destination },
-          coordinates: activeRoute.coordinates.slice(),
-          distanceKm: activeRoute.distanceKm,
-          durationMins: activeRoute.durationMins,
-          roadName: activeRoute.roadName || (extractMainRoadName(activeRoute.legs) || 'Main Highway')
-        });
-      }
-
       // Discover chargers along the selected route corridor
       findCorridorChargers(activeRoute.coordinates);
 
       // Precompute exact kmFromOrigin for all intermediate waypoints along the route polyline
-      if (!skipAutoSort && intermediateWaypoints.length > 0 && activeRoute.coordinates) {
+      if (intermediateWaypoints.length > 0 && activeRoute.coordinates) {
         intermediateWaypoints = sortWaypointsSequentially(intermediateWaypoints, origin, destination, activeRoute.coordinates);
       }
 
@@ -1027,66 +770,11 @@ const RouteEngine = (function () {
 
   /**
    * Sorts intermediate waypoints in forward geometric sequence from origin to destination.
-   * Accurately sequences outward stops and return stops on round-trip / return journeys.
    */
   function sortWaypointsSequentially(waypoints, origin, destination, routeCoords = null) {
     if (!waypoints || waypoints.length <= 1) return waypoints || [];
+    if (!origin) return waypoints;
 
-    const isRoundTrip = origin && destination && haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng) < 0.4;
-
-    if (isRoundTrip) {
-      // 1. Identify the turnaround waypoint
-      let turnaroundWp = waypoints.find(w => w.id && String(w.id).startsWith('turnaround_'));
-
-      if (!turnaroundWp) {
-        let maxD = -1;
-        for (const w of waypoints) {
-          if (w.isReturnStop) continue; // Return stops are never the turnaround
-          const d = haversineDistance(origin.lat, origin.lng, w.lat, w.lng);
-          if (d > maxD) {
-            maxD = d;
-            turnaroundWp = w;
-          }
-        }
-      }
-
-      const outwardStops = [];
-      const returnStops = [];
-
-      for (const w of waypoints) {
-        if (w === turnaroundWp) continue;
-        if (w.isReturnStop || (w.id && String(w.id).includes('_return_'))) {
-          returnStops.push(w);
-        } else {
-          outwardStops.push(w);
-        }
-      }
-
-      // Outward stops: sort by distance from origin ASCENDING (0 km -> turnaround)
-      outwardStops.sort((a, b) => {
-        const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
-        const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
-        return dA - dB;
-      });
-
-      // Return stops: sort by distance from turnaround ASCENDING (turnaround -> destination)
-      // which is distance from origin DESCENDING (furthest from origin to closest to origin)
-      returnStops.sort((a, b) => {
-        const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
-        const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
-        return dB - dA;
-      });
-
-      const result = [];
-      if (outwardStops.length > 0) result.push(...outwardStops);
-      if (turnaroundWp) result.push(turnaroundWp);
-      if (returnStops.length > 0) result.push(...returnStops);
-      return result;
-    }
-
-    if (!origin || !destination) return waypoints;
-
-    // Normal one-way route: sort by distance from origin ascending
     return [...waypoints].sort((a, b) => {
       const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
       const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
@@ -1134,29 +822,24 @@ const RouteEngine = (function () {
 
   /**
    * Add a charger or custom point to intermediate waypoints (Trip Planner)
-   * Supports visiting the same charger on both outward and return legs
+   * A charger can only be added once.
    */
-  function addWaypoint(charger, isReturn = false) {
-    if (!charger) return;
+  function addWaypoint(charger) {
+    if (!charger) return false;
     const baseId = charger.originalId || charger.id;
-    const existingStops = intermediateWaypoints.filter(w => (w.originalId || w.id) === baseId);
+    const alreadyExists = intermediateWaypoints.some(w => (w.originalId || w.id) === baseId);
 
-    if (existingStops.length >= 2) {
+    if (alreadyExists) {
       if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast(`⚡ ${charger.name} is already added as Stop #${intermediateWaypoints.indexOf(existingStops[0]) + 1} and #${intermediateWaypoints.indexOf(existingStops[1]) + 1}`);
+        window.SyncEngine.showAutoUpdateToast(`⚡ ${charger.name || 'Charger'} is already added as a stop`);
       }
-      return;
+      return false;
     }
-
-    const isSecondVisit = existingStops.length === 1;
-    const shouldBeReturn = isReturn === true || isSecondVisit;
-    const uniqueId = shouldBeReturn ? `${baseId}_return_${Date.now()}` : baseId;
 
     const stopObj = {
       ...charger,
       originalId: baseId,
-      id: uniqueId,
-      isReturnStop: shouldBeReturn
+      id: baseId
     };
     delete stopObj.kmFromOrigin; // ALWAYS calculate freshly!
 
@@ -1168,6 +851,7 @@ const RouteEngine = (function () {
       intermediateWaypoints.push(stopObj);
       notify();
     }
+    return true;
   }
 
   /**
@@ -1177,16 +861,9 @@ const RouteEngine = (function () {
   function removeWaypoint(chargerId) {
     if (!chargerId) return;
 
-    const exactIdx = intermediateWaypoints.findIndex(w => String(w.id) === String(chargerId));
-    if (exactIdx !== -1) {
-      intermediateWaypoints.splice(exactIdx, 1);
-    } else {
-      const matches = intermediateWaypoints.filter(w => String(w.originalId || w.id) === String(chargerId));
-      if (matches.length > 0) {
-        const lastMatch = matches[matches.length - 1];
-        intermediateWaypoints = intermediateWaypoints.filter(w => w !== lastMatch);
-      }
-    }
+    intermediateWaypoints = intermediateWaypoints.filter(w =>
+      String(w.id) !== String(chargerId) && String(w.originalId || '') !== String(chargerId)
+    );
 
     // Clear stale distance along route cache so waypoints re-sequence cleanly without cut-off
     intermediateWaypoints.forEach(w => {
@@ -1200,109 +877,6 @@ const RouteEngine = (function () {
       // NOTE: Deliberately no autoSuggestChargingStops here to respect user's manual choice!
     } else {
       notify();
-    }
-  }
-
-  /**
-   * Swap two waypoints / charging stops manually and recalculate route
-   */
-  function swapWaypoints(idx1, idx2) {
-    if (!intermediateWaypoints || idx1 < 0 || idx2 < 0 ||
-        idx1 >= intermediateWaypoints.length || idx2 >= intermediateWaypoints.length || idx1 === idx2) return;
-
-    const temp = intermediateWaypoints[idx1];
-    intermediateWaypoints[idx1] = intermediateWaypoints[idx2];
-    intermediateWaypoints[idx2] = temp;
-
-    // Adjust isReturnStop flag on round trips if turnaround waypoint exists
-    const turnaroundIdx = intermediateWaypoints.findIndex(w => String(w.id || '').startsWith('turnaround_'));
-    if (turnaroundIdx !== -1) {
-      intermediateWaypoints.forEach((w, idx) => {
-        if (idx < turnaroundIdx) w.isReturnStop = false;
-        else if (idx > turnaroundIdx) w.isReturnStop = true;
-      });
-    }
-
-    intermediateWaypoints.forEach(w => {
-      delete w.kmFromOrigin;
-    });
-
-    if (activeRoute) {
-      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true);
-    } else {
-      notify();
-    }
-
-    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast(`⇅ Swapped Stop #${idx1 + 1} and Stop #${idx2 + 1}`);
-    }
-  }
-
-  /**
-   * Move a waypoint / charging stop from one index to another
-   */
-  function moveWaypoint(fromIdx, toIdx) {
-    if (!intermediateWaypoints || fromIdx < 0 || toIdx < 0 ||
-        fromIdx >= intermediateWaypoints.length || toIdx >= intermediateWaypoints.length || fromIdx === toIdx) return;
-
-    const [moved] = intermediateWaypoints.splice(fromIdx, 1);
-    intermediateWaypoints.splice(toIdx, 0, moved);
-
-    const turnaroundIdx = intermediateWaypoints.findIndex(w => String(w.id || '').startsWith('turnaround_'));
-    if (turnaroundIdx !== -1) {
-      intermediateWaypoints.forEach((w, idx) => {
-        if (idx < turnaroundIdx) w.isReturnStop = false;
-        else if (idx > turnaroundIdx) w.isReturnStop = true;
-      });
-    }
-
-    intermediateWaypoints.forEach(w => {
-      delete w.kmFromOrigin;
-    });
-
-    if (activeRoute) {
-      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true);
-    } else {
-      notify();
-    }
-  }
-
-  /**
-   * Swap a waypoint with its adjacent stop
-   */
-  function swapWaypointWithAdjacent(idx) {
-    if (!intermediateWaypoints || intermediateWaypoints.length < 2) return;
-    const targetIdx = (idx < intermediateWaypoints.length - 1) ? idx + 1 : idx - 1;
-    swapWaypoints(idx, targetIdx);
-  }
-
-  /**
-   * Reverse / Swap all charging stops
-   */
-  function swapAllStops() {
-    if (!intermediateWaypoints || intermediateWaypoints.length < 2) return;
-    intermediateWaypoints.reverse();
-
-    const turnaroundIdx = intermediateWaypoints.findIndex(w => String(w.id || '').startsWith('turnaround_'));
-    if (turnaroundIdx !== -1) {
-      intermediateWaypoints.forEach((w, idx) => {
-        if (idx < turnaroundIdx) w.isReturnStop = false;
-        else if (idx > turnaroundIdx) w.isReturnStop = true;
-      });
-    }
-
-    intermediateWaypoints.forEach(w => {
-      delete w.kmFromOrigin;
-    });
-
-    if (activeRoute) {
-      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true);
-    } else {
-      notify();
-    }
-
-    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast('⇅ Charging Stops Swapped');
     }
   }
 
@@ -1585,10 +1159,6 @@ const RouteEngine = (function () {
     getTimelineMode,
     addWaypoint,
     removeWaypoint,
-    swapWaypoints,
-    moveWaypoint,
-    swapWaypointWithAdjacent,
-    swapAllStops,
     clearRoute,
     setRouteFilters,
     getRouteFilters,
