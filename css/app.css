@@ -698,14 +698,9 @@ html, body {
   100% { box-shadow: 0 10px 28px rgba(2, 132, 199, 0.75), 0 0 22px rgba(56, 189, 248, 0.6); }
 }
 
-/* Leaflet 360 Map Rotation Compass Control (Normal Mode) */
+/* Leaflet 360 Map Rotation Control (Disabled on pre-start map screen) */
+.leaflet-control-rotate,
 .leaflet-top.leaflet-right {
-  top: 250px !important;
-  right: 14px !important;
-  z-index: 1010 !important;
-}
-
-body.nav-active .leaflet-top.leaflet-right {
   display: none !important;
 }
 
@@ -3238,6 +3233,7 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   transform-origin: 50% 100%;
   pointer-events: none;
   z-index: 1;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: transform;
 }
 
@@ -3270,6 +3266,7 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   font-weight: 900;
   line-height: 1;
   transform-origin: center center;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: transform;
 }
 

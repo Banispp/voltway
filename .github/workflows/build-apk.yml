@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.31-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.32-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.31-release
-          name: "VoltWay 2W Android APK v5.31 (Free Zoom & Rotate, Unburied Compass, Nav Compass Mode)"
-          body: "VoltWay 2W v5.31: 1) Fixed auto-zoom in on zoom out: pinch zoom properly releases auto-follow and preserves user chosen zoom level; 2) Free manual 360-degree rotation: synchronized targetBearing with rotation gestures and suppressed charger re-render debounce during rotation; 3) Unburied Compass: repositioned Leaflet compass control to top 250px below fullscreen and theme buttons with zero overlap; 4) Dark mode button hidden in drive mode: only visible on pre-start screen; 5) Navigation Compass Toggle: tapping compass button toggles between Free Heading Mode (arrow turns with phone) and Route-Locked Mode (arrow stays firmly fixed to route)."
+          tag_name: v5.32-release
+          name: "VoltWay 2W Android APK v5.32 (Accurate Forward Arrow, Zero-Vibration Compass, Reliable Theme Toggle)"
+          body: "VoltWay 2W v5.32: 1) Fixed Theme Toggle: Removed duplicate inline onclick handler so dark/daylight mode toggles cleanly on single click; 2) Compass Removed from Pre-start Screen: Compass button now exclusively appears only during active Turn-by-Turn navigation; 3) Correct Forward Arrow Math: Fixed 180-degree reversed angle in Free Compass Mode so arrow points forward into the road and matches physical phone orientation; 4) Zero-Vibration Puck: Added smooth 0.22s cubic-bezier CSS transition and 3.5-degree deadband to eliminate micro-vibrations; 5) Short English Toast Notifications: Clean status alerts ('Compass Mode ON', 'Route Locked', 'Dark Mode', 'Daylight Mode')."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

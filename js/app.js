@@ -2840,13 +2840,13 @@ function setupDriveModeControls() {
         btnNavCompass.classList.add('compass-active');
         btnNavCompass.title = 'Compass Active (Following Phone Direction)';
         if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-          window.SyncEngine.showAutoUpdateToast('🧭 ഫ്രീ കോമ്പസ് മോഡ്: ഫോൺ തിരിയുന്നതിനനുസരിച്ച് ആരോ തിരിയും');
+          window.SyncEngine.showAutoUpdateToast('🧭 Compass Mode ON');
         }
       } else {
         btnNavCompass.classList.remove('compass-active');
         btnNavCompass.title = 'Route Locked (Arrow Fixed to Route)';
         if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-          window.SyncEngine.showAutoUpdateToast('🛣️ റൂട്ട് ലോക്ക്ഡ് മോഡ്: ആരോ റൂട്ടിലേക്ക് സ്ഥിരമായി നിൽക്കും');
+          window.SyncEngine.showAutoUpdateToast('🛣️ Route Locked');
         }
       }
     });

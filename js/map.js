@@ -79,10 +79,7 @@ const MapEngine = (function () {
       preferCanvas: true,
       rotate: true,
       touchRotate: true,
-      rotateControl: {
-        position: 'topright',
-        closeOnZeroBearing: false
-      },
+      rotateControl: false,
       bearing: 0
     });
 
@@ -222,7 +219,7 @@ const MapEngine = (function () {
     const nextTheme = (currentTileTheme === 'dark') ? 'daylight' : 'dark';
     setTileTheme(nextTheme);
     if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 Dark Map Mode Active' : '🗺️ Normal Map Active');
+      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 Dark Mode' : '☀️ Daylight Mode');
     }
     return nextTheme;
   }
@@ -1035,15 +1032,15 @@ const MapEngine = (function () {
         let diff = (heading - userHeading + 180) % 360 - 180;
         if (diff < -180) diff += 360;
 
-        // 1. DEADBAND: Ignore angular jitters smaller than 2.0° when holding or stationary
+        // 1. DEADBAND: Ignore angular jitters smaller than 3.5° when holding or stationary
         // Eliminates back-and-forth micro-trembling completely!
-        if (Math.abs(diff) < 2.0) {
+        if (Math.abs(diff) < 3.5) {
           return;
         }
 
         // 2. ADAPTIVE EXPONENTIAL MOVING AVERAGE (EMA):
-        // 0.12 for butter-smooth subtle movements; 0.35 for deliberate turns
-        const alpha = Math.abs(diff) > 40 ? 0.35 : (Math.abs(diff) > 15 ? 0.20 : 0.12);
+        // 0.14 for butter-smooth subtle movements; 0.35 for deliberate turns
+        const alpha = Math.abs(diff) > 40 ? 0.35 : (Math.abs(diff) > 15 ? 0.22 : 0.14);
         userHeading = (userHeading + diff * alpha + 360) % 360;
         updatePuckHeading(userHeading);
 
@@ -1083,8 +1080,10 @@ const MapEngine = (function () {
 
     if (window.DriveEngine && window.DriveEngine.isActive()) {
       if (isNavCompassMode) {
-        // Free Compass Mode: Arrow & cone follow user's physical orientation as phone turns
-        rotDeg = Math.round((heading - mapBearing + 360) % 360);
+        // Free Compass Mode: Arrow & cone follow user's physical orientation relative to the road ahead
+        const roadHeading = (360 - mapBearing + 360) % 360;
+        let diff = (heading - roadHeading + 180) % 360 - 180;
+        rotDeg = Math.round((diff + 360) % 360);
       } else {
         // Route-Locked Mode (Default): Arrow stays strictly locked straight ahead into route, zero wobble
         rotDeg = 0;
@@ -1098,8 +1097,8 @@ const MapEngine = (function () {
     const navNeedle = document.getElementById('nav-compass-needle');
     if (navNeedle) navNeedle.style.transform = `rotate(${-mapBearing}deg)`;
 
-    // Suppress tiny sub-pixel tremors (< 1.0 deg) to prevent micro-vibration
-    if (lastPuckRotDeg !== null && Math.abs((rotDeg - lastPuckRotDeg + 180) % 360 - 180) < 1.0) {
+    // Suppress tiny tremors (< 2.5 deg) to eliminate micro-vibration
+    if (lastPuckRotDeg !== null && Math.abs((rotDeg - lastPuckRotDeg + 180) % 360 - 180) < 2.5) {
       return;
     }
     lastPuckRotDeg = rotDeg;
