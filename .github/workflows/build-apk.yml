@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.29-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.30-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.29-release
-          name: "VoltWay 2W Android APK v5.29 (Zero Overlap Clean UI, Hedged Parallel Routing Cluster)"
-          body: "VoltWay 2W v5.29: 1) Completely resolved button overlaps across all modes (Normal, Navigation, and Fullscreen) with dedicated vertical layout grid; 2) Solved straight-line routing failures with Hedged Parallel Mirror Routing across 3 OSRM servers with 9s mobile timeouts; 3) Fixed origin coordinate propagation from GPS/Map clicks; 4) Clean, collision-free Material 3 navigation experience."
+          tag_name: v5.30-release
+          name: "VoltWay 2W Android APK v5.30 (Compact Charger Popup, Zero-Vibration Map Navigation, Working Route Overview)"
+          body: "VoltWay 2W v5.30: 1) Compact Charger Popup: Redesigned sleek 260px popup card with streamlined charging time, connector badge, and quick route actions; 2) Zero-Vibration Map & Stable Location Puck: Fixed Leaflet-Rotate transform collisions, decoupled map canvas from compass sensor jitter, and added instant cached puck initialization so location icon never disappears; 3) Working Route Overview & Theme Buttons: Fixed undefined mainLine reference in bounds calculation, added full route overview / rider follow toggle, and ensured floating theme switcher is 100% clickable with z-index 1100."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

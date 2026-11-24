@@ -573,7 +573,8 @@ html, body {
   justify-content: center;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  z-index: 1010;
+  z-index: 1100 !important;
+  pointer-events: auto !important;
   transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   touch-action: manipulation;
 }
@@ -1027,12 +1028,12 @@ body.nav-active .leaflet-top.leaflet-right {
 }
 
 .popup-card {
-  padding: 14px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  min-width: 250px;
-  max-width: 320px;
+  gap: 5px;
+  min-width: 200px;
+  max-width: 260px;
   contain: layout style;
 }
 
@@ -3327,17 +3328,26 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
   color: #0f172a;
-  font-size: 1.15rem;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  touch-action: manipulation;
+  z-index: 1100;
+  pointer-events: auto !important;
 }
 
 .btn-nav-routes-toggle:active {
   background: #e2e8f0;
   transform: scale(0.92);
+}
+
+.btn-nav-routes-toggle.active-overview {
+  background: #0f172a;
+  color: #00E676;
+  border-color: #00E676;
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.35);
 }
 
 /* Fullscreen Mode Overrides */
@@ -3411,7 +3421,8 @@ body.manual-fullscreen .btn-float-gps {
 body.nav-active .btn-toggle-map-theme {
   top: calc(194px + env(safe-area-inset-top, 0px)) !important;
   right: 14px !important;
-  z-index: 1050 !important;
+  z-index: 1100 !important;
+  pointer-events: auto !important;
 }
 
 /* --------------------------------------------------------------------------

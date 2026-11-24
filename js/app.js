@@ -1255,6 +1255,12 @@ const DriveEngine = (function () {
     if (speedometer) speedometer.style.display = 'none';
     if (roadPill) roadPill.style.display = 'none';
 
+    const btnRoutes = document.getElementById('btn-nav-routes-toggle');
+    if (btnRoutes) {
+      btnRoutes.classList.remove('active-overview');
+      btnRoutes.title = 'Route Overview & Alternatives';
+    }
+
     if (window.MapEngine) {
       window.MapEngine.setAutoFollow(false);
       const m = window.MapEngine.getMap();
@@ -2749,13 +2755,53 @@ function setupDriveModeControls() {
 
   const btnRoutesToggle = document.getElementById('btn-nav-routes-toggle');
   if (btnRoutesToggle) {
-    btnRoutesToggle.addEventListener('click', () => {
-      if (window.MapEngine) {
-        const m = window.MapEngine.getMap();
-        const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
-        if (m && activeRoute && window.MapEngine.renderRoute) {
-          window.MapEngine.renderRoute(activeRoute, window.RouteEngine.getAllRoutes(), window.RouteEngine.getSelectedRouteIndex(), true);
+    let isOverviewMode = false;
+    btnRoutesToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!window.MapEngine) return;
+      const m = window.MapEngine.getMap();
+      const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+      if (!m || !activeRoute) return;
+
+      isOverviewMode = !isOverviewMode;
+      if (isOverviewMode) {
+        // Toggle Route Overview: Show full route & fit bounds
+        window.MapEngine.setAutoFollow(false);
+        if (typeof m.setBearing === 'function') {
+          m.setBearing(0);
         }
+        if (activeRoute.coordinates && activeRoute.coordinates.length > 0) {
+          m.fitBounds(L.latLngBounds(activeRoute.coordinates), {
+            padding: [70, 50],
+            animate: true
+          });
+        }
+        btnRoutesToggle.classList.add('active-overview');
+        btnRoutesToggle.title = 'Re-center on Vehicle';
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('🗺️ Route Overview Mode');
+        }
+      } else {
+        // Toggle Re-center: Resume turn-by-turn follow
+        window.MapEngine.recenterCamera();
+        btnRoutesToggle.classList.remove('active-overview');
+        btnRoutesToggle.title = 'Route Overview & Alternatives';
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('📍 Resuming Navigation Follow');
+        }
+      }
+    });
+  }
+
+  // Floating Theme Switcher Button (Dark / Daylight Tile Toggle)
+  const btnThemeToggle = document.getElementById('btn-toggle-map-theme');
+  if (btnThemeToggle) {
+    btnThemeToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (window.MapEngine && window.MapEngine.toggleTileTheme) {
+        window.MapEngine.toggleTileTheme();
       }
     });
   }

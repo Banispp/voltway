@@ -127,6 +127,18 @@ const MapEngine = (function () {
       }
     });
 
+    // Instant User Puck Recovery: Render last-known position immediately so puck is never missing
+    try {
+      const cached = localStorage.getItem('voltway_last_known_pos');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.lat && parsed.lng) {
+          userCoords = { lat: parsed.lat, lng: parsed.lng, accuracy: 20, heading: 0, speed: 0 };
+          updateUserPuck(parsed.lat, parsed.lng, 20, 0);
+        }
+      }
+    } catch (e) {}
+
     // Start compass sensor immediately on map initialization
     initCompass();
     locateUser(false);
@@ -459,7 +471,7 @@ const MapEngine = (function () {
       marker._chargerData = charger;
 
       marker.bindPopup(() => createChargerPopupHtml(charger), {
-        maxWidth: 320,
+        maxWidth: 260,
         className: 'charger-popup',
         autoPan: false,   // prevents Leaflet moveend trigger on popup open (eliminates flicker)
       });
@@ -495,138 +507,88 @@ const MapEngine = (function () {
       networkName = 'Ather Grid';
     } else if (isVida) {
       networkBadgeClass = 'badge-vida-fast';
-      networkName = 'Hero VIDA Grid';
+      networkName = 'VIDA Grid';
     } else if (isFast) {
       networkBadgeClass = 'badge-bolt-fast';
-      networkName = 'Bolt.Earth Fast';
+      networkName = 'Bolt Fast';
     }
 
     const batteryState = window.BatteryEngine ? window.BatteryEngine.getState() : { efficiency: 0.85, currentBatteryPct: 85 };
     const chargeTime = window.Utilities ? window.Utilities.estimateChargingTime(batteryState.currentBatteryPct, 80, batteryState.efficiency) : null;
-    const estTimeText = isFast ? (chargeTime ? chargeTime.fastTimeFormatted : '~35 mins to 80%') : (chargeTime ? chargeTime.slowTimeFormatted : '~3h 30m');
+    const estTimeText = isFast ? (chargeTime ? chargeTime.fastTimeFormatted : '~35m') : (chargeTime ? chargeTime.slowTimeFormatted : '~3.5h');
 
     const waypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
     const isAlreadyWaypoint = stopIndex !== null || waypoints.some(w => w.id === charger.id);
 
-    const isAtherGun = isFast || charger.is_ather_gun;
-
-    // Check distance to active route if route is planned and not already an active stop
+    // Distance to active route if route is planned
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     let routeDistanceHtml = '';
     if (activeRoute && window.RouteEngine.getDistanceToActiveRoute && stopIndex === null) {
       const distFromRoute = window.RouteEngine.getDistanceToActiveRoute(charger.lat, charger.lng);
       if (distFromRoute !== null) {
         const isHighway = distFromRoute <= 0.4;
-        const distColor = isHighway ? '#00e676' : (distFromRoute <= 3.0 ? '#38bdf8' : '#ffb703');
-        const distBg = isHighway ? 'rgba(0, 230, 118, 0.15)' : (distFromRoute <= 3.0 ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 183, 3, 0.15)');
-        const labelText = isHighway ? '⚡ Direct on Highway Route' : `⚡ ${distFromRoute} km Detour from Main Route`;
-        
-        let kmStart = '';
-        if (charger.kmFromOrigin != null) {
-          kmStart = ` • 📍 ~${charger.kmFromOrigin} km from Start`;
-        }
-
-        routeDistanceHtml = `
-          <div class="popup-route-detour-badge" style="background: ${distBg}; border: 1.5px solid ${distColor}; border-radius: 8px; padding: 7px 10px; margin: 6px 0 4px 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <span style="font-size: 0.74rem; font-weight: 800; color: ${distColor}; text-transform: uppercase; letter-spacing: 0.3px;">🛣️ Distance from Route</span>
-              <span style="font-size: 0.95rem; font-weight: 900; color: #ffffff;">${distFromRoute} km</span>
-            </div>
-            <div style="font-size: 0.72rem; color: #cbd5e1; font-weight: 600; margin-top: 3px;">
-              ${labelText}${kmStart}
-            </div>
-          </div>
-        `;
+        const distColor = isHighway ? '#00e676' : '#38bdf8';
+        const labelText = isHighway ? '⚡ On Route' : `⚡ ${distFromRoute} km Detour`;
+        routeDistanceHtml = `<div style="font-size: 0.70rem; font-weight: 700; color: ${distColor}; margin: 2px 0;">🛣️ ${labelText}</div>`;
       }
     }
 
+    const cleanTitle = (isVida ? charger.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : charger.name).replace(/\s*\(Ather Gun.*$/i, '').trim();
+
     const stopHeaderBadge = stopIndex !== null
-      ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; letter-spacing: 0.3px;">⚡ TRIP CHARGING STOP #${stopIndex + 1}</span>`
-      : `<span class="popup-badge ${networkBadgeClass}">${networkName}</span>`;
+      ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`
+      : `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
 
     const stopActionButtons = stopIndex !== null ? `
-      <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger); font-weight: 800; padding: 9px;" onclick="RouteEngine.removeWaypoint('${charger.id}')">
-        ❌ Remove from Trip Stops
-      </button>
-      <button class="btn-popup-nav" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; font-weight: 800; padding: 9px; cursor: pointer;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${(charger.name||'Stop').replace(/'/g, "\\'")}'})">
-        🗺️ Navigate to this Stop in Google Maps
-      </button>
-    ` : `
-      ${isAlreadyWaypoint ? `
-        <button class="btn-popup-waypoint" style="background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
-          ❌ Remove from Trip Waypoints
+      <div style="display: flex; gap: 4px; margin-top: 5px;">
+        <button class="btn-popup-waypoint" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${charger.id}')">
+          ❌ Remove
         </button>
-      ` : `
-        <button class="btn-popup-waypoint" style="background: var(--color-ather); color: #062b1a; font-weight: 800;" onclick="MapEngine.handleAddWaypoint('${charger.id}')">
-          ➕ Add to Route as Waypoint (Stop)
-        </button>
-      `}
-      <div style="display: flex; gap: 6px;">
-        <button class="btn-sm btn-nav" style="flex: 1;" onclick="MapEngine.handleSetAsOrigin('${charger.id}')">
-          🚩 Set as Start
-        </button>
-        <button class="btn-sm btn-nav" style="flex: 1;" onclick="MapEngine.handleSetAsDest('${charger.id}')">
-          🏁 Set as End
+        <button class="btn-popup-nav" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
+          🗺️ Google Maps
         </button>
       </div>
-      <button class="btn-popup-nav btn-direct-inapp-route" style="background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; font-weight: 800; padding: 9px;" onclick="MapEngine.handleRouteDirectToCharger('${charger.id}')">
-        ⚡ Plan Direct Route Here
-      </button>
+    ` : `
+      <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
+        <button class="btn-popup-nav btn-direct-inapp-route" style="width: 100%; height: 34px; padding: 6px 10px; font-size: 0.80rem; font-weight: 800; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; border-radius: 8px;" onclick="MapEngine.handleRouteDirectToCharger('${charger.id}')">
+          ⚡ Route Here
+        </button>
+        <div style="display: flex; gap: 4px;">
+          ${isAlreadyWaypoint ? `
+            <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem; background: rgba(255, 61, 113, 0.2); color: #ff3d71; border-color: #ff3d71;" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
+              ❌ Remove
+            </button>
+          ` : `
+            <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem; font-weight: 800; background: var(--color-ather); color: #052e16;" onclick="MapEngine.handleAddWaypoint('${charger.id}')">
+              ➕ Add Stop
+            </button>
+          `}
+          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem;" onclick="MapEngine.handleSetAsDest('${charger.id}')">
+            🏁 Destination
+          </button>
+        </div>
+      </div>
     `;
 
-    const amenitiesHtml = window.Utilities && window.Utilities.renderAmenitiesHtml
-      ? window.Utilities.renderAmenitiesHtml(charger.lat, charger.lng, charger.name, charger.address)
-      : `
-        <div class="popup-amenities-section" style="margin: 8px 0 6px 0; padding: 8px 10px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
-          <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 5px;">
-            ☕ Nearby Rider Amenities (&lt; 200m)
-          </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
-            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">☕ Tea / Cafe</span>
-            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">🍽️ Snacks / Dine</span>
-            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">🚻 Washroom</span>
-            <span class="amenity-chip-pill" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1);">⛽ Fuel / Air 24x7</span>
-          </div>
-        </div>
-      `;
-
     return `
-      <div class="popup-card">
-        <div class="popup-header">
+      <div class="popup-card" style="padding: 10px 12px; gap: 5px; max-width: 260px;">
+        <div class="popup-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
           ${stopHeaderBadge}
-          <span class="popup-type">${isVida ? '⚡ Hero VIDA Fast' : (isAther ? '⚡ Ather Grid Fast' : (isFast ? '⚡ Bolt Fast' : '🔌 15A Socket'))}</span>
+          <span style="font-size: 0.65rem; font-weight: 800; color: ${isFast ? '#00e676' : '#94a3b8'};">${isFast ? '⚡ Fast Gun' : '🔌 15A Socket'}</span>
         </div>
-        <div class="popup-title">${isVida ? charger.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : charger.name}</div>
 
-        <!-- Distance from Route Banner (Active Route Deviation) -->
+        <div class="popup-title" style="font-size: 0.86rem; font-weight: 800; color: #ffffff; line-height: 1.25; max-height: 2.5em; overflow: hidden; text-overflow: ellipsis;">${cleanTitle}</div>
+
         ${routeDistanceHtml}
 
-        <!-- Fast Charging Compatibility Banner -->
-        <div class="popup-ather-compat ${isAtherGun ? 'compat-direct' : 'compat-socket'}">
-          ${isVida ? '⚡ 100% Direct Plug-in (Hero VIDA DC Fast Gun)' : (isAtherGun ? '⚡ 100% Direct Plug-in (No Adapter Needed)' : '🔌 15A Socket (Requires Portable Charger Cable)')}
+        <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.70rem; color: #cbd5e1; background: rgba(15, 23, 42, 0.8); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08);">
+          <span style="color: ${isFast ? '#00E676' : '#38bdf8'}; font-weight: 700;">${charger.connector || (isFast ? 'Ather DC Fast' : '15A AC Socket')}</span>
+          <span style="font-weight: 700;">⏱️ ${estTimeText}</span>
         </div>
 
-        <div class="popup-detail">
-          <span class="detail-label">Connector:</span>
-          <span class="detail-val" style="font-weight: 800; color: ${isFast ? '#00E676' : '#38bdf8'};">${charger.connector || (isFast ? 'DC Fast Charger' : '15A AC Plug Socket')}</span>
-        </div>
-        <div class="popup-detail">
-          <span class="detail-label">Speed:</span>
-          <span class="detail-val">${isFast ? '⚡ High-Speed Fast DC' : '🔌 Standard 15A Socket'}</span>
-        </div>
-        <div class="popup-detail">
-          <span class="detail-label">Est. Charge Time:</span>
-          <span class="detail-val highlight-val">${estTimeText} (to 80%)</span>
-        </div>
-        ${charger.address ? `<div class="popup-address"><i class="icon-pin">📍</i> ${charger.address}</div>` : ''}
+        ${charger.address ? `<div style="font-size: 0.68rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;"><i class="icon-pin">📍</i> ${charger.address}</div>` : ''}
 
-        <!-- Feature 5: Nearby Rider Amenities (< 200m) -->
-        ${amenitiesHtml}
-
-        <!-- Trip Planner Actions (Click on map to add/set) -->
-        <div class="popup-actions" style="flex-direction: column; gap: 6px; margin-top: 8px;">
-          ${stopActionButtons}
-        </div>
+        ${stopActionButtons}
       </div>
     `;
   }
@@ -910,7 +872,7 @@ const MapEngine = (function () {
       const stopMarker = L.marker([wp.lat, wp.lng], {
         icon: createHighlightedStopPinIcon(wp, idx),
         zIndexOffset: 20000 + idx
-      }).bindPopup(createChargerPopupHtml(wp, idx), { maxWidth: 320, className: 'charger-popup' }).addTo(waypointsLayer);
+      }).bindPopup(createChargerPopupHtml(wp, idx), { maxWidth: 260, className: 'charger-popup' }).addTo(waypointsLayer);
 
       waypointMarkersMap.set(wp.id, stopMarker);
     });
@@ -927,8 +889,8 @@ const MapEngine = (function () {
     `).addTo(waypointsLayer);
 
     // Fit bounds to show route ONLY when requested (preserves user map position when filtering!)
-    if (shouldFitBounds && mainLine) {
-      map.fitBounds(mainLine.getBounds(), { padding: [50, 50] });
+    if (shouldFitBounds && activeMainLine) {
+      map.fitBounds(activeMainLine.getBounds(), { padding: [50, 50] });
     }
 
     updateSafeRangeOverlay(activeRoute.origin);
@@ -1037,25 +999,24 @@ const MapEngine = (function () {
         let diff = (heading - userHeading + 180) % 360 - 180;
         if (diff < -180) diff += 360;
 
-        // 1. DEADBAND: Ignore angular jitters smaller than 1.8° when holding or stationary
+        // 1. DEADBAND: Ignore angular jitters smaller than 2.0° when holding or stationary
         // Eliminates back-and-forth micro-trembling completely!
-        if (Math.abs(diff) < 1.8) {
+        if (Math.abs(diff) < 2.0) {
           return;
         }
 
         // 2. ADAPTIVE EXPONENTIAL MOVING AVERAGE (EMA):
-        // 0.10 for butter-smooth subtle movements; 0.35 for deliberate turns
-        const alpha = Math.abs(diff) > 40 ? 0.35 : (Math.abs(diff) > 15 ? 0.20 : 0.10);
+        // 0.12 for butter-smooth subtle movements; 0.35 for deliberate turns
+        const alpha = Math.abs(diff) > 40 ? 0.35 : (Math.abs(diff) > 15 ? 0.20 : 0.12);
         userHeading = (userHeading + diff * alpha + 360) % 360;
         updatePuckHeading(userHeading);
 
-        // 3. SMOOTH MAP ROTATION (RAF throttled, decoupled from sensor events)
-        // In real Google Maps, map canvas ONLY rotates when Turn-by-Turn Navigation is ACTIVE and following rider!
-        // When stationary / browsing, map stays steady North-Up while only the puck light cone turns.
-        if (window.DriveEngine && window.DriveEngine.isActive() && isAutoFollow) {
-          targetBearing = (360 - userHeading + 360) % 360;
-          scheduleBearingAnimation();
-        }
+        // 3. ZERO-VIBRATION MAP CANVAS STABILITY:
+        // In Google Maps standard automotive navigation, the phone's raw magnetometer
+        // NEVER spins the entire map canvas — this avoids violent jitter caused by motorcycle
+        // engine vibrations, handlebar shaking, and magnetic noise.
+        // The puck light cone and direction arrow rotate smoothly above, while the map canvas
+        // follows the road geometry and GPS trajectory.
       }
     };
 
@@ -1305,6 +1266,10 @@ const MapEngine = (function () {
 
       userCoords = { lat, lng, accuracy, heading: userHeading, speed };
 
+      try {
+        localStorage.setItem('voltway_last_known_pos', JSON.stringify({ lat, lng }));
+      } catch (e) {}
+
       updateUserPuck(lat, lng, accuracy, userHeading);
 
       // Speed-Adaptive Dynamic Zoom (Google Maps standard)
@@ -1315,18 +1280,37 @@ const MapEngine = (function () {
       if (isAutoFollow && map) {
         if (window.DriveEngine && window.DriveEngine.isActive()) {
           // Driving Mode: Course-Up bearing & Forward-Biased Camera Lookahead
-          if (typeof map.setBearing === 'function' && userHeading != null) {
-            targetBearing = (360 - userHeading + 360) % 360;
-            scheduleBearingAnimation();
+          let desiredHeading = userHeading;
+          if (window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
+            const slice = window.RouteEngine.sliceActiveRouteAtPosition(lat, lng);
+            if (slice && slice.segmentBearing != null && slice.distanceFromRouteKm <= 0.050) {
+              desiredHeading = slice.segmentBearing;
+            }
           }
-          // Shift camera ~60m forward along userHeading so puck is in lower 30% of screen
+
+          if (typeof map.setBearing === 'function' && desiredHeading != null) {
+            const nextBearing = (360 - desiredHeading + 360) % 360;
+            let bDiff = (nextBearing - targetBearing + 180) % 360 - 180;
+            if (Math.abs(bDiff) >= 3.0) {
+              targetBearing = nextBearing;
+              scheduleBearingAnimation();
+            }
+          }
+
+          // Shift camera ~60m forward along road/heading so puck is in lower 30% of screen
           const lookaheadKm = 0.06;
-          const rad = (userHeading || 0) * Math.PI / 180;
+          const rad = (desiredHeading || 0) * Math.PI / 180;
           const lookLat = lat + (lookaheadKm / 111.32) * Math.cos(rad);
           const lookLng = lng + (lookaheadKm / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(rad);
-          map.panTo([lookLat, lookLng], { animate: true, duration: 0.6 });
+
+          // Zero-Vibration Positioning: Direct setView avoids Leaflet panTo CSS transition conflicts with Leaflet-Rotate
+          map.setView([lookLat, lookLng], map.getZoom(), { animate: false });
         } else {
           // Stationary / Browsing Mode: Stable North-Up center (Map does NOT spin)
+          if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
+            targetBearing = 0;
+            scheduleBearingAnimation();
+          }
           map.panTo([lat, lng], { animate: true, duration: 0.6 });
         }
       }
@@ -1367,13 +1351,20 @@ const MapEngine = (function () {
 
     if (userCoords && map) {
       if (window.DriveEngine && window.DriveEngine.isActive()) {
+        let desiredHeading = userHeading;
+        if (window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
+          const slice = window.RouteEngine.sliceActiveRouteAtPosition(userCoords.lat, userCoords.lng);
+          if (slice && slice.segmentBearing != null && slice.distanceFromRouteKm <= 0.050) {
+            desiredHeading = slice.segmentBearing;
+          }
+        }
         const lookaheadKm = 0.06;
-        const rad = (userHeading || 0) * Math.PI / 180;
+        const rad = (desiredHeading || 0) * Math.PI / 180;
         const lookLat = userCoords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
         const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
-        map.setView([lookLat, lookLng], 17, { animate: true });
-        if (typeof map.setBearing === 'function' && userHeading != null) {
-          targetBearing = (360 - userHeading + 360) % 360;
+        map.setView([lookLat, lookLng], 17, { animate: false });
+        if (typeof map.setBearing === 'function' && desiredHeading != null) {
+          targetBearing = (360 - desiredHeading + 360) % 360;
           scheduleBearingAnimation();
         }
       } else {
@@ -1402,13 +1393,20 @@ const MapEngine = (function () {
     // If we already have live coordinates, pan smoothly
     if (userCoords && panTo && map) {
       if (window.DriveEngine && window.DriveEngine.isActive()) {
+        let desiredHeading = userHeading;
+        if (window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
+          const slice = window.RouteEngine.sliceActiveRouteAtPosition(userCoords.lat, userCoords.lng);
+          if (slice && slice.segmentBearing != null && slice.distanceFromRouteKm <= 0.050) {
+            desiredHeading = slice.segmentBearing;
+          }
+        }
         const lookaheadKm = 0.06;
-        const rad = (userHeading || 0) * Math.PI / 180;
+        const rad = (desiredHeading || 0) * Math.PI / 180;
         const lookLat = userCoords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
         const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
-        map.setView([lookLat, lookLng], 17, { animate: true });
-        if (typeof map.setBearing === 'function' && userHeading != null) {
-          targetBearing = userHeading;
+        map.setView([lookLat, lookLng], 17, { animate: false });
+        if (typeof map.setBearing === 'function' && desiredHeading != null) {
+          targetBearing = (360 - desiredHeading + 360) % 360;
           scheduleBearingAnimation();
         }
       } else {
@@ -1461,17 +1459,28 @@ const MapEngine = (function () {
 
     if (coords) {
       userCoords = { ...coords, heading: userHeading };
+      try {
+        localStorage.setItem('voltway_last_known_pos', JSON.stringify({ lat: coords.lat, lng: coords.lng }));
+      } catch (e) {}
+
       updateUserPuck(coords.lat, coords.lng, 15, userHeading);
 
       if (panTo && map) {
         if (window.DriveEngine && window.DriveEngine.isActive()) {
+          let desiredHeading = userHeading;
+          if (window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
+            const slice = window.RouteEngine.sliceActiveRouteAtPosition(coords.lat, coords.lng);
+            if (slice && slice.segmentBearing != null && slice.distanceFromRouteKm <= 0.050) {
+              desiredHeading = slice.segmentBearing;
+            }
+          }
           const lookaheadKm = 0.06;
-          const rad = (userHeading || 0) * Math.PI / 180;
+          const rad = (desiredHeading || 0) * Math.PI / 180;
           const lookLat = coords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
           const lookLng = coords.lng + (lookaheadKm / (111.32 * Math.cos(coords.lat * Math.PI / 180))) * Math.sin(rad);
-          map.setView([lookLat, lookLng], 17, { animate: true });
-          if (typeof map.setBearing === 'function' && userHeading != null) {
-            targetBearing = (360 - userHeading + 360) % 360;
+          map.setView([lookLat, lookLng], 17, { animate: false });
+          if (typeof map.setBearing === 'function' && desiredHeading != null) {
+            targetBearing = (360 - desiredHeading + 360) % 360;
             scheduleBearingAnimation();
           }
         } else {
@@ -1560,7 +1569,7 @@ const MapEngine = (function () {
       marker = L.marker(pos, { icon: icon });
       marker._chargerData = charger;
       marker.bindPopup(() => createChargerPopupHtml(charger), {
-        maxWidth: 320,
+        maxWidth: 260,
         className: 'charger-popup',
         autoPan: false,   // prevents Leaflet moveend trigger on popup open (eliminates flicker)
       });
