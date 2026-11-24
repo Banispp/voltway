@@ -933,13 +933,12 @@ const DriveEngine = (function () {
     try {
       const ctx = getAudioContext();
       if (ctx && ctx.state === 'suspended') {
-        ctx.resume();
+        ctx.resume().catch(() => {});
       }
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.resume();
-        const primer = new SpeechSynthesisUtterance(' ');
-        primer.volume = 0.01;
-        window.speechSynthesis.speak(primer);
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
       }
     } catch (e) {}
   }
@@ -956,9 +955,9 @@ const DriveEngine = (function () {
       window.speechSynthesis.onvoiceschanged = () => {
         loadVoices();
       };
-      setTimeout(loadVoices, 150);
-      setTimeout(loadVoices, 600);
-      setTimeout(loadVoices, 1500);
+      setTimeout(loadVoices, 200);
+      setTimeout(loadVoices, 800);
+      setTimeout(loadVoices, 2000);
     }
   }
   initVoices();
@@ -966,7 +965,7 @@ const DriveEngine = (function () {
   function selectBestHumanVoice() {
     if (!('speechSynthesis' in window)) return null;
     if (!voices || voices.length === 0) {
-      voices = window.speechSynthesis.getVoices() || [];
+      loadVoices();
     }
     if (!voices || voices.length === 0) return null;
 
@@ -1014,64 +1013,112 @@ const DriveEngine = (function () {
     try {
       const ctx = getAudioContext();
       if (!ctx) return;
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
 
-      if (type === 'arrive') {
-        // Cheerful 3-tone arrival chime (C5 -> E5 -> G5)
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(523.25, now);
-        osc.frequency.setValueAtTime(659.25, now + 0.12);
-        osc.frequency.setValueAtTime(783.99, now + 0.24);
-        gain.gain.setValueAtTime(0.25, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-        osc.start(now);
-        osc.stop(now + 0.55);
+      const triggerTone = () => {
+        try {
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          if (type === 'arrive') {
+            // Cheerful 3-tone arrival chime (C5 -> E5 -> G5)
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(523.25, now);
+            osc.frequency.setValueAtTime(659.25, now + 0.12);
+            osc.frequency.setValueAtTime(783.99, now + 0.24);
+            gain.gain.setValueAtTime(0.28, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+            osc.start(now);
+            osc.stop(now + 0.55);
+          } else {
+            // Crisp Google Maps 2-tone alert chime (G5 784Hz -> C6 1046.5Hz)
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(783.99, now);
+            osc.frequency.setValueAtTime(1046.5, now + 0.08);
+            gain.gain.setValueAtTime(0.28, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            osc.start(now);
+            osc.stop(now + 0.35);
+          }
+        } catch (e) {}
+      };
+
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(triggerTone).catch(() => {});
       } else {
-        // Crisp Google Maps 2-tone alert chime (G5 784Hz -> C6 1046.5Hz)
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(783.99, now);
-        osc.frequency.setValueAtTime(1046.5, now + 0.08);
-        gain.gain.setValueAtTime(0.24, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
-        osc.start(now);
-        osc.stop(now + 0.32);
+        triggerTone();
       }
     } catch (e) {}
   }
 
+  let voiceKeepAliveTimer = null;
+
   function speakVoice(text, priority = false) {
     if (!soundEnabled || !voiceEnabled || !('speechSynthesis' in window) || !text) return;
     try {
-      if (priority || window.speechSynthesis.speaking) {
-        window.speechSynthesis.cancel();
+      if (voiceKeepAliveTimer) {
+        clearInterval(voiceKeepAliveTimer);
+        voiceKeepAliveTimer = null;
       }
 
       const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 0.94; // Google Maps natural human cadence
-      utter.pitch = 1.02; // Articulate, warm, clear human tone
-      utter.volume = 1.0;
+      utter.rate = 0.96; // Google Maps natural human cadence
+      utter.pitch = 1.0;
+      utter.volume = 1.0; // Loudest, clearest level
 
       const voice = selectBestHumanVoice();
       if (voice) {
         utter.voice = voice;
         utter.lang = voice.lang || 'en-IN';
       } else {
-        utter.lang = 'en-IN';
+        const sysLang = (navigator.language || '').toLowerCase();
+        utter.lang = sysLang.startsWith('en') ? navigator.language : 'en-US';
       }
 
-      utter.onerror = (e) => {
-        console.warn('[VoltWay Voice] TTS playback warning:', e);
+      utter.onend = () => {
+        if (voiceKeepAliveTimer) {
+          clearInterval(voiceKeepAliveTimer);
+          voiceKeepAliveTimer = null;
+        }
+        window._voltwayActiveUtterance = null;
       };
 
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
+      utter.onerror = (e) => {
+        if (voiceKeepAliveTimer) {
+          clearInterval(voiceKeepAliveTimer);
+          voiceKeepAliveTimer = null;
+        }
+        window._voltwayActiveUtterance = null;
+        console.warn('[VoltWay Voice] TTS note:', e);
+      };
 
-      window.speechSynthesis.speak(utter);
+      // Store in window to prevent aggressive Chromium garbage collection cutting off speech
+      window._voltwayActiveUtterance = utter;
+
+      const doSpeak = () => {
+        try {
+          if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
+          window.speechSynthesis.speak(utter);
+          // Android Chrome keep-alive
+          voiceKeepAliveTimer = setInterval(() => {
+            if (window.speechSynthesis.paused) {
+              window.speechSynthesis.resume();
+            }
+          }, 3500);
+        } catch (e) {}
+      };
+
+      if (priority || window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+        // Give native Android TTS service binder 45ms to cancel before dispatching new speech
+        setTimeout(doSpeak, 45);
+      } else {
+        doSpeak();
+      }
     } catch (e) {
       console.warn('[VoltWay Voice] TTS error:', e);
     }
@@ -1405,6 +1452,16 @@ const DriveEngine = (function () {
       announced100 = false;
       announcedTurn = false;
       announcedCharger = false;
+
+      // Google Maps style prompt immediately after completing prior maneuver
+      const nextSpeech = getManeuverSpeech(curStep.type, curStep.modifier, curStep.name);
+      if (userCoords && curStep.lat != null && curStep.lng != null && window.Utilities) {
+        const dM = Math.round(window.Utilities.haversine(userCoords.lat, userCoords.lng, curStep.lat, curStep.lng) * 1000);
+        if (dM > 130) {
+          const dStr = dM < 1000 ? `${Math.round(dM / 50) * 50} meters` : `${(dM / 1000).toFixed(1)} kilometers`;
+          speakVoice(nextSpeech.road ? `In ${dStr}, ${nextSpeech.action} onto ${nextSpeech.road}` : `In ${dStr}, ${nextSpeech.action}`);
+        }
+      }
     }
 
     const speech = getManeuverSpeech(curStep.type, curStep.modifier, curStep.name);
@@ -1417,6 +1474,7 @@ const DriveEngine = (function () {
       // Voice announcements based on distance to maneuver (Google Maps style)
       if (dMeters <= 500 && dMeters > 130 && !announced500) {
         announced500 = true;
+        playChime('turn');
         if (speech.isDest) {
           speakVoice('In 500 meters, your destination is on the right');
         } else {
@@ -1425,10 +1483,11 @@ const DriveEngine = (function () {
       } else if (dMeters <= 130 && dMeters > 35 && !announced100) {
         announced100 = true;
         playChime('turn');
+        const promptM = Math.max(40, Math.round(dMeters / 10) * 10);
         if (speech.isDest) {
-          speakVoice('In 100 meters, destination is on the right', true);
+          speakVoice(`In ${promptM} meters, destination is on the right`, true);
         } else {
-          speakVoice(speech.road ? `In 100 meters, ${speech.action} onto ${speech.road}` : `In 100 meters, ${speech.action}`, true);
+          speakVoice(speech.road ? `In ${promptM} meters, ${speech.action} onto ${speech.road}` : `In ${promptM} meters, ${speech.action}`, true);
         }
       } else if (dMeters <= 35 && !announcedTurn) {
         announcedTurn = true;

@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.33-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.34-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.33-release
-          name: "VoltWay 2W Android APK v5.33 (Lightning-Fast Zero-Lag Recenter & Instant Tactile Response)"
-          body: "VoltWay 2W v5.33: 1) Lightning-Fast Recenter: Replaced slow 1.5s Leaflet flyTo animation with snappy 0.25s camera snap; 2) Instant GPS Recovery: Instant fallback to cached last-known position prevents multi-second GPS freeze; 3) Direct Event Binding: Removed inline onclick and added high-priority touch listener for instant button reaction; 4) Tactile Tap Feedback: Instant 80ms active scale press animation."
+          tag_name: v5.34-release
+          name: "VoltWay 2W Android APK v5.34 (Reliable Turn Voice Guidance & Informative Rider Amenities)"
+          body: "VoltWay 2W v5.34: 1) Reliable Turn-by-Turn Voice Navigation: Solved Android Chrome/WebView TTS queue deadlock, added keep-alive interval, global utterance GC protection, and audioContext unmuting; 2) Turn Maneuver Stage Announcements: Clear voice prompts at 300-500m, 100-150m, and <35m with crisp Google Maps dual-tone chimes and post-turn next step previews; 3) Non-Navigating Rider Amenities: Amenity chips no longer kick user to external Google Maps or jump the route, but serve as clean on-site informational badges with instant toasts."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

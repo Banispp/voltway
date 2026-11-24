@@ -574,14 +574,10 @@ const Utilities = (function () {
 
   /**
    * Universal Rider Amenities Component (< 200m)
-   * Displays Tea / Cafe, Snacks, Washroom, Fuel & Air with 1-tap Google Maps nearby search
+   * Displays Tea / Cafe, Snacks, Washroom, Fuel & Air as on-site informational badges
+   * Non-navigating: stays firmly within app, shows brief toast on tap.
    */
   function renderAmenitiesHtml(lat, lng, name = '', address = '') {
-    const latVal = typeof lat === 'number' ? lat.toFixed(5) : (lat || '');
-    const lngVal = typeof lng === 'number' ? lng.toFixed(5) : (lng || '');
-    const hasCoords = Boolean(latVal && lngVal);
-    const gmapsBase = hasCoords ? 'https://www.google.com/maps/search/' : '';
-
     // Check if place name or address explicitly mentions food / cafe / fuel
     const textCorpus = ((name || '') + ' ' + (address || '')).toLowerCase();
     const hasCafeOnSite = /cafe|coffee|tea|bakery|chai/.test(textCorpus);
@@ -589,16 +585,16 @@ const Utilities = (function () {
     const hasFuelOnSite = /petrol|fuel|pump|hpcl|bpcl|ioc|indianoil|shell/.test(textCorpus);
 
     return `
-      <div class="popup-amenities-section" style="margin: 8px 0 6px 0; padding: 8px 10px; background: rgba(30, 41, 59, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
+      <div class="popup-amenities-section" style="margin: 8px 0 6px 0; padding: 7px 9px; background: rgba(30, 41, 59, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
         <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
-          <span>☕ Nearby Rider Amenities (&lt; 200m)</span>
-          <span style="font-size: 0.65rem; color: #94a3b8; font-weight: normal;">Tap to find on Maps</span>
+          <span>☕ Rider Amenities (&lt; 200m)</span>
+          <span style="font-size: 0.65rem; color: #94a3b8; font-weight: normal;">Available on-site</span>
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 5px;">
-          <a class="amenity-chip-pill ${hasCafeOnSite ? 'amenity-highlight' : ''}" href="javascript:void(0)" onclick="event.stopPropagation(); window.open('${gmapsBase}tea+coffee+cafe/@${latVal},${lngVal},16z', '_blank');" title="Search nearby tea stalls & cafes on Google Maps" style="font-size: 0.70rem; font-weight: 600; background: ${hasCafeOnSite ? 'rgba(56, 189, 248, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasCafeOnSite ? '#38bdf8' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasCafeOnSite ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)'}; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;">☕ Tea / Cafe${hasCafeOnSite ? ' ★' : ''}</a>
-          <a class="amenity-chip-pill ${hasFoodOnSite ? 'amenity-highlight' : ''}" href="javascript:void(0)" onclick="event.stopPropagation(); window.open('${gmapsBase}restaurant+food/@${latVal},${lngVal},16z', '_blank');" title="Search nearby restaurants & snacks on Google Maps" style="font-size: 0.70rem; font-weight: 600; background: ${hasFoodOnSite ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasFoodOnSite ? '#00e676' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasFoodOnSite ? '#00e676' : 'rgba(255, 255, 255, 0.1)'}; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;">🍽️ Snacks / Dine${hasFoodOnSite ? ' ★' : ''}</a>
-          <a class="amenity-chip-pill" href="javascript:void(0)" onclick="event.stopPropagation(); window.open('${gmapsBase}public+toilet+restroom/@${latVal},${lngVal},16z', '_blank');" title="Search nearby washrooms on Google Maps" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;">🚻 Washroom</a>
-          <a class="amenity-chip-pill ${hasFuelOnSite ? 'amenity-highlight' : ''}" href="javascript:void(0)" onclick="event.stopPropagation(); window.open('${gmapsBase}petrol+pump/@${latVal},${lngVal},16z', '_blank');" title="Search nearby fuel pump & air on Google Maps" style="font-size: 0.70rem; font-weight: 600; background: ${hasFuelOnSite ? 'rgba(251, 191, 36, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasFuelOnSite ? '#fbbf24' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasFuelOnSite ? '#fbbf24' : 'rgba(255, 255, 255, 0.1)'}; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;">⛽ Fuel / Air 24x7${hasFuelOnSite ? ' ★' : ''}</a>
+          <span class="amenity-chip-pill ${hasCafeOnSite ? 'amenity-highlight' : ''}" onclick="event.stopPropagation(); if(window.SyncEngine&&window.SyncEngine.showAutoUpdateToast) window.SyncEngine.showAutoUpdateToast('☕ Tea / Cafe available on-site');" title="Tea / Cafe available within 200m" style="font-size: 0.70rem; font-weight: 600; background: ${hasCafeOnSite ? 'rgba(56, 189, 248, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasCafeOnSite ? '#38bdf8' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasCafeOnSite ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)'}; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">☕ Tea / Cafe${hasCafeOnSite ? ' ★' : ''}</span>
+          <span class="amenity-chip-pill ${hasFoodOnSite ? 'amenity-highlight' : ''}" onclick="event.stopPropagation(); if(window.SyncEngine&&window.SyncEngine.showAutoUpdateToast) window.SyncEngine.showAutoUpdateToast('🍽️ Snacks / Dine available on-site');" title="Snacks / Dine available within 200m" style="font-size: 0.70rem; font-weight: 600; background: ${hasFoodOnSite ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasFoodOnSite ? '#00e676' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasFoodOnSite ? '#00e676' : 'rgba(255, 255, 255, 0.1)'}; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">🍽️ Snacks / Dine${hasFoodOnSite ? ' ★' : ''}</span>
+          <span class="amenity-chip-pill" onclick="event.stopPropagation(); if(window.SyncEngine&&window.SyncEngine.showAutoUpdateToast) window.SyncEngine.showAutoUpdateToast('🚻 Washroom available on-site');" title="Washroom available within 200m" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1); display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">🚻 Washroom</span>
+          <span class="amenity-chip-pill ${hasFuelOnSite ? 'amenity-highlight' : ''}" onclick="event.stopPropagation(); if(window.SyncEngine&&window.SyncEngine.showAutoUpdateToast) window.SyncEngine.showAutoUpdateToast('⛽ Fuel & Tyre Air available 24x7');" title="Fuel & Air available within 200m" style="font-size: 0.70rem; font-weight: 600; background: ${hasFuelOnSite ? 'rgba(251, 191, 36, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasFuelOnSite ? '#fbbf24' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasFuelOnSite ? '#fbbf24' : 'rgba(255, 255, 255, 0.1)'}; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">⛽ Fuel / Air 24x7${hasFuelOnSite ? ' ★' : ''}</span>
         </div>
       </div>
     `;
