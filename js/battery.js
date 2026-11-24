@@ -90,7 +90,30 @@ const BatteryEngine = (function () {
     try {
       const saved = localStorage.getItem('voltway_battery_state');
       if (saved) {
-        state = { ...state, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.selectedVehicle && VEHICLE_PRESETS[parsed.selectedVehicle]) {
+            state.selectedVehicle = parsed.selectedVehicle;
+          }
+          if (typeof parsed.currentBatteryPct === 'number') {
+            state.currentBatteryPct = Math.max(0, Math.min(100, parsed.currentBatteryPct));
+          }
+          if (parsed.ridingMode) {
+            state.ridingMode = parsed.ridingMode;
+          }
+          if (typeof parsed.efficiency === 'number' && parsed.efficiency > 0) {
+            state.efficiency = parsed.efficiency;
+          }
+          if (typeof parsed.safetyReservePct === 'number') {
+            state.safetyReservePct = Math.max(5, Math.min(35, parsed.safetyReservePct));
+          }
+          if (typeof parsed.targetChargePct === 'number') {
+            state.targetChargePct = Math.max(50, Math.min(100, parsed.targetChargePct));
+          }
+          if (typeof parsed.isCustomEfficiency === 'boolean') {
+            state.isCustomEfficiency = parsed.isCustomEfficiency;
+          }
+        }
       }
     } catch (e) {
       console.warn('Could not load saved battery state:', e);

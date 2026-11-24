@@ -25,26 +25,6 @@
   <!-- App Stylesheet with Cache-Buster -->
   <link rel="stylesheet" href="css/app.css?v=5.25">
 
-  <!-- Immediate Cache Eviction for Stale Service Worker Data -->
-  <script>
-    (function() {
-      if ('caches' in window) {
-        caches.keys().then(function(names) {
-          names.forEach(function(name) {
-            if (name !== 'voltway-2w-v5-25-fresh') {
-              caches.delete(name);
-            }
-          });
-        });
-      }
-      try {
-        if (localStorage.getItem('voltway_installed_ver') !== 'voltway-2w-v5-23-fresh') {
-          localStorage.setItem('voltway_installed_ver', 'voltway-2w-v5-23-fresh');
-          localStorage.setItem('voltway_state_filter', 'all');
-        }
-      } catch (e) {}
-    })();
-  </script>
 </head>
 <body>
   <div id="app-container">
@@ -66,7 +46,7 @@
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action btn-version-pill" title="Clear Cache & Force Refresh">
-          v5.34
+          v5.35
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -448,6 +428,33 @@
         <!-- ==================== TAB 2: BATTERY & RANGE ==================== -->
         <div id="pane-battery" class="tab-pane">
           <div class="battery-dashboard">
+            <!-- Vehicle Model Selector -->
+            <div class="input-row" style="align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <span class="input-label" style="margin: 0; font-weight: 700; color: #38bdf8;">🛵 EV Scooter Model:</span>
+              <select id="vehicle-preset-select" class="input-text" style="width: 175px; height: 36px; padding: 2px 6px; font-weight: 700; color: #38bdf8; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; cursor: pointer;">
+                <option value="ather-450x-37">Ather 450X (3.7 kWh)</option>
+                <option value="ather-450x-29">Ather 450X (2.9 kWh)</option>
+                <option value="ather-rizta-37">Ather Rizta (3.7 kWh)</option>
+                <option value="ather-450-apex">Ather 450 Apex (Warp+)</option>
+                <option value="ola-s1-pro">Ola S1 Pro Gen 2 (4.0 kWh)</option>
+                <option value="tvs-iqube">TVS iQube (3.4 kWh)</option>
+                <option value="bajaj-chetak">Bajaj Chetak (3.2 kWh)</option>
+                <option value="hero-vida-v1">Hero Vida V1 Pro (3.94 kWh)</option>
+                <option value="custom-2w">Custom 2W Electric Scooter</option>
+              </select>
+            </div>
+
+            <!-- Riding Modes Selector (ECO / RIDE / SPORT / WARP) -->
+            <div class="input-row" style="align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <span class="input-label" style="margin: 0; font-weight: 700;">⚡ Riding Mode:</span>
+              <div id="riding-modes-container" style="display: flex; gap: 4px;">
+                <button type="button" class="btn-mode active" data-mode="ECO">ECO</button>
+                <button type="button" class="btn-mode" data-mode="RIDE">RIDE</button>
+                <button type="button" class="btn-mode" data-mode="SPORT">SPORT</button>
+                <button type="button" class="btn-mode" data-mode="WARP">WARP</button>
+              </div>
+            </div>
+
             <!-- Current Battery % -->
             <div class="slider-container">
               <div class="slider-header">

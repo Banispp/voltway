@@ -1,21 +1,21 @@
-// VoltWay 2W Service Worker - Version 5.34 (Reliable Turn-by-Turn Voice Navigation & Non-Navigating Rider Amenities)
+// VoltWay 2W Service Worker - Version 5.35 (Persistent Vehicle Preferences, Efficiency & Regional Settings)
 // Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v5-34-fresh';
+const CACHE_NAME = 'voltway-2w-v5-35-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css?v=5.34',
-  './js/leaflet-rotate.js?v=5.34',
-  './js/app.js?v=5.34',
-  './js/map.js?v=5.34',
-  './js/router.js?v=5.34',
-  './js/battery.js?v=5.34',
-  './js/navigator.js?v=5.34',
-  './js/sync.js?v=5.34',
-  './js/utilities.js?v=5.34',
-  './chargers_db.js?v=5.34',
+  './css/app.css?v=5.35',
+  './js/leaflet-rotate.js?v=5.35',
+  './js/app.js?v=5.35',
+  './js/map.js?v=5.35',
+  './js/router.js?v=5.35',
+  './js/battery.js?v=5.35',
+  './js/navigator.js?v=5.35',
+  './js/sync.js?v=5.35',
+  './js/utilities.js?v=5.35',
+  './chargers_db.js?v=5.35',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -28,7 +28,7 @@ const ASSETS_TO_CACHE = [
 
 // Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
-  console.log('[VoltWay SW] Installing fresh v5.34 service worker...');
+  console.log('[VoltWay SW] Installing fresh v5.35 service worker...');
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -41,7 +41,7 @@ self.addEventListener('install', (event) => {
 
 // Activate: delete ALL old caches immediately & claim clients
 self.addEventListener('activate', (event) => {
-  console.log('[VoltWay SW] Activating fresh v5.34 service worker...');
+  console.log('[VoltWay SW] Activating fresh v5.35 service worker...');
   event.waitUntil(
     caches.keys().then((keyList) => {
       return Promise.all(

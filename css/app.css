@@ -2694,6 +2694,31 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   gap: 13px;
 }
 
+.btn-mode {
+  padding: 5px 10px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.btn-mode:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+}
+
+.btn-mode.active {
+  background: rgba(0, 230, 118, 0.2);
+  border-color: var(--color-ather, #00e676);
+  color: var(--color-ather, #00e676);
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.35);
+}
+
 .slider-container {
   display: flex;
   flex-direction: column;

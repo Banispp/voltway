@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.34-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.35-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.34-release
-          name: "VoltWay 2W Android APK v5.34 (Reliable Turn Voice Guidance & Informative Rider Amenities)"
-          body: "VoltWay 2W v5.34: 1) Reliable Turn-by-Turn Voice Navigation: Solved Android Chrome/WebView TTS queue deadlock, added keep-alive interval, global utterance GC protection, and audioContext unmuting; 2) Turn Maneuver Stage Announcements: Clear voice prompts at 300-500m, 100-150m, and <35m with crisp Google Maps dual-tone chimes and post-turn next step previews; 3) Non-Navigating Rider Amenities: Amenity chips no longer kick user to external Google Maps or jump the route, but serve as clean on-site informational badges with instant toasts."
+          tag_name: v5.35-release
+          name: "VoltWay 2W Android APK v5.35 (Full Settings & State Persistence Across App Sessions)"
+          body: "VoltWay 2W v5.35: 1) Permanent State & Regional Filter Persistence: Removed legacy cache reset that forced state to 'all', keeping selected State (Kerala, Karnataka, Tamil Nadu, All) permanently; 2) Vehicle Model & Custom Efficiency Retention: Added EV scooter model selector and riding mode buttons in Range tab; vehicle, custom efficiency (km/1%), battery %, reserve buffer %, and target charge % now survive app closing and restarts; 3) Full App Preference Retention: Persisted corridor search distance, charger network filters (Ather/VIDA/Bolt), charging estimator sliders, and voice navigation toggle."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

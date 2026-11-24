@@ -257,6 +257,20 @@ function setupFilterChips() {
   const chipBoltFast = document.getElementById('chip-bolt-fast');
   const chipBoltSlow = document.getElementById('chip-bolt-slow');
 
+  // Restore saved network filters to chip UI
+  if (window.MapEngine && window.MapEngine.getFilters) {
+    const activeFilters = window.MapEngine.getFilters();
+    if (chipAther) chipAther.classList.toggle('active', Boolean(activeFilters.atherFast));
+    if (chipVidaFast) chipVidaFast.classList.toggle('active', Boolean(activeFilters.vidaFast));
+    if (chipBoltFast) chipBoltFast.classList.toggle('active', Boolean(activeFilters.boltFast));
+    if (chipBoltSlow) chipBoltSlow.classList.toggle('active', Boolean(activeFilters.boltSlow));
+
+    syncRouteFilterBtn('atherFast', Boolean(activeFilters.atherFast));
+    syncRouteFilterBtn('vidaFast', Boolean(activeFilters.vidaFast));
+    syncRouteFilterBtn('boltFast', Boolean(activeFilters.boltFast));
+    syncRouteFilterBtn('boltSlow', Boolean(activeFilters.boltSlow));
+  }
+
   function checkFastOnlySync() {
     if (!chipFastOnly) return;
     const isFastOnly = chipAther?.classList.contains('active') &&
@@ -443,12 +457,24 @@ function updateFilterBadges() {
 
 // --- Battery & Range Controls ---
 function setupBatteryControls() {
+  const vehicleSelect = document.getElementById('vehicle-preset-select');
   const slider = document.getElementById('battery-slider');
   const numberInput = document.getElementById('battery-number');
   const effInput = document.getElementById('efficiency-input');
   const reserveSlider = document.getElementById('reserve-slider');
   const reserveVal = document.getElementById('reserve-val');
   const modeButtons = document.querySelectorAll('.btn-mode');
+  const targetChargeSlider = document.getElementById('target-charge-slider');
+  const targetChargeVal = document.getElementById('target-charge-val');
+
+  // Initialize Vehicle Preset dropdown from saved state
+  if (vehicleSelect && window.BatteryEngine) {
+    const curVehicle = window.BatteryEngine.getState().selectedVehicle;
+    if (curVehicle) vehicleSelect.value = curVehicle;
+    vehicleSelect.addEventListener('change', (e) => {
+      BatteryEngine.setVehicle(e.target.value);
+    });
+  }
 
   // Sync Slider and Number input
   if (slider && numberInput) {
@@ -475,14 +501,17 @@ function setupBatteryControls() {
     });
   });
 
-
-
   // Custom Efficiency
   if (effInput) {
-    effInput.addEventListener('change', (e) => {
-      BatteryEngine.setCustomEfficiency(e.target.value);
-      modeButtons.forEach(b => b.classList.remove('active'));
-    });
+    const onEffUpdate = (e) => {
+      const val = parseFloat(e.target.value);
+      if (!isNaN(val) && val > 0) {
+        BatteryEngine.setCustomEfficiency(val);
+        modeButtons.forEach(b => b.classList.remove('active'));
+      }
+    };
+    effInput.addEventListener('change', onEffUpdate);
+    effInput.addEventListener('input', onEffUpdate);
   }
 
   // Reserve Buffer
@@ -499,9 +528,6 @@ function setupBatteryControls() {
   }
 
   // Fast Charge Target SoC Limit (User Configurable Slider)
-  const targetChargeSlider = document.getElementById('target-charge-slider');
-  const targetChargeVal = document.getElementById('target-charge-val');
-
   if (targetChargeSlider && targetChargeVal) {
     targetChargeSlider.addEventListener('input', (e) => {
       const val = parseInt(e.target.value, 10);
@@ -517,15 +543,33 @@ function setupBatteryControls() {
 
 function onBatteryStateChange(state) {
   // Update UI values
+  const vehicleSelect = document.getElementById('vehicle-preset-select');
   const slider = document.getElementById('battery-slider');
   const numberInput = document.getElementById('battery-number');
   const effInput = document.getElementById('efficiency-input');
+  const reserveSlider = document.getElementById('reserve-slider');
+  const reserveVal = document.getElementById('reserve-val');
+  const targetChargeSlider = document.getElementById('target-charge-slider');
+  const targetChargeVal = document.getElementById('target-charge-val');
   const safeRangeText = document.getElementById('metric-safe-range');
   const maxRangeText = document.getElementById('metric-max-range');
 
+  if (vehicleSelect && state.selectedVehicle && vehicleSelect.value !== state.selectedVehicle) {
+    vehicleSelect.value = state.selectedVehicle;
+  }
   if (slider && slider.value != state.currentBatteryPct) slider.value = state.currentBatteryPct;
   if (numberInput && numberInput.value != state.currentBatteryPct) numberInput.value = state.currentBatteryPct;
   if (effInput && effInput.value != state.efficiency) effInput.value = state.efficiency;
+
+  if (reserveSlider && reserveSlider.value != state.safetyReservePct) {
+    reserveSlider.value = state.safetyReservePct;
+  }
+  if (reserveVal) reserveVal.textContent = `${state.safetyReservePct}%`;
+
+  if (targetChargeSlider && targetChargeSlider.value != state.targetChargePct) {
+    targetChargeSlider.value = state.targetChargePct;
+  }
+  if (targetChargeVal) targetChargeVal.textContent = `${state.targetChargePct}%`;
 
   if (safeRangeText) safeRangeText.textContent = `${state.reachableSafeKm} km`;
   if (maxRangeText) maxRangeText.textContent = `${state.absoluteMaxKm} km`;
@@ -900,6 +944,10 @@ const DriveEngine = (function () {
   let steps = [];
   let currentStepIdx = 0;
   let soundEnabled = true;
+  try {
+    const savedSound = localStorage.getItem('voltway_sound_enabled');
+    if (savedSound !== null) soundEnabled = (savedSound === 'true');
+  } catch (e) {}
   let voiceEnabled = true;
   let announced500 = false;
   let announced100 = false;
@@ -1278,6 +1326,13 @@ const DriveEngine = (function () {
       btnNavCompassInit.title = 'Route Locked Mode (Click to follow phone heading)';
     }
 
+    // Sync saved sound toggle state to HUD button
+    const btnSoundInit = document.getElementById('btn-hud-sound-toggle');
+    if (btnSoundInit) {
+      btnSoundInit.innerHTML = soundEnabled ? '🔊' : '🔇';
+      btnSoundInit.title = soundEnabled ? 'Voice & Audio guidance active' : 'Voice guidance muted';
+    }
+
     // Play startup chime and speak welcome guidance with first maneuver
     playChime('turn');
     const destName = (activeRoute.destination && activeRoute.destination.name) || 'destination';
@@ -1344,6 +1399,9 @@ const DriveEngine = (function () {
 
   function toggleSound() {
     soundEnabled = !soundEnabled;
+    try {
+      localStorage.setItem('voltway_sound_enabled', String(soundEnabled));
+    } catch (e) {}
     primeAudioEngine();
     const btn = document.getElementById('btn-hud-sound-toggle');
     if (btn) {
@@ -2355,9 +2413,25 @@ function setupChargingEstimator() {
   const targetSlider = document.getElementById('calc-target-slider');
   const targetVal = document.getElementById('calc-target-val');
 
+  // Restore saved calculator preferences
+  try {
+    const savedCalc = localStorage.getItem('voltway_calc_state');
+    if (savedCalc) {
+      const parsed = JSON.parse(savedCalc);
+      if (parsed && typeof parsed === 'object') {
+        if (startSlider && typeof parsed.start === 'number') startSlider.value = parsed.start;
+        if (targetSlider && typeof parsed.target === 'number') targetSlider.value = parsed.target;
+      }
+    }
+  } catch (e) {}
+
   function recalculate() {
     const start = parseInt(startSlider ? startSlider.value : 20, 10);
     const target = parseInt(targetSlider ? targetSlider.value : 80, 10);
+
+    try {
+      localStorage.setItem('voltway_calc_state', JSON.stringify({ start, target }));
+    } catch (e) {}
 
     if (startVal) startVal.textContent = `${start}%`;
     if (targetVal) targetVal.textContent = `${target}%`;
@@ -2790,6 +2864,10 @@ function setupCorridorDistanceSelector() {
       if (bufferVal > 100) bufferVal = 100;
     }
 
+    try {
+      localStorage.setItem('voltway_corridor_buffer', String(bufferVal));
+    } catch (e) {}
+
     if (window.RouteEngine) {
       window.RouteEngine.setCorridorBufferKm(bufferVal);
     }
@@ -2799,6 +2877,14 @@ function setupCorridorDistanceSelector() {
     const label = bufferVal === 'all' ? 'All in View' : `Within ${bufferVal} km`;
     if (badgeEl) badgeEl.textContent = label;
   }
+
+  // Restore saved corridor buffer on load
+  try {
+    const savedBuffer = localStorage.getItem('voltway_corridor_buffer');
+    if (savedBuffer) {
+      applyBuffer(savedBuffer);
+    }
+  } catch (e) {}
 
   function handleInputDebounced(val, sourceEl) {
     clearTimeout(debounceTimer);

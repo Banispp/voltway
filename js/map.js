@@ -30,7 +30,7 @@ const MapEngine = (function () {
   let isNavCompassMode = false; // false = Route-Locked (default, steady arrow), true = Free Compass (follows physical orientation)
 
   // Regional State filter ('all' default, 'kerala', 'karnataka', 'tamil_nadu')
-  let activeStateFilter = localStorage.getItem('voltway_selected_state') || 'all';
+  let activeStateFilter = localStorage.getItem('voltway_selected_state') || localStorage.getItem('voltway_state_filter') || 'all';
 
   // Filter state: TWO-WHEELER FAST CHARGERS ONLY BY DEFAULT!
   const filters = {
@@ -39,6 +39,18 @@ const MapEngine = (function () {
     boltFast: true,
     boltSlow: false
   };
+
+  try {
+    const savedFilters = localStorage.getItem('voltway_network_filters');
+    if (savedFilters) {
+      const parsed = JSON.parse(savedFilters);
+      if (parsed && typeof parsed === 'object') {
+        Object.keys(filters).forEach(k => {
+          if (parsed[k] !== undefined) filters[k] = Boolean(parsed[k]);
+        });
+      }
+    }
+  } catch (e) {}
 
   // User position
   let userCoords = null; // { lat, lng, accuracy, heading, speed }
@@ -713,6 +725,9 @@ const MapEngine = (function () {
   function setFilter(filterKey, value) {
     if (filters.hasOwnProperty(filterKey)) {
       filters[filterKey] = Boolean(value);
+      try {
+        localStorage.setItem('voltway_network_filters', JSON.stringify(filters));
+      } catch (e) {}
       renderChargers();
     }
   }
@@ -727,7 +742,10 @@ const MapEngine = (function () {
    */
   function setStateFilter(state) {
     activeStateFilter = state || 'all';
-    localStorage.setItem('voltway_selected_state', activeStateFilter);
+    try {
+      localStorage.setItem('voltway_selected_state', activeStateFilter);
+      localStorage.setItem('voltway_state_filter', activeStateFilter);
+    } catch (e) {}
 
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     if (!activeRoute && map) {
