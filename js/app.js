@@ -1221,6 +1221,16 @@ const DriveEngine = (function () {
       }, 100);
     }
 
+    // Reset navigation compass mode to Route-Locked (Default)
+    if (window.MapEngine && window.MapEngine.setNavCompassMode) {
+      window.MapEngine.setNavCompassMode(false);
+    }
+    const btnNavCompassInit = document.getElementById('btn-nav-compass');
+    if (btnNavCompassInit) {
+      btnNavCompassInit.classList.remove('compass-active');
+      btnNavCompassInit.title = 'Route Locked Mode (Click to follow phone heading)';
+    }
+
     // Play startup chime and speak welcome guidance with first maneuver
     playChime('turn');
     const destName = (activeRoute.destination && activeRoute.destination.name) || 'destination';
@@ -1259,6 +1269,14 @@ const DriveEngine = (function () {
     if (btnRoutes) {
       btnRoutes.classList.remove('active-overview');
       btnRoutes.title = 'Route Overview & Alternatives';
+    }
+
+    if (window.MapEngine && window.MapEngine.setNavCompassMode) {
+      window.MapEngine.setNavCompassMode(false);
+    }
+    const btnNavCompassExit = document.getElementById('btn-nav-compass');
+    if (btnNavCompassExit) {
+      btnNavCompassExit.classList.remove('compass-active');
     }
 
     if (window.MapEngine) {
@@ -2802,6 +2820,34 @@ function setupDriveModeControls() {
       e.preventDefault();
       if (window.MapEngine && window.MapEngine.toggleTileTheme) {
         window.MapEngine.toggleTileTheme();
+      }
+    });
+  }
+
+  // Floating Navigation Compass Button (Google Maps Style: Free Orientation vs Route-Locked Mode)
+  const btnNavCompass = document.getElementById('btn-nav-compass');
+  if (btnNavCompass) {
+    btnNavCompass.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!window.MapEngine) return;
+      const currentMode = window.MapEngine.getNavCompassMode ? window.MapEngine.getNavCompassMode() : false;
+      const nextMode = !currentMode;
+      if (window.MapEngine.setNavCompassMode) {
+        window.MapEngine.setNavCompassMode(nextMode);
+      }
+      if (nextMode) {
+        btnNavCompass.classList.add('compass-active');
+        btnNavCompass.title = 'Compass Active (Following Phone Direction)';
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('🧭 ഫ്രീ കോമ്പസ് മോഡ്: ഫോൺ തിരിയുന്നതിനനുസരിച്ച് ആരോ തിരിയും');
+        }
+      } else {
+        btnNavCompass.classList.remove('compass-active');
+        btnNavCompass.title = 'Route Locked (Arrow Fixed to Route)';
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('🛣️ റൂട്ട് ലോക്ക്ഡ് മോഡ്: ആരോ റൂട്ടിലേക്ക് സ്ഥിരമായി നിൽക്കും');
+        }
       }
     });
   }

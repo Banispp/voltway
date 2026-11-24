@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.30-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.31-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.30-release
-          name: "VoltWay 2W Android APK v5.30 (Compact Charger Popup, Zero-Vibration Map Navigation, Working Route Overview)"
-          body: "VoltWay 2W v5.30: 1) Compact Charger Popup: Redesigned sleek 260px popup card with streamlined charging time, connector badge, and quick route actions; 2) Zero-Vibration Map & Stable Location Puck: Fixed Leaflet-Rotate transform collisions, decoupled map canvas from compass sensor jitter, and added instant cached puck initialization so location icon never disappears; 3) Working Route Overview & Theme Buttons: Fixed undefined mainLine reference in bounds calculation, added full route overview / rider follow toggle, and ensured floating theme switcher is 100% clickable with z-index 1100."
+          tag_name: v5.31-release
+          name: "VoltWay 2W Android APK v5.31 (Free Zoom & Rotate, Unburied Compass, Nav Compass Mode)"
+          body: "VoltWay 2W v5.31: 1) Fixed auto-zoom in on zoom out: pinch zoom properly releases auto-follow and preserves user chosen zoom level; 2) Free manual 360-degree rotation: synchronized targetBearing with rotation gestures and suppressed charger re-render debounce during rotation; 3) Unburied Compass: repositioned Leaflet compass control to top 250px below fullscreen and theme buttons with zero overlap; 4) Dark mode button hidden in drive mode: only visible on pre-start screen; 5) Navigation Compass Toggle: tapping compass button toggles between Free Heading Mode (arrow turns with phone) and Route-Locked Mode (arrow stays firmly fixed to route)."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

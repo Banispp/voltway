@@ -25,6 +25,9 @@ const MapEngine = (function () {
   let watchId = null;
   let userHeading = 0;
   let isAutoFollow = false;
+  let isUserInteracting = false;
+  let isUserRotating = false;
+  let isNavCompassMode = false; // false = Route-Locked (default, steady arrow), true = Free Compass (follows physical orientation)
 
   // Regional State filter ('all' default, 'kerala', 'karnataka', 'tamil_nadu')
   let activeStateFilter = localStorage.getItem('voltway_selected_state') || 'all';
@@ -101,25 +104,58 @@ const MapEngine = (function () {
 
     map.on('moveend', onMapMoveEnd);
     map.on('zoomend', onMapMoveEnd);
-    map.on('dragstart', () => {
-      // User is manually panning map: temporarily release camera auto-follow and compass mode
+
+    function handleUserManualInteraction() {
+      // User is manually panning/zooming/rotating map: release camera auto-follow
       isAutoFollow = false;
       isCompassMode = false;
+      isUserInteracting = true;
       updateGpsButtonUi();
 
+      if (bearingRafId) {
+        cancelAnimationFrame(bearingRafId);
+        bearingRafId = null;
+      }
+
+      if (recenterTimer) clearTimeout(recenterTimer);
       if (window.DriveEngine && window.DriveEngine.isActive()) {
-        // Auto recenter after 6 seconds of touch inactivity (Google Maps behavior)
-        if (recenterTimer) clearTimeout(recenterTimer);
+        // Auto recenter after 10 seconds of inactivity in Drive Mode (Google Maps standard)
         recenterTimer = setTimeout(() => {
+          isUserInteracting = false;
           recenterCamera();
-        }, 6000);
+        }, 10000);
+      }
+    }
+
+    map.on('dragstart', handleUserManualInteraction);
+    map.on('zoomstart', handleUserManualInteraction);
+    map.on('movestart', (e) => {
+      if (!e.hard && !isAutoFollow) {
+        handleUserManualInteraction();
       }
     });
+
+    map.on('rotatestart', () => {
+      isUserRotating = true;
+      handleUserManualInteraction();
+    });
+
     map.on('rotate', () => {
       if (map && typeof map.getBearing === 'function') {
         currentRenderedBearing = map.getBearing();
+        targetBearing = currentRenderedBearing; // Keep target in sync with user rotation so it doesn't snap back!
         updatePuckHeading(userHeading);
+
+        // Update needle on nav compass button if present
+        const needle = document.getElementById('nav-compass-needle');
+        if (needle) needle.style.transform = `rotate(${-currentRenderedBearing}deg)`;
       }
+    });
+
+    map.on('rotateend', () => {
+      setTimeout(() => {
+        isUserRotating = false;
+      }, 400);
     });
     map.on('click', () => {
       if (window.innerWidth <= 768 && typeof window.collapseBottomSheet === 'function') {
@@ -1043,16 +1079,24 @@ const MapEngine = (function () {
   function updatePuckHeading(heading) {
     if (heading == null) return;
     let rotDeg = 0;
+    const mapBearing = (map && typeof map.getBearing === 'function') ? map.getBearing() : 0;
+
     if (window.DriveEngine && window.DriveEngine.isActive()) {
-      // In Google Maps Turn-by-Turn Driving Navigation:
-      // The camera is Course-Up (locked facing the road ahead).
-      // The vehicle's heading cone and directional arrow always point straight UP (0 deg) into the road ahead.
-      rotDeg = 0;
+      if (isNavCompassMode) {
+        // Free Compass Mode: Arrow & cone follow user's physical orientation as phone turns
+        rotDeg = Math.round((heading - mapBearing + 360) % 360);
+      } else {
+        // Route-Locked Mode (Default): Arrow stays strictly locked straight ahead into route, zero wobble
+        rotDeg = 0;
+      }
     } else {
-      const mapBearing = (map && typeof map.getBearing === 'function') ? map.getBearing() : 0;
       // In walking / browsing mode: map is North-Up (mapBearing 0), cone rotates freely with physical compass
       rotDeg = Math.round((heading - mapBearing + 360) % 360);
     }
+
+    // Keep nav compass needle synced with map bearing if present
+    const navNeedle = document.getElementById('nav-compass-needle');
+    if (navNeedle) navNeedle.style.transform = `rotate(${-mapBearing}deg)`;
 
     // Suppress tiny sub-pixel tremors (< 1.0 deg) to prevent micro-vibration
     if (lastPuckRotDeg !== null && Math.abs((rotDeg - lastPuckRotDeg + 180) % 360 - 180) < 1.0) {
@@ -1203,7 +1247,7 @@ const MapEngine = (function () {
    */
   let lastZoomAdjustTime = 0;
   function updateSpeedAdaptiveZoom(speedMps) {
-    if (!map || !window.DriveEngine || !window.DriveEngine.isActive() || !isAutoFollow) return;
+    if (!map || !window.DriveEngine || !window.DriveEngine.isActive() || !isAutoFollow || isUserInteracting) return;
     const now = Date.now();
     if (now - lastZoomAdjustTime < 2500) return; // Throttle zoom adjustments to once every 2.5s
 
@@ -1543,6 +1587,8 @@ const MapEngine = (function () {
   function onMapMoveEnd() {
     clearTimeout(moveDebounceTimer);
     moveDebounceTimer = setTimeout(() => {
+      // Do not re-render chargers if user is actively rotating or gestures are running
+      if (isUserRotating) return;
       renderChargers();
 
       if (map && map.getZoom() >= 13 && window.SyncEngine) {
@@ -1554,7 +1600,7 @@ const MapEngine = (function () {
           east: Math.round(b.getEast() * 1000) / 1000
         });
       }
-    }, 150);
+    }, 350);
   }
 
   function focusCharger(charger) {
@@ -1617,6 +1663,11 @@ const MapEngine = (function () {
         targetBearing = deg;
         scheduleBearingAnimation();
       }
+    },
+    getNavCompassMode: () => isNavCompassMode,
+    setNavCompassMode: (active) => {
+      isNavCompassMode = Boolean(active);
+      updatePuckHeading(userHeading);
     },
     handleNavigateToCharger,
     handleAddWaypoint,

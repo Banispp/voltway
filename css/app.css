@@ -698,17 +698,69 @@ html, body {
   100% { box-shadow: 0 10px 28px rgba(2, 132, 199, 0.75), 0 0 22px rgba(56, 189, 248, 0.6); }
 }
 
-/* Leaflet 360 Map Rotation Compass Control */
+/* Leaflet 360 Map Rotation Compass Control (Normal Mode) */
 .leaflet-top.leaflet-right {
-  top: 145px !important;
+  top: 250px !important;
   right: 14px !important;
   z-index: 1010 !important;
 }
 
 body.nav-active .leaflet-top.leaflet-right {
-  top: calc(140px + env(safe-area-inset-top, 0px)) !important;
-  right: 14px !important;
-  z-index: 1050 !important;
+  display: none !important;
+}
+
+/* Google Maps Style Floating Navigation Compass Button (Drive Mode) */
+.btn-nav-compass {
+  position: fixed;
+  top: calc(140px + env(safe-area-inset-top, 0px));
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1.5px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1080;
+  transition: transform 0.15s, box-shadow 0.2s, border-color 0.2s;
+  touch-action: manipulation;
+  pointer-events: auto !important;
+}
+
+.btn-nav-compass:active {
+  transform: scale(0.92);
+}
+
+.btn-nav-compass.compass-active {
+  border: 2px solid #0284c7;
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.45);
+  background: #f0f9ff;
+}
+
+.nav-compass-dial {
+  width: 28px;
+  height: 28px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-compass-needle {
+  width: 24px;
+  height: 24px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolygon points='12,2 16,12 12,10 8,12' fill='%23ef4444'/%3E%3Cpolygon points='12,22 16,12 12,14 8,12' fill='%2394a3b8'/%3E%3Ccircle cx='12' cy='12' r='2' fill='%23ffffff' stroke='%23334155' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  transition: transform 0.1s linear;
+}
+
+body.nav-active .btn-nav-compass {
+  display: flex !important;
 }
 
 .leaflet-control-rotate {
@@ -3419,10 +3471,7 @@ body.manual-fullscreen .btn-float-gps {
 }
 
 body.nav-active .btn-toggle-map-theme {
-  top: calc(194px + env(safe-area-inset-top, 0px)) !important;
-  right: 14px !important;
-  z-index: 1100 !important;
-  pointer-events: auto !important;
+  display: none !important;
 }
 
 /* --------------------------------------------------------------------------
