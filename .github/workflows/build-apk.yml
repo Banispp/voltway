@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.48-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.49-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.48-release
-          name: "VoltWay 2W Android APK v5.48 (Streamlined Routing, Single Charger Stop & UI Cleanup)"
-          body: "VoltWay 2W v5.48: 1) Completely removed complex return logic, route reversal hacks, and coordinate inversion tricks in favor of clean, standard road routing; 2) Removed charging stop swipe/swap controls (⇅ Swap Stops, reordering controls) for a cleaner UI; 3) Enforced strict single-addition constraint: each charger can only be added once as a stop; 4) Cleaned up map popups, corridor charger cards, and waypoint lists."
+          tag_name: v5.49-release
+          name: "VoltWay 2W Android APK v5.49 (Complete Removal of Round Trip & Return UI)"
+          body: "VoltWay 2W v5.49: 1) Completely removed 'Round Trip' (🔄 Round Trip) button and 'Plan Return Trip' (🔁 Plan Return Trip B ➔ A) banner from the user interface; 2) Clean point-to-point routing with user-specified intermediate stops; 3) Maintained strict single-addition constraint for charging stops and clean UI without swap controls."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:
