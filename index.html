@@ -66,7 +66,7 @@
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action btn-version-pill" title="Clear Cache & Force Refresh">
-          v5.26
+          v5.27
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -144,42 +144,63 @@
       <span class="start-label">Start</span>
     </button>
 
-    <!-- In-App Turn-by-Turn Driving Mode HUD (Google Maps Style) -->
-    <div id="nav-driving-hud" class="nav-driving-hud" style="display: none;">
-      <div class="hud-maneuver-icon-box">
-        <span id="hud-turn-icon" class="hud-turn-icon">↱</span>
-      </div>
-      <div class="hud-instruction-content">
-        <div class="hud-distance-row">
-          <span id="hud-distance-val" class="hud-distance-val">In 350 m</span>
+    <!-- In-App Turn-by-Turn Driving Mode HUD Wrapper (Google Maps Style) -->
+    <div id="nav-driving-hud-wrapper" class="nav-driving-hud-wrapper" style="display: none;">
+      <div id="nav-driving-hud" class="nav-driving-hud">
+        <div class="hud-maneuver-icon-box">
+          <span id="hud-turn-icon" class="hud-turn-icon">↑</span>
         </div>
-        <div id="hud-street-name" class="hud-street-name">Turn right onto NH 66</div>
-        <div id="hud-next-charger-badge" class="hud-next-charger-badge" style="display: none;">
-          ⚡ Next Stop: <span id="hud-next-charger-name">Ather Grid Fast</span> (<span id="hud-next-charger-dist">12 km</span>)
+        <div class="hud-instruction-content">
+          <div class="hud-distance-row">
+            <span id="hud-distance-val" class="hud-distance-val">In 350 m</span>
+          </div>
+          <div id="hud-street-name" class="hud-street-name">towards Main Road</div>
+          <div id="hud-next-charger-badge" class="hud-next-charger-badge" style="display: none;">
+            ⚡ Next Stop: <span id="hud-next-charger-name">Ather Grid Fast</span> (<span id="hud-next-charger-dist">12 km</span>)
+          </div>
         </div>
+        <button type="button" id="btn-hud-sound-toggle" class="btn-hud-sound" title="Toggle audio chime">🔊</button>
       </div>
-      <button type="button" id="btn-hud-sound-toggle" class="btn-hud-sound" title="Toggle audio chime">🔔</button>
+
+      <!-- Google Maps Subsequent Turn Step ("Then ↱") -->
+      <div id="hud-subsequent-step" class="hud-subsequent-step" style="display: none;">
+        <span class="then-badge-label">Then</span>
+        <span id="hud-sub-turn-icon" class="hud-sub-turn-icon">↱</span>
+      </div>
     </div>
 
-    <!-- In-App Driving Mode Bottom Stats Bar -->
+    <!-- Google Maps Live Floating Speedometer (Bottom-Left) -->
+    <div id="nav-speedometer" class="nav-speedometer" style="display: none;">
+      <span id="nav-speed-val" class="nav-speed-val">0</span>
+      <span class="nav-speed-unit">km/h</span>
+    </div>
+
+    <!-- Google Maps Road Name Callout Pill on Map -->
+    <div id="nav-road-pill" class="nav-road-pill" style="display: none;">
+      <span id="nav-road-pill-text">Main Road</span>
+    </div>
+
+    <!-- In-App Driving Mode Bottom Stats Bar (Google Maps Style) -->
     <div id="nav-bottom-bar" class="nav-bottom-bar" style="display: none;">
-      <div class="nav-stat-column">
-        <span class="nav-stat-val" id="nav-stat-eta">--:--</span>
-        <span class="nav-stat-lbl">ETA</span>
+      <div class="nav-bottom-drag-pill"></div>
+      <div class="nav-bottom-content-row">
+        <button type="button" id="btn-exit-drive-mode" class="btn-exit-drive" title="Exit Navigation">
+          ✕
+        </button>
+        <div class="nav-bottom-main-stats">
+          <div class="nav-bottom-duration-row">
+            <span id="nav-stat-time" class="nav-stat-time">-- min</span>
+          </div>
+          <div class="nav-bottom-sub-row">
+            <span id="nav-stat-dist" class="nav-stat-dist">-- km</span>
+            <span class="nav-stat-dot">•</span>
+            <span id="nav-stat-eta" class="nav-stat-eta">--:--</span>
+          </div>
+        </div>
+        <button type="button" id="btn-nav-routes-toggle" class="btn-nav-routes-toggle" title="Route Overview & Alternatives">
+          🔀
+        </button>
       </div>
-      <div class="nav-stat-divider"></div>
-      <div class="nav-stat-column">
-        <span class="nav-stat-val" id="nav-stat-dist">-- km</span>
-        <span class="nav-stat-lbl">Remaining</span>
-      </div>
-      <div class="nav-stat-divider"></div>
-      <div class="nav-stat-column">
-        <span class="nav-stat-val" id="nav-stat-time">-- min</span>
-        <span class="nav-stat-lbl">Duration</span>
-      </div>
-      <button type="button" id="btn-exit-drive-mode" class="btn-exit-drive" title="Exit Drive Mode">
-        <span class="btn-exit-cross">✕</span> Stop
-      </button>
     </div>
 
     <!-- Slide-Up Bottom Sheet Drawer -->
@@ -621,15 +642,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.26"></script>
+  <script src="chargers_db.js?v=5.27"></script>
 
-  <!-- Application Engine Scripts with Version 5.26 Cache Buster -->
-  <script src="js/battery.js?v=5.26"></script>
-  <script src="js/sync.js?v=5.26"></script>
-  <script src="js/navigator.js?v=5.26"></script>
-  <script src="js/router.js?v=5.26"></script>
-  <script src="js/utilities.js?v=5.26"></script>
-  <script src="js/map.js?v=5.26"></script>
-  <script src="js/app.js?v=5.26"></script>
+  <!-- Application Engine Scripts with Version 5.27 Cache Buster -->
+  <script src="js/battery.js?v=5.27"></script>
+  <script src="js/sync.js?v=5.27"></script>
+  <script src="js/navigator.js?v=5.27"></script>
+  <script src="js/router.js?v=5.27"></script>
+  <script src="js/utilities.js?v=5.27"></script>
+  <script src="js/map.js?v=5.27"></script>
+  <script src="js/app.js?v=5.27"></script>
 </body>
 </html>

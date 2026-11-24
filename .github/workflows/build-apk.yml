@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.26-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.27-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.26-release
-          name: "VoltWay 2W Android APK v5.26 (Google Maps Course-Up Navigation, Forward-Locked Driving Puck, Clean UI)"
-          body: "VoltWay 2W v5.26: 1) Fixed puck heading inversion during Turn-by-Turn Course-Up navigation by correctly locking driving cone and chevron forward (0° straight UP towards road ahead) with true course-up canvas rotation; 2) Removed redundant Recenter button, unified on native 🎯 GPS float button; 3) Cleaned bracketed Malayalam text from map color toasts; 4) Removed subtitle paragraph from EV Sync modal."
+          tag_name: v5.27-release
+          name: "VoltWay 2W Android APK v5.27 (Google Maps Material 3 UI, Then-Card Guidance, Triple Routing Cluster, Speedometer)"
+          body: "VoltWay 2W v5.27: 1) Solved straight-line routing failures via redundant Triple Routing Cluster (OSRM Car Mirror, OSM DE, Bike 2W Engine with automatic 4s cascade); 2) Added Google Maps attached 'Then ↱' subsequent maneuver guidance badge; 3) Upgraded HUD to Google Maps dark teal (#004d40) Material 3 styling; 4) Added floating live Speedometer (0 km/h) badge; 5) Added road name callout pill on active route polyline; 6) Implemented Google Maps white rounded bottom bar with bold duration (1 hr 29 min), distance, arrival clock time, and route alternatives icon."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

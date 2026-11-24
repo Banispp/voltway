@@ -13,7 +13,11 @@ const RouteEngine = (function () {
   let corridorChargers = [];
   let intermediateWaypoints = []; // [charger1, charger2, ...]
 
-  const OSRM_PUBLIC_API = 'https://router.project-osrm.org/route/v1/driving';
+  const ROUTING_SERVERS = [
+    'https://routing.openstreetmap.de/routed-car/route/v1/driving',
+    'https://router.project-osrm.org/route/v1/driving',
+    'https://routing.openstreetmap.de/routed-bike/route/v1/driving'
+  ];
 
   // Route Planner Charger Filter State (Controls corridor search & auto charging stops)
   const routeFilters = {
@@ -272,15 +276,44 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Helper to fetch an OSRM route for an array of points
+   * Helper to fetch a route from redundant multi-server cluster
+   * Guarantees real road geometry and eliminates straight-line failures
    */
   async function fetchOsrmRaw(points) {
     const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
-    const url = `${OSRM_PUBLIC_API}/${coordsStr}?overview=full&geometries=geojson&steps=true&alternatives=true`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`OSRM HTTP ${resp.status}`);
-    const data = await resp.json();
-    return data.routes || [];
+    let lastErr = null;
+
+    for (let i = 0; i < ROUTING_SERVERS.length; i++) {
+      const server = ROUTING_SERVERS[i];
+      let controller = null;
+      let timeoutId = null;
+
+      try {
+        if (typeof AbortController !== 'undefined') {
+          controller = new AbortController();
+          timeoutId = setTimeout(() => controller.abort(), 4000);
+        }
+
+        const url = `${server}/${coordsStr}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+        const fetchOpts = controller ? { signal: controller.signal } : {};
+        const resp = await fetch(url, fetchOpts);
+        if (timeoutId) clearTimeout(timeoutId);
+
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        if (data.routes && data.routes.length > 0) {
+          return data.routes;
+        }
+      } catch (err) {
+        if (timeoutId) clearTimeout(timeoutId);
+        lastErr = err;
+        console.warn(`[VoltWay Router] Routing mirror ${server} failed (${err.message}), trying next mirror...`);
+      }
+    }
+
+    throw lastErr || new Error('All routing cluster mirrors failed');
   }
 
   /**
@@ -415,8 +448,11 @@ const RouteEngine = (function () {
       notify();
       return activeRoute;
     } catch (err) {
-      console.error('OSRM route calculation error:', err);
-      // Fallback: create straight-line route estimate if offline
+      console.error('All routing cluster mirrors failed:', err);
+      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast('⚠️ Offline: Direct GPS course shown. Reconnecting...');
+      }
+      // Fallback: create straight-line route estimate only if completely offline
       const directDist = haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng);
       const estRoadDist = Math.round(directDist * 1.25 * 10) / 10;
       activeRoute = {

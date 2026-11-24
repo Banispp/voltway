@@ -1195,11 +1195,15 @@ const DriveEngine = (function () {
     // Enable Google Maps True Fullscreen Navigation Mode
     document.body.classList.add('nav-active');
 
-    // Show HUD and bottom stats bar
-    const hud = document.getElementById('nav-driving-hud');
+    // Show Google Maps HUD wrapper, bottom bar, speedometer, and road pill
+    const hudWrapper = document.getElementById('nav-driving-hud-wrapper');
     const bottomBar = document.getElementById('nav-bottom-bar');
-    if (hud) hud.style.display = 'flex';
+    const speedometer = document.getElementById('nav-speedometer');
+    const roadPill = document.getElementById('nav-road-pill');
+    if (hudWrapper) hudWrapper.style.display = 'flex';
     if (bottomBar) bottomBar.style.display = 'flex';
+    if (speedometer) speedometer.style.display = 'flex';
+    if (roadPill) roadPill.style.display = 'flex';
 
     // Start live auto-follow on map
     if (window.MapEngine) {
@@ -1236,10 +1240,14 @@ const DriveEngine = (function () {
       window.speechSynthesis.cancel();
     }
 
-    const hud = document.getElementById('nav-driving-hud');
+    const hudWrapper = document.getElementById('nav-driving-hud-wrapper');
     const bottomBar = document.getElementById('nav-bottom-bar');
-    if (hud) hud.style.display = 'none';
+    const speedometer = document.getElementById('nav-speedometer');
+    const roadPill = document.getElementById('nav-road-pill');
+    if (hudWrapper) hudWrapper.style.display = 'none';
     if (bottomBar) bottomBar.style.display = 'none';
+    if (speedometer) speedometer.style.display = 'none';
+    if (roadPill) roadPill.style.display = 'none';
 
     if (window.MapEngine) {
       window.MapEngine.setAutoFollow(false);
@@ -1444,13 +1452,35 @@ const DriveEngine = (function () {
       distText = curStep.distance < 1000 ? `In ${Math.round(curStep.distance)} m` : `In ${(curStep.distance / 1000).toFixed(1)} km`;
     }
 
-    // Update Turn Icon & Street
+    // Update Turn Icon & Street (Google Maps Material 3 Design)
     const turnIconEl = document.getElementById('hud-turn-icon');
     const distEl = document.getElementById('hud-distance-val');
     const streetEl = document.getElementById('hud-street-name');
     if (turnIconEl) turnIconEl.textContent = getTurnSymbol(curStep.type, curStep.modifier);
     if (distEl) distEl.textContent = distText;
     if (streetEl) streetEl.textContent = formatManeuverText(curStep);
+
+    // Google Maps Subsequent Step Guidance ("Then ↱")
+    const subCard = document.getElementById('hud-subsequent-step');
+    const subIcon = document.getElementById('hud-sub-turn-icon');
+    if (steps && currentStepIdx < steps.length - 1) {
+      const nextStep = steps[currentStepIdx + 1];
+      if (nextStep && subCard && subIcon) {
+        subIcon.textContent = getTurnSymbol(nextStep.type, nextStep.modifier);
+        subCard.style.display = 'inline-flex';
+      }
+    } else if (subCard) {
+      subCard.style.display = 'none';
+    }
+
+    // Road Name Callout Pill on Map (pinned to road ahead of rider)
+    const roadPillText = document.getElementById('nav-road-pill-text');
+    if (roadPillText) {
+      const curRoad = curStep.name && !curStep.name.toLowerCase().includes('unnamed')
+        ? curStep.name
+        : (activeRoute.roadName || 'Main Road');
+      roadPillText.textContent = curRoad;
+    }
 
     // Upcoming Charger Station Badge
     const nextChargerBadge = document.getElementById('hud-next-charger-badge');
@@ -1474,19 +1504,32 @@ const DriveEngine = (function () {
       nextChargerBadge.style.display = 'none';
     }
 
-    // Bottom Stats (ETA, Distance, Duration)
+    // Google Maps Bottom Stats Bar (ETA Duration, Distance, Clock Arrival Time)
     const etaEl = document.getElementById('nav-stat-eta');
     const distStatEl = document.getElementById('nav-stat-dist');
     const timeStatEl = document.getElementById('nav-stat-time');
 
-    const totalDurationMins = activeRoute.durationMins || 0;
+    const totalDurationMins = Math.max(1, Math.round(activeRoute.durationMins || 0));
+    let timeFormatted = '';
+    if (totalDurationMins >= 60) {
+      const hrs = Math.floor(totalDurationMins / 60);
+      const mins = totalDurationMins % 60;
+      timeFormatted = mins > 0 ? `${hrs} hr ${mins} min` : `${hrs} hr`;
+    } else {
+      timeFormatted = `${totalDurationMins} min`;
+    }
+
     const now = new Date();
     const etaDate = new Date(now.getTime() + totalDurationMins * 60000);
-    const etaStr = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const etaStr = etaDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase();
 
-    if (etaEl) etaEl.textContent = etaStr;
+    if (timeStatEl) {
+      timeStatEl.textContent = timeFormatted;
+      // Google Maps traffic accent coloring: amber for moderate, emerald green for light
+      timeStatEl.style.color = totalDurationMins > 45 ? '#ea580c' : '#00e676';
+    }
     if (distStatEl) distStatEl.textContent = `${activeRoute.distanceKm} km`;
-    if (timeStatEl) timeStatEl.textContent = `${totalDurationMins} min`;
+    if (etaEl) etaEl.textContent = etaStr;
   }
 
   function onLocationUpdate(userCoords) {
@@ -1494,6 +1537,14 @@ const DriveEngine = (function () {
     if (window.MapEngine && typeof window.MapEngine.updateProgressAlongRoute === 'function') {
       window.MapEngine.updateProgressAlongRoute(userCoords);
     }
+
+    // Update Live Speedometer
+    if (userCoords && userCoords.speed != null) {
+      const speedKmH = Math.max(0, Math.round(userCoords.speed * 3.6));
+      const speedValEl = document.getElementById('nav-speed-val');
+      if (speedValEl) speedValEl.textContent = speedKmH;
+    }
+
     updateHudDisplay(userCoords);
   }
 
@@ -2679,6 +2730,19 @@ function setupDriveModeControls() {
   if (btnSound) {
     btnSound.addEventListener('click', () => {
       if (window.DriveEngine) window.DriveEngine.toggleSound();
+    });
+  }
+
+  const btnRoutesToggle = document.getElementById('btn-nav-routes-toggle');
+  if (btnRoutesToggle) {
+    btnRoutesToggle.addEventListener('click', () => {
+      if (window.MapEngine) {
+        const m = window.MapEngine.getMap();
+        const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+        if (m && activeRoute && window.MapEngine.renderRoute) {
+          window.MapEngine.renderRoute(activeRoute, window.RouteEngine.getAllRoutes(), window.RouteEngine.getSelectedRouteIndex(), true);
+        }
+      }
     });
   }
 
