@@ -423,7 +423,7 @@ const RouteEngine = (function () {
   /**
    * Fetch driving route with Multiple Alternative Routes (Google Maps Style)
    */
-  async function calculateRoute(origin, destination, manualWaypoints = null) {
+  async function calculateRoute(origin, destination, manualWaypoints = null, skipAutoSort = false) {
     if (!origin || !destination) {
       throw new Error('Origin and destination are required');
     }
@@ -433,7 +433,11 @@ const RouteEngine = (function () {
     lastSnappedSegmentIndex = 0;
 
     if (manualWaypoints !== null) {
-      intermediateWaypoints = sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
+      if (skipAutoSort) {
+        intermediateWaypoints = [...manualWaypoints];
+      } else {
+        intermediateWaypoints = sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
+      }
     }
 
     const isRoundTrip = origin && destination && haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng) < 0.4;
@@ -467,8 +471,10 @@ const RouteEngine = (function () {
         const outwardStops = intermediateWaypoints.filter(w => w !== turnaroundWp && !w.isReturnStop && !String(w.id).includes('_return_'));
         const returnStops = intermediateWaypoints.filter(w => w !== turnaroundWp && (w.isReturnStop || String(w.id).includes('_return_')));
 
-        outwardStops.sort((a, b) => haversineDistance(origin.lat, origin.lng, a.lat, a.lng) - haversineDistance(origin.lat, origin.lng, b.lat, b.lng));
-        returnStops.sort((a, b) => haversineDistance(origin.lat, origin.lng, b.lat, b.lng) - haversineDistance(origin.lat, origin.lng, a.lat, a.lng));
+        if (!skipAutoSort) {
+          outwardStops.sort((a, b) => haversineDistance(origin.lat, origin.lng, a.lat, a.lng) - haversineDistance(origin.lat, origin.lng, b.lat, b.lng));
+          returnStops.sort((a, b) => haversineDistance(origin.lat, origin.lng, b.lat, b.lng) - haversineDistance(origin.lat, origin.lng, a.lat, a.lng));
+        }
 
         const forwardPoints = [origin, ...outwardStops, turnaroundWp];
         const fwdRoutes = await fetchOsrmRaw(forwardPoints);
@@ -586,7 +592,9 @@ const RouteEngine = (function () {
         const ratio = dOrig / (dOrig + dDest || 1);
         wp.kmFromOrigin = Math.round((ratio * totalDistKm) * 10) / 10;
       });
-      cleanWaypoints.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
+      if (!skipAutoSort) {
+        cleanWaypoints.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
+      }
       intermediateWaypoints = cleanWaypoints;
 
       const synthesizedLegs = [];
@@ -766,7 +774,7 @@ const RouteEngine = (function () {
       findCorridorChargers(activeRoute.coordinates);
 
       // Precompute exact kmFromOrigin for all intermediate waypoints along the route polyline
-      if (intermediateWaypoints.length > 0 && activeRoute.coordinates) {
+      if (!skipAutoSort && intermediateWaypoints.length > 0 && activeRoute.coordinates) {
         intermediateWaypoints = sortWaypointsSequentially(intermediateWaypoints, origin, destination, activeRoute.coordinates);
       }
 
@@ -1195,6 +1203,109 @@ const RouteEngine = (function () {
     }
   }
 
+  /**
+   * Swap two waypoints / charging stops manually and recalculate route
+   */
+  function swapWaypoints(idx1, idx2) {
+    if (!intermediateWaypoints || idx1 < 0 || idx2 < 0 ||
+        idx1 >= intermediateWaypoints.length || idx2 >= intermediateWaypoints.length || idx1 === idx2) return;
+
+    const temp = intermediateWaypoints[idx1];
+    intermediateWaypoints[idx1] = intermediateWaypoints[idx2];
+    intermediateWaypoints[idx2] = temp;
+
+    // Adjust isReturnStop flag on round trips if turnaround waypoint exists
+    const turnaroundIdx = intermediateWaypoints.findIndex(w => String(w.id || '').startsWith('turnaround_'));
+    if (turnaroundIdx !== -1) {
+      intermediateWaypoints.forEach((w, idx) => {
+        if (idx < turnaroundIdx) w.isReturnStop = false;
+        else if (idx > turnaroundIdx) w.isReturnStop = true;
+      });
+    }
+
+    intermediateWaypoints.forEach(w => {
+      delete w.kmFromOrigin;
+    });
+
+    if (activeRoute) {
+      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true);
+    } else {
+      notify();
+    }
+
+    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+      window.SyncEngine.showAutoUpdateToast(`⇅ Swapped Stop #${idx1 + 1} and Stop #${idx2 + 1}`);
+    }
+  }
+
+  /**
+   * Move a waypoint / charging stop from one index to another
+   */
+  function moveWaypoint(fromIdx, toIdx) {
+    if (!intermediateWaypoints || fromIdx < 0 || toIdx < 0 ||
+        fromIdx >= intermediateWaypoints.length || toIdx >= intermediateWaypoints.length || fromIdx === toIdx) return;
+
+    const [moved] = intermediateWaypoints.splice(fromIdx, 1);
+    intermediateWaypoints.splice(toIdx, 0, moved);
+
+    const turnaroundIdx = intermediateWaypoints.findIndex(w => String(w.id || '').startsWith('turnaround_'));
+    if (turnaroundIdx !== -1) {
+      intermediateWaypoints.forEach((w, idx) => {
+        if (idx < turnaroundIdx) w.isReturnStop = false;
+        else if (idx > turnaroundIdx) w.isReturnStop = true;
+      });
+    }
+
+    intermediateWaypoints.forEach(w => {
+      delete w.kmFromOrigin;
+    });
+
+    if (activeRoute) {
+      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true);
+    } else {
+      notify();
+    }
+  }
+
+  /**
+   * Swap a waypoint with its adjacent stop
+   */
+  function swapWaypointWithAdjacent(idx) {
+    if (!intermediateWaypoints || intermediateWaypoints.length < 2) return;
+    const targetIdx = (idx < intermediateWaypoints.length - 1) ? idx + 1 : idx - 1;
+    swapWaypoints(idx, targetIdx);
+  }
+
+  /**
+   * Reverse / Swap all charging stops
+   */
+  function swapAllStops() {
+    if (!intermediateWaypoints || intermediateWaypoints.length < 2) return;
+    intermediateWaypoints.reverse();
+
+    const turnaroundIdx = intermediateWaypoints.findIndex(w => String(w.id || '').startsWith('turnaround_'));
+    if (turnaroundIdx !== -1) {
+      intermediateWaypoints.forEach((w, idx) => {
+        if (idx < turnaroundIdx) w.isReturnStop = false;
+        else if (idx > turnaroundIdx) w.isReturnStop = true;
+      });
+    }
+
+    intermediateWaypoints.forEach(w => {
+      delete w.kmFromOrigin;
+    });
+
+    if (activeRoute) {
+      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true);
+    } else {
+      notify();
+    }
+
+    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+      window.SyncEngine.showAutoUpdateToast('⇅ Charging Stops Swapped');
+    }
+  }
+
   function setRouteFilters(newFilters) {
     Object.assign(routeFilters, newFilters);
     if (activeRoute) {
@@ -1474,6 +1585,10 @@ const RouteEngine = (function () {
     getTimelineMode,
     addWaypoint,
     removeWaypoint,
+    swapWaypoints,
+    moveWaypoint,
+    swapWaypointWithAdjacent,
+    swapAllStops,
     clearRoute,
     setRouteFilters,
     getRouteFilters,

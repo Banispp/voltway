@@ -632,6 +632,7 @@ function renderIntermediateStops() {
         <div class="stop-row-actions">
           ${index > 0 ? `<button type="button" class="btn-stop-ctrl btn-stop-up" title="Move Up">↑</button>` : ''}
           ${index < intermediateCustomStops.length - 1 ? `<button type="button" class="btn-stop-ctrl btn-stop-down" title="Move Down">↓</button>` : ''}
+          ${intermediateCustomStops.length > 1 ? `<button type="button" class="btn-stop-ctrl btn-stop-swap" title="Swap Order">⇅</button>` : ''}
           <button type="button" class="btn-stop-ctrl btn-stop-delete" title="Remove Stop">&times;</button>
         </div>
       </div>
@@ -680,6 +681,18 @@ function renderIntermediateStops() {
         const temp = intermediateCustomStops[index + 1];
         intermediateCustomStops[index + 1] = intermediateCustomStops[index];
         intermediateCustomStops[index] = temp;
+        renderIntermediateStops();
+      });
+    }
+
+    // Swap with next/adjacent stop
+    const btnSwap = row.querySelector('.btn-stop-swap');
+    if (btnSwap) {
+      btnSwap.addEventListener('click', () => {
+        const nextIdx = (index < intermediateCustomStops.length - 1) ? index + 1 : index - 1;
+        const temp = intermediateCustomStops[index];
+        intermediateCustomStops[index] = intermediateCustomStops[nextIdx];
+        intermediateCustomStops[nextIdx] = temp;
         renderIntermediateStops();
       });
     }
@@ -745,48 +758,12 @@ function setupRoutePlanner() {
     });
   }
 
-  // Swap Starting Point & Destination (⇅ Swap)
-  const btnSwapLocations = document.getElementById('btn-swap-locations');
-  if (btnSwapLocations) {
-    btnSwapLocations.addEventListener('click', () => {
-      // If destination is missing but there are intermediate stops, promote the last one first
-      if (!destinationPoint && intermediateCustomStops.length > 0) {
-        const last = intermediateCustomStops.pop();
-        destinationPoint = { lat: last.lat, lng: last.lng, name: last.name };
-        if (destInput) destInput.value = destinationPoint.name;
-        renderIntermediateStops();
-      }
-
-      if (!originPoint || !destinationPoint) {
-        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-          window.SyncEngine.showAutoUpdateToast('⚠️ Enter Starting Point & Destination first');
-        }
-        return;
-      }
-
-      const tempPoint = originPoint;
-      originPoint = destinationPoint;
-      destinationPoint = tempPoint;
-
-      const tempVal = originInput ? originInput.value : '';
-      if (originInput) originInput.value = destInput ? destInput.value : '';
-      if (destInput) destInput.value = tempVal;
-
-      if (intermediateCustomStops && intermediateCustomStops.length > 1) {
-        intermediateCustomStops.reverse();
-        renderIntermediateStops();
-      }
-
-      if (window.RouteEngine) {
-        window.RouteEngine.clearWaypoints();
-      }
-
-      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast('⇅ Starting Point & Destination Swapped');
-      }
-
-      if (btnPlanRoute) {
-        btnPlanRoute.click();
+  // Swap Charging Stops (⇅ Swap Stops)
+  const btnSwapChargingStops = document.getElementById('btn-swap-charging-stops');
+  if (btnSwapChargingStops) {
+    btnSwapChargingStops.addEventListener('click', () => {
+      if (window.RouteEngine && typeof window.RouteEngine.swapAllStops === 'function') {
+        window.RouteEngine.swapAllStops();
       }
     });
   }
@@ -1731,20 +1708,35 @@ function onRouteStateChange(routeState) {
     if (waypoints && waypoints.length > 0) {
       waypointsSection.style.display = 'flex';
       if (waypointsCount) waypointsCount.textContent = waypoints.length;
+
+      const btnSwapStopsHeader = document.getElementById('btn-swap-charging-stops');
+      if (btnSwapStopsHeader) {
+        btnSwapStopsHeader.style.display = waypoints.length >= 2 ? 'inline-flex' : 'none';
+      }
+
       waypointsContainer.innerHTML = waypoints.map((wp, idx) => {
         const letter = String.fromCharCode(66 + idx);
         const isReturn = wp.isReturnStop || (wp.id && String(wp.id).includes('_return_'));
         const badgeLabel = isReturn ? `Stop ${letter} (Return)` : `Stop ${letter}`;
         return `
           <div class="trip-waypoint-item">
-            <span class="trip-waypoint-badge" style="${isReturn ? 'background:#0284c7;color:#fff;' : ''}">${badgeLabel}</span>
-            <span class="trip-waypoint-title">${wp.name}</span>
-            <button class="btn-remove-waypoint" onclick="removeWaypointSync('${wp.id}')" title="Remove Stop">❌</button>
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+              <span class="trip-waypoint-badge" style="${isReturn ? 'background:#0284c7;color:#fff;' : ''}">${badgeLabel}</span>
+              <span class="trip-waypoint-title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${wp.name}</span>
+            </div>
+            <div class="trip-waypoint-actions" style="display: flex; align-items: center; gap: 4px;">
+              ${idx > 0 ? `<button type="button" class="btn-stop-ctrl btn-waypoint-up" onclick="RouteEngine.moveWaypoint(${idx}, ${idx - 1})" title="Move Up">↑</button>` : ''}
+              ${idx < waypoints.length - 1 ? `<button type="button" class="btn-stop-ctrl btn-waypoint-down" onclick="RouteEngine.moveWaypoint(${idx}, ${idx + 1})" title="Move Down">↓</button>` : ''}
+              ${waypoints.length >= 2 ? `<button type="button" class="btn-stop-ctrl btn-waypoint-swap" onclick="RouteEngine.swapWaypointWithAdjacent(${idx})" title="Swap Order">⇅</button>` : ''}
+              <button class="btn-remove-waypoint" onclick="removeWaypointSync('${wp.id}')" title="Remove Stop">❌</button>
+            </div>
           </div>
         `;
       }).join('');
     } else {
       waypointsSection.style.display = 'none';
+      const btnSwapStopsHeader = document.getElementById('btn-swap-charging-stops');
+      if (btnSwapStopsHeader) btnSwapStopsHeader.style.display = 'none';
     }
   }
 

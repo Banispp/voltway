@@ -261,13 +261,10 @@
           <!-- Dynamic Intermediate Custom Stops Container -->
           <div id="intermediate-stops-list" class="intermediate-stops-list"></div>
 
-          <!-- Route Stops Action Bar: Add Stop, Swap & Round Trip -->
+          <!-- Route Stops Action Bar: Add Stop & Round Trip -->
           <div class="route-stops-action-bar">
             <button type="button" id="btn-add-intermediate-stop" class="btn-action-pill btn-pill-add-stop" title="Add intermediate stop / city between start and destination">
               ➕ Add Stop
-            </button>
-            <button type="button" id="btn-swap-locations" class="btn-action-pill btn-pill-swap" title="Swap Starting Point & Destination">
-              ⇅ Swap
             </button>
             <button type="button" id="btn-toggle-roundtrip" class="btn-action-pill btn-pill-roundtrip" title="Plan Complete Round Trip (Start ➔ Destination ➔ Start)">
               🔄 Round Trip
@@ -310,7 +307,12 @@
           <div id="trip-waypoints-section" class="waypoints-summary-section" style="display: none;">
             <div class="section-title">
               <span>📍 Route Stops (<span id="trip-waypoints-count">0</span>)</span>
-              <span style="font-size: 0.72rem; color: var(--color-ather);">Click charger on map to add</span>
+              <div class="section-title-actions" style="display: flex; gap: 6px; align-items: center;">
+                <button type="button" id="btn-swap-charging-stops" class="btn-action-pill btn-pill-swap-stops" style="display: none; padding: 3px 8px; font-size: 0.72rem; height: 26px; border-radius: 4px; background: #0b111e; border: 1.5px solid rgba(168, 85, 247, 0.4); color: #c084fc; font-weight: 700; cursor: pointer;" title="Swap order of charging stops">
+                  ⇅ Swap Stops
+                </button>
+                <span style="font-size: 0.72rem; color: var(--color-ather);">Click charger on map to add</span>
+              </div>
             </div>
             <div id="trip-waypoints-container" class="trip-waypoints-container"></div>
           </div>

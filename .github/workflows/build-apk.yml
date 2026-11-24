@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.46-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.47-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.46-release
-          name: "VoltWay 2W Android APK v5.46 (Restored Swap Button & Zero-Divergence Symmetrical Return Highway)"
-          body: "VoltWay 2W v5.46: 1) Restored '⇅ Swap' button in route action bar to instantly reverse starting point and destination; 2) Solved differing return road issue permanently with Symmetrical Corridor Lock: return journeys and round trips strictly follow the exact same highway coordinates as the outward trip with zero road divergence; 3) Full support for visiting the same charger on both outward (Stop 1) and return (Stop 2) legs with precise progression distances; 4) SessionStorage persistence for outward highway corridor across browser reloads."
+          tag_name: v5.47-release
+          name: "VoltWay 2W Android APK v5.47 (Dedicated Charging Stops Swap & Dynamic Reordering)"
+          body: "VoltWay 2W v5.47: 1) Removed top-level swap button from start/destination bar per user specification; 2) Added dedicated '⇅ Swap Stops' button directly in the Route Stops list to effortlessly swap charging stops back and forth; 3) Added dynamic stop reorder controls (↑ Move Up, ↓ Move Down, ⇅ Swap Order) on each charging stop item; 4) RouteEngine now preserves manual stop sequences with mathematical accuracy on both one-way and symmetrical round trips."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:
