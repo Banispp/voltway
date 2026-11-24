@@ -293,7 +293,7 @@ const MapEngine = (function () {
   /**
    * Prominently Highlighted Charging Stop Pin on the Active Route
    */
-  function createHighlightedStopPinIcon(wp, idx) {
+  function createHighlightedStopPinIcon(wp, idx, customBadgeText = null) {
     const isFast = wp.type === 'FAST' || wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID';
     let brandColor = '#00E676';
     let brandGlow = 'rgba(0, 230, 118, 0.55)';
@@ -324,13 +324,15 @@ const MapEngine = (function () {
       cleanName = cleanName.substring(0, 16) + '…';
     }
 
+    const badgeLabel = customBadgeText || `STOP ${idx + 1}`;
+
     const html = `
       <div class="highlight-stop-container" style="--brand-color: ${brandColor}; --brand-glow: ${brandGlow};">
         <div class="beacon-pulse-ring"></div>
         <div class="beacon-pulse-ring delay"></div>
         <div class="highlight-stop-pin">
           <div class="stop-badge-icon">${isFast ? '⚡' : '🔌'}</div>
-          <span class="stop-badge-text">STOP ${idx + 1}</span>
+          <span class="stop-badge-text">${badgeLabel}</span>
         </div>
         <div class="highlight-stop-label">
           <span class="label-net">${networkTag}</span>
@@ -540,7 +542,7 @@ const MapEngine = (function () {
    * @param {Object} charger Charger data object
    * @param {number|null} stopIndex If this charger is an active route stop (0, 1, ...), provides stop badge
    */
-  function createChargerPopupHtml(charger, stopIndex = null) {
+  function createChargerPopupHtml(charger, stopIndex = null, coLocated = null) {
     const isAther = charger.network === 'ATHER_GRID';
     const isVida = charger.network === 'VIDA_GRID';
     const isFast = charger.type === 'FAST';
@@ -563,7 +565,9 @@ const MapEngine = (function () {
     const estTimeText = isFast ? (chargeTime ? chargeTime.fastTimeFormatted : '~35m') : (chargeTime ? chargeTime.slowTimeFormatted : '~3.5h');
 
     const waypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
-    const isAlreadyWaypoint = stopIndex !== null || waypoints.some(w => w.id === charger.id);
+    const baseId = charger.originalId || charger.id;
+    const matchingStops = waypoints.filter(w => (w.originalId || w.id) === baseId);
+    const stopCount = matchingStops.length;
 
     // Distance to active route if route is planned
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
@@ -580,40 +584,85 @@ const MapEngine = (function () {
 
     const cleanTitle = (isVida ? charger.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : charger.name).replace(/\s*\(Ather Gun.*$/i, '').trim();
 
-    const stopHeaderBadge = stopIndex !== null
-      ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`
-      : `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
+    const isMultiStop = coLocated && coLocated.length > 1;
+    let stopHeaderBadge = `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
 
-    const stopActionButtons = stopIndex !== null ? `
-      <div style="display: flex; gap: 4px; margin-top: 5px;">
-        <button class="btn-popup-waypoint" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${charger.id}')">
-          ❌ Remove
-        </button>
-        <button class="btn-popup-nav" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
-          🗺️ Google Maps
-        </button>
-      </div>
-    ` : `
-      <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
-        <button class="btn-popup-nav btn-direct-inapp-route" style="width: 100%; height: 34px; padding: 6px 10px; font-size: 0.80rem; font-weight: 800; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; border-radius: 8px;" onclick="MapEngine.handleRouteDirectToCharger('${charger.id}')">
-          ⚡ Route Here
-        </button>
-        <div style="display: flex; gap: 4px;">
-          ${isAlreadyWaypoint ? `
-            <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem; background: rgba(255, 61, 113, 0.2); color: #ff3d71; border-color: #ff3d71;" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
-              ❌ Remove
+    if (isMultiStop) {
+      stopHeaderBadge = `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${coLocated.map(s => waypoints.indexOf(s) + 1).join(' & #')}</span>`;
+    } else if (stopIndex !== null) {
+      stopHeaderBadge = `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`;
+    }
+
+    let stopActionButtons = '';
+    if (isMultiStop) {
+      stopActionButtons = `
+        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 5px;">
+          <div style="font-size: 0.70rem; color: #38bdf8; font-weight: 700; margin-bottom: 2px;">
+            🔄 Scheduled for both Outward (Stop #${waypoints.indexOf(coLocated[0]) + 1}) and Return (Stop #${waypoints.indexOf(coLocated[1]) + 1})
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button class="btn-popup-waypoint" style="flex: 1; padding: 5px 6px; font-size: 0.68rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${coLocated[0].id}')">
+              ❌ Remove Stop #${waypoints.indexOf(coLocated[0]) + 1}
             </button>
-          ` : `
-            <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem; font-weight: 800; background: var(--color-ather); color: #052e16;" onclick="MapEngine.handleAddWaypoint('${charger.id}')">
-              ➕ Add Stop
+            <button class="btn-popup-waypoint" style="flex: 1; padding: 5px 6px; font-size: 0.68rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${coLocated[1].id}')">
+              ❌ Remove Stop #${waypoints.indexOf(coLocated[1]) + 1}
             </button>
-          `}
-          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem;" onclick="MapEngine.handleSetAsDest('${charger.id}')">
-            🏁 Destination
+          </div>
+          <button class="btn-popup-nav" style="width: 100%; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
+            🗺️ Google Maps
           </button>
         </div>
-      </div>
-    `;
+      `;
+    } else if (stopIndex !== null) {
+      stopActionButtons = `
+        <div style="display: flex; gap: 4px; margin-top: 5px;">
+          <button class="btn-popup-waypoint" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="RouteEngine.removeWaypoint('${charger.id}')">
+            ❌ Remove Stop #${stopIndex + 1}
+          </button>
+          <button class="btn-popup-nav" style="flex: 1; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
+            🗺️ Google Maps
+          </button>
+        </div>
+      `;
+    } else {
+      let waypointControlHtml = '';
+      if (stopCount === 0) {
+        waypointControlHtml = `
+          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem; font-weight: 800; background: var(--color-ather); color: #052e16;" onclick="MapEngine.handleAddWaypoint('${charger.id}')">
+            ➕ Add Stop
+          </button>
+        `;
+      } else if (stopCount === 1) {
+        waypointControlHtml = `
+          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.68rem; font-weight: 800; background: #0284c7; color: #ffffff;" onclick="MapEngine.handleAddWaypoint('${charger.id}', true)" title="Add as Return Stop">
+            ➕ Add Again (Return)
+          </button>
+          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.68rem; background: rgba(255, 61, 113, 0.2); color: #ff3d71; border-color: #ff3d71;" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
+            ❌ Remove Stop
+          </button>
+        `;
+      } else {
+        waypointControlHtml = `
+          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.68rem; background: rgba(255, 61, 113, 0.2); color: #ff3d71; border-color: #ff3d71;" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
+            ❌ Remove Return Stop
+          </button>
+        `;
+      }
+
+      stopActionButtons = `
+        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
+          <button class="btn-popup-nav btn-direct-inapp-route" style="width: 100%; height: 34px; padding: 6px 10px; font-size: 0.80rem; font-weight: 800; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; border-radius: 8px;" onclick="MapEngine.handleRouteDirectToCharger('${charger.id}')">
+            ⚡ Route Here
+          </button>
+          <div style="display: flex; gap: 4px;">
+            ${waypointControlHtml}
+            <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem;" onclick="MapEngine.handleSetAsDest('${charger.id}')">
+              🏁 Destination
+            </button>
+          </div>
+        </div>
+      `;
+    }
 
     return `
       <div class="popup-card" style="padding: 10px 12px; gap: 5px; max-width: 260px;">
@@ -683,16 +732,17 @@ const MapEngine = (function () {
     }
   }
 
-  function handleAddWaypoint(chargerId) {
+  function handleAddWaypoint(chargerId, isReturn = false) {
     const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
     const c = allChargers.find(item => item.id === chargerId);
     if (c && window.RouteEngine) {
-      window.RouteEngine.addWaypoint(c);
+      window.RouteEngine.addWaypoint(c, isReturn);
       if (map) map.closePopup();
 
-      // Show sleek non-intrusive floating toast on map (WITHOUT popping up the bottom drawer UI)
+      // Show sleek non-intrusive floating toast on map
       if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast(`📍 Added Stop: ${c.name}`);
+        const label = isReturn ? `📍 Added Return Stop: ${c.name}` : `📍 Added Stop: ${c.name}`;
+        window.SyncEngine.showAutoUpdateToast(label);
       }
     }
   }
@@ -919,13 +969,28 @@ const MapEngine = (function () {
 
     // 4. Render Intermediate Highlighted Charging Stops (STOP 1, STOP 2, ...)
     const intermediateStops = activeRoute.waypoints || [];
-    intermediateStops.forEach((wp, idx) => {
-      const stopMarker = L.marker([wp.lat, wp.lng], {
-        icon: createHighlightedStopPinIcon(wp, idx),
-        zIndexOffset: 20000 + idx
-      }).bindPopup(createChargerPopupHtml(wp, idx), { maxWidth: 260, className: 'charger-popup' }).addTo(waypointsLayer);
+    const renderedCoordKeys = new Set();
 
-      waypointMarkersMap.set(wp.id, stopMarker);
+    intermediateStops.forEach((wp, idx) => {
+      const coordKey = `${wp.lat.toFixed(4)},${wp.lng.toFixed(4)}`;
+      if (renderedCoordKeys.has(coordKey)) {
+        return; // Combined marker already rendered for this location
+      }
+      renderedCoordKeys.add(coordKey);
+
+      const coLocated = intermediateStops.filter(s => Math.abs(s.lat - wp.lat) < 0.0003 && Math.abs(s.lng - wp.lng) < 0.0003);
+      const isMulti = coLocated.length > 1;
+      const stopIndices = coLocated.map(s => intermediateStops.indexOf(s));
+      const badgeText = isMulti ? `STOP ${stopIndices.map(i => i + 1).join(' & ')}` : `STOP ${idx + 1}`;
+
+      const stopMarker = L.marker([wp.lat, wp.lng], {
+        icon: createHighlightedStopPinIcon(wp, idx, badgeText),
+        zIndexOffset: 20000 + idx
+      }).bindPopup(createChargerPopupHtml(wp, idx, coLocated), { maxWidth: 280, className: 'charger-popup' }).addTo(waypointsLayer);
+
+      coLocated.forEach(s => {
+        waypointMarkersMap.set(s.id, stopMarker);
+      });
     });
 
     // 5. Render Final Destination Pin

@@ -837,7 +837,6 @@ function setupRoutePlanner() {
       }
 
       if (btnPlanRoute) {
-        if (window.RouteEngine) window.RouteEngine.clearWaypoints();
         btnPlanRoute.click();
       }
     });
@@ -1729,9 +1728,11 @@ function onRouteStateChange(routeState) {
       if (waypointsCount) waypointsCount.textContent = waypoints.length;
       waypointsContainer.innerHTML = waypoints.map((wp, idx) => {
         const letter = String.fromCharCode(66 + idx);
+        const isReturn = wp.isReturnStop || (wp.id && String(wp.id).includes('_return_'));
+        const badgeLabel = isReturn ? `Stop ${letter} (Return)` : `Stop ${letter}`;
         return `
           <div class="trip-waypoint-item">
-            <span class="trip-waypoint-badge">Stop ${letter}</span>
+            <span class="trip-waypoint-badge" style="${isReturn ? 'background:#0284c7;color:#fff;' : ''}">${badgeLabel}</span>
             <span class="trip-waypoint-title">${wp.name}</span>
             <button class="btn-remove-waypoint" onclick="removeWaypointSync('${wp.id}')" title="Remove Stop">❌</button>
           </div>

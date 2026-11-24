@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.42-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.43-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.42-release
-          name: "VoltWay 2W Android APK v5.42 (Uniform Signature Route Line & Seamless Stop Removal)"
-          body: "VoltWay 2W v5.42: 1) Uniform Signature Route Line: Restored the clean, signature Neon Blue with Emerald Green glow across the entire trip (removed separate orange coloring for a clean aesthetic); 2) Seamless Stop Removal: Fixed route cut-off bug when clicking REMOVE STOP by clearing stale waypoint distance caches and smoothly recalculating the complete route."
+          tag_name: v5.43-release
+          name: "VoltWay 2W Android APK v5.43 (Same Charger Multi-Stop, Strict Return Corridor & Clean Removal)"
+          body: "VoltWay 2W v5.43: 1) Same Charger Outward & Return Stops: EV riders can now schedule the exact same charging station for both outward (Stop 1) and return (Stop 2) journeys on round trips, with unified marker badges (STOP 1 & 2) and independent removal; 2) Clean Stop Removal: Removing a charger stop immediately recalculates the route without auto-injecting unwanted chargers, leaving the rider free to manually select their preferred station; 3) Strict Corridor Lock: Return trips and round trips strictly follow the exact same highway corridor without diverging onto alternate roads or bypasses."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:
