@@ -557,7 +557,7 @@ html, body {
 /* Floating Map Theme Switcher Button (Dark Mode / Normal Daylight Map) */
 .btn-toggle-map-theme {
   position: fixed;
-  top: 185px;
+  top: 208px;
   right: 14px;
   width: 44px;
   height: 44px;
@@ -632,7 +632,7 @@ html, body {
 /* Floating Fullscreen Map Button */
 .btn-toggle-fullscreen {
   position: fixed;
-  top: 135px;
+  top: 155px;
   right: 14px;
   width: 44px;
   height: 44px;

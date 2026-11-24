@@ -96,6 +96,67 @@ const RouteEngine = (function () {
     return minDistance === Infinity ? null : Math.round(minDistance * 10) / 10;
   }
 
+  /**
+   * Slices active route at rider's current position for real-time traversed route trimming & road matching.
+   * Returns:
+   * - remainingCoords: array of [lat, lng] from snapped position forward to destination.
+   * - traversedCoords: array of [lat, lng] from start up to snapped position.
+   * - snappedPoint: [lat, lng] projected onto centerline of closest road segment.
+   * - distanceFromRouteKm: perpendicular distance to road segment (km).
+   * - segmentBearing: forward heading of current road segment (0-360 deg).
+   * - closestSegmentIndex: index of current segment.
+   */
+  function sliceActiveRouteAtPosition(lat, lng) {
+    if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
+      return null;
+    }
+    const coords = activeRoute.coordinates;
+    const p = [lat, lng];
+    let minDistance = Infinity;
+    let closestIndex = 0;
+    let closestT = 0;
+
+    for (let s = 0; s < coords.length - 1; s++) {
+      const res = distToSegment(p, coords[s], coords[s + 1]);
+      if (res.distance < minDistance) {
+        minDistance = res.distance;
+        closestIndex = s;
+        closestT = res.t;
+      }
+      if (minDistance <= 0.008) break; // Within 8 meters of road: fast exit
+    }
+
+    const v = coords[closestIndex];
+    const w = coords[closestIndex + 1];
+    const snappedLat = v[0] + closestT * (w[0] - v[0]);
+    const snappedLng = v[1] + closestT * (w[1] - v[1]);
+    const snappedPoint = [snappedLat, snappedLng];
+
+    // Calculate segment forward bearing (direction of travel along the street)
+    const dLat = (w[0] - v[0]) * Math.PI / 180;
+    const dLng = (w[1] - v[1]) * Math.PI / 180;
+    const lat1 = v[0] * Math.PI / 180;
+    const lat2 = w[0] * Math.PI / 180;
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    const segmentBearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+    // Remaining coordinates forward to destination (starting from snapped rider position)
+    const remainingCoords = [snappedPoint, ...coords.slice(closestIndex + 1)];
+
+    // Traversed coordinates behind rider (starting from origin up to snapped rider position)
+    const traversedCoords = [...coords.slice(0, closestIndex + 1), snappedPoint];
+
+    return {
+      remainingCoords,
+      traversedCoords,
+      snappedPoint,
+      distanceFromRouteKm: minDistance,
+      segmentBearing,
+      closestSegmentIndex: closestIndex
+    };
+  }
+
   function setTimelineMode(mode) {
     if (mode === 'optimal' || mode === 'target') {
       currentTimelineMode = mode;
@@ -987,6 +1048,7 @@ const RouteEngine = (function () {
     setCorridorBufferKm,
     getCorridorBufferKm,
     getDistanceToActiveRoute,
+    sliceActiveRouteAtPosition,
     subscribe,
     getActiveRoute: () => activeRoute,
     getAllRoutes: () => allRoutes,

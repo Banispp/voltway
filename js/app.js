@@ -903,6 +903,8 @@ const DriveEngine = (function () {
   let lastChimeStepIdx = -1;
   let offRouteCount = 0;
   let isRecalculating = false;
+  let lastUturnAnnouncedTime = 0;
+  let lastRerouteAnnouncedTime = 0;
   let voices = [];
   let audioCtx = null;
 
@@ -1280,18 +1282,48 @@ const DriveEngine = (function () {
   }
 
   async function checkOffRouteAndRecalculate(userCoords, activeRoute) {
-    if (isRecalculating || !userCoords || !activeRoute || !window.RouteEngine || !window.RouteEngine.getDistanceToActiveRoute) return;
-    const distFromRouteKm = window.RouteEngine.getDistanceToActiveRoute(userCoords.lat, userCoords.lng);
-    if (distFromRouteKm != null && distFromRouteKm > 0.08) {
+    if (isRecalculating || !userCoords || !activeRoute || !window.RouteEngine) return;
+
+    const slice = (typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function')
+      ? window.RouteEngine.sliceActiveRouteAtPosition(userCoords.lat, userCoords.lng)
+      : null;
+
+    const distFromRouteKm = slice ? slice.distanceFromRouteKm :
+      (window.RouteEngine.getDistanceToActiveRoute ? window.RouteEngine.getDistanceToActiveRoute(userCoords.lat, userCoords.lng) : null);
+
+    if (distFromRouteKm == null) return;
+
+    const now = Date.now();
+
+    // 1. Heading check for U-Turn:
+    // If rider is traveling in reverse / opposite direction on route segment (difference > 135°)
+    if (slice && userCoords.heading != null && userCoords.speed != null && userCoords.speed > 1.2) {
+      let hDiff = Math.abs((userCoords.heading - slice.segmentBearing + 180) % 360 - 180);
+      if (hDiff > 135) {
+        if (now - lastUturnAnnouncedTime > 15000) { // 15-second throttle
+          lastUturnAnnouncedTime = now;
+          playChime('turn');
+          speakVoice('Make a U-turn when possible', true);
+        }
+      }
+    }
+
+    // 2. Off-Route Deviation Check (> 45 meters / 0.045 km)
+    if (distFromRouteKm > 0.045) {
       offRouteCount++;
-      if (offRouteCount >= 3) {
+      if (offRouteCount >= 2) {
         offRouteCount = 0;
         isRecalculating = true;
-        speakVoice('Off route. Recalculating route...', true);
-        playChime('turn');
+        if (now - lastRerouteAnnouncedTime > 12000) {
+          lastRerouteAnnouncedTime = now;
+          speakVoice('Rerouting...', true);
+          playChime('turn');
+        }
         try {
+          // Preserve remaining intermediate charging stops
+          const currentWaypoints = window.RouteEngine.getWaypoints ? window.RouteEngine.getWaypoints() : (activeRoute.waypoints || []);
           const originPoint = { lat: userCoords.lat, lng: userCoords.lng, name: 'Current Position' };
-          const newRoute = await window.RouteEngine.calculateRoute(originPoint, activeRoute.destination, activeRoute.waypoints);
+          const newRoute = await window.RouteEngine.calculateRoute(originPoint, activeRoute.destination, currentWaypoints);
           steps = [];
           (newRoute.legs || []).forEach(leg => {
             (leg.steps || []).forEach(s => {
@@ -1308,7 +1340,7 @@ const DriveEngine = (function () {
           });
           currentStepIdx = steps.length > 1 && steps[0].type === 'depart' ? 1 : 0;
           lastStepIdx = -1;
-          speakVoice('Route recalculated.', true);
+          speakVoice('New route found', true);
         } catch (err) {
           console.warn('[VoltWay Nav] Auto recalculation note:', err);
         } finally {
@@ -1461,6 +1493,9 @@ const DriveEngine = (function () {
 
   function onLocationUpdate(userCoords) {
     if (!active) return;
+    if (window.MapEngine && typeof window.MapEngine.updateProgressAlongRoute === 'function') {
+      window.MapEngine.updateProgressAlongRoute(userCoords);
+    }
     updateHudDisplay(userCoords);
   }
 

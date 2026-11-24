@@ -1,21 +1,21 @@
-// VoltWay 2W Service Worker - Version 5.23 (360° Continuous Heading, 90° Upright Stabilization, Zero-Jitter Puck Alignment)
+// VoltWay 2W Service Worker - Version 5.24 (Google Maps Navigation Parity: Traversed Route Trimming, Road Snapping, Off-Route U-Turn Rerouting, Forward Lookahead Camera)
 // Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v5-23-fresh';
+const CACHE_NAME = 'voltway-2w-v5-24-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css?v=5.23',
-  './js/leaflet-rotate.js?v=5.23',
-  './js/app.js?v=5.23',
-  './js/map.js?v=5.23',
-  './js/router.js?v=5.23',
-  './js/battery.js?v=5.23',
-  './js/navigator.js?v=5.23',
-  './js/sync.js?v=5.23',
-  './js/utilities.js?v=5.23',
-  './chargers_db.js?v=5.23',
+  './css/app.css?v=5.24',
+  './js/leaflet-rotate.js?v=5.24',
+  './js/app.js?v=5.24',
+  './js/map.js?v=5.24',
+  './js/router.js?v=5.24',
+  './js/battery.js?v=5.24',
+  './js/navigator.js?v=5.24',
+  './js/sync.js?v=5.24',
+  './js/utilities.js?v=5.24',
+  './chargers_db.js?v=5.24',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -28,7 +28,7 @@ const ASSETS_TO_CACHE = [
 
 // Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
-  console.log('[VoltWay SW] Installing fresh v5.23 service worker...');
+  console.log('[VoltWay SW] Installing fresh v5.24 service worker...');
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {

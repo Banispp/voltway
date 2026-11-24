@@ -20,10 +20,10 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <!-- Leaflet 360 Full Map Rotation & Touch Gestures Plugin -->
-  <script src="js/leaflet-rotate.js?v=5.23"></script>
+  <script src="js/leaflet-rotate.js?v=5.24"></script>
 
   <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=5.23">
+  <link rel="stylesheet" href="css/app.css?v=5.24">
 
   <!-- Immediate Cache Eviction for Stale Service Worker Data -->
   <script>
@@ -31,7 +31,7 @@
       if ('caches' in window) {
         caches.keys().then(function(names) {
           names.forEach(function(name) {
-            if (name !== 'voltway-2w-v5-23-fresh') {
+            if (name !== 'voltway-2w-v5-24-fresh') {
               caches.delete(name);
             }
           });
@@ -66,7 +66,7 @@
           🚨 SOS
         </button>
         <button id="btn-force-refresh" class="btn-header-action btn-version-pill" title="Clear Cache & Force Refresh">
-          v5.23
+          v5.24
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
           📲 Install App
@@ -235,14 +235,6 @@
             </div>
           </div>
 
-          <!-- Map Style Option: Dark Google Map vs Normal Regular Map -->
-          <div class="map-theme-segmented-bar" style="display: flex; gap: 8px; margin: 2px 0 10px; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 6px 12px;">
-            <span style="font-size: 0.8rem; font-weight: 700; color: #94a3b8; display: flex; align-items: center; gap: 5px;">🗺️ Map Color:</span>
-            <div style="display: flex; gap: 6px;">
-              <button type="button" id="btn-theme-dark-opt" class="theme-opt-btn active" onclick="MapEngine.setTileTheme('dark')" style="padding: 5px 12px; border-radius: 7px; font-size: 0.78rem; font-weight: 800; border: none; cursor: pointer; background: #0284c7; color: #ffffff; transition: all 0.15s ease;">🌙 Dark Map</button>
-              <button type="button" id="btn-theme-normal-opt" class="theme-opt-btn" onclick="MapEngine.setTileTheme('daylight')" style="padding: 5px 12px; border-radius: 7px; font-size: 0.78rem; font-weight: 800; border: none; cursor: pointer; background: rgba(255, 255, 255, 0.08); color: #cbd5e1; transition: all 0.15s ease;">☀️ Normal (സാധാ)</button>
-            </div>
-          </div>
 
           <!-- Origin & Destination Inputs with Autocomplete -->
           <div class="input-group">
@@ -638,15 +630,15 @@
   </div>
 
   <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.23"></script>
+  <script src="chargers_db.js?v=5.24"></script>
 
-  <!-- Application Engine Scripts with Version 5.23 Cache Buster -->
-  <script src="js/battery.js?v=5.23"></script>
-  <script src="js/sync.js?v=5.23"></script>
-  <script src="js/navigator.js?v=5.23"></script>
-  <script src="js/router.js?v=5.23"></script>
-  <script src="js/utilities.js?v=5.23"></script>
-  <script src="js/map.js?v=5.23"></script>
-  <script src="js/app.js?v=5.23"></script>
+  <!-- Application Engine Scripts with Version 5.24 Cache Buster -->
+  <script src="js/battery.js?v=5.24"></script>
+  <script src="js/sync.js?v=5.24"></script>
+  <script src="js/navigator.js?v=5.24"></script>
+  <script src="js/router.js?v=5.24"></script>
+  <script src="js/utilities.js?v=5.24"></script>
+  <script src="js/map.js?v=5.24"></script>
+  <script src="js/app.js?v=5.24"></script>
 </body>
 </html>

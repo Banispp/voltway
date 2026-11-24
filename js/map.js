@@ -17,6 +17,9 @@ const MapEngine = (function () {
   let bufferRangeCircle = null;
   let userLocationMarker = null;
   let userAccuracyCircle = null;
+  let activeMainLine = null;
+  let activeGlowLine = null;
+  let recenterTimer = null;
 
   // Live GPS tracking state (Google Maps style moving puck & auto-follow)
   let watchId = null;
@@ -103,6 +106,17 @@ const MapEngine = (function () {
       isAutoFollow = false;
       isCompassMode = false;
       updateGpsButtonUi();
+
+      if (window.DriveEngine && window.DriveEngine.isActive()) {
+        const recenterBtn = document.getElementById('btn-recenter-nav');
+        if (recenterBtn) recenterBtn.style.display = 'flex';
+
+        // Auto recenter after 6 seconds of touch inactivity (Google Maps behavior)
+        if (recenterTimer) clearTimeout(recenterTimer);
+        recenterTimer = setTimeout(() => {
+          recenterCamera();
+        }, 6000);
+      }
     });
     map.on('rotate', () => {
       if (map && typeof map.getBearing === 'function') {
@@ -120,6 +134,9 @@ const MapEngine = (function () {
     initCompass();
     locateUser(false);
 
+    const recenterEl = document.getElementById('btn-recenter-nav');
+    if (recenterEl) recenterEl.addEventListener('click', recenterCamera);
+
     return map;
   }
 
@@ -132,8 +149,6 @@ const MapEngine = (function () {
     const mapEl = document.getElementById(mapContainerId) || document.getElementById('map');
     const themeBtnIcon = document.getElementById('theme-btn-icon');
     const themeBtn = document.getElementById('btn-toggle-map-theme');
-    const darkOptBtn = document.getElementById('btn-theme-dark-opt');
-    const normalOptBtn = document.getElementById('btn-theme-normal-opt');
 
     if (theme === 'dark') {
       if (mapEl) mapEl.classList.add('map-dark-mode');
@@ -142,32 +157,12 @@ const MapEngine = (function () {
         themeBtn.setAttribute('title', 'Switch to Normal Map (സാധാ മാപ്പ്)');
         themeBtn.style.color = '#fbbf24';
       }
-      if (darkOptBtn) {
-        darkOptBtn.classList.add('active');
-        darkOptBtn.style.background = '#0284c7';
-        darkOptBtn.style.color = '#ffffff';
-      }
-      if (normalOptBtn) {
-        normalOptBtn.classList.remove('active');
-        normalOptBtn.style.background = 'rgba(255, 255, 255, 0.08)';
-        normalOptBtn.style.color = '#cbd5e1';
-      }
     } else {
       if (mapEl) mapEl.classList.remove('map-dark-mode');
       if (themeBtnIcon) themeBtnIcon.textContent = '🌙';
       if (themeBtn) {
         themeBtn.setAttribute('title', 'Switch to Dark Google Map (ഡാർക്ക് മാപ്പ്)');
         themeBtn.style.color = '#38bdf8';
-      }
-      if (darkOptBtn) {
-        darkOptBtn.classList.remove('active');
-        darkOptBtn.style.background = 'rgba(255, 255, 255, 0.08)';
-        darkOptBtn.style.color = '#cbd5e1';
-      }
-      if (normalOptBtn) {
-        normalOptBtn.classList.add('active');
-        normalOptBtn.style.background = '#0284c7';
-        normalOptBtn.style.color = '#ffffff';
       }
     }
 
@@ -858,6 +853,8 @@ const MapEngine = (function () {
 
     routeLayer.clearLayers();
     waypointsLayer.clearLayers();
+    activeMainLine = null;
+    activeGlowLine = null;
 
     if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
       return;
@@ -899,7 +896,7 @@ const MapEngine = (function () {
     });
 
     // 2. Render Active Selected Route (Glowing Neon Blue/Green)
-    const glowLine = L.polyline(activeRoute.coordinates, {
+    activeGlowLine = L.polyline(activeRoute.coordinates, {
       color: '#00E676',
       weight: 10,
       opacity: 0.45,
@@ -907,7 +904,7 @@ const MapEngine = (function () {
       lineJoin: 'round'
     }).addTo(routeLayer);
 
-    const mainLine = L.polyline(activeRoute.coordinates, {
+    activeMainLine = L.polyline(activeRoute.coordinates, {
       color: '#00B0FF',
       weight: 6,
       opacity: 0.98,
@@ -966,13 +963,35 @@ const MapEngine = (function () {
   }
 
   /**
+   * Real-time dynamic route trimming (Google Maps behavior)
+   * Trims traversed road behind the rider, leaving only the active path ahead.
+   */
+  function updateProgressAlongRoute(userCoords) {
+    if (!userCoords || !activeMainLine) return null;
+    if (!window.RouteEngine || typeof window.RouteEngine.sliceActiveRouteAtPosition !== 'function') return null;
+
+    const slice = window.RouteEngine.sliceActiveRouteAtPosition(userCoords.lat, userCoords.lng);
+    if (!slice) return null;
+
+    // If within 50m of route, dynamically update remaining road line
+    if (slice.distanceFromRouteKm <= 0.050 && slice.remainingCoords && slice.remainingCoords.length >= 2) {
+      activeMainLine.setLatLngs(slice.remainingCoords);
+      if (activeGlowLine) {
+        activeGlowLine.setLatLngs(slice.remainingCoords);
+      }
+      return slice.snappedPoint;
+    }
+    return null;
+  }
+
+  /**
    * Google Maps Style Live Navigation Puck & 360° Real-Time Map Rotation:
    * Smooth animated dot with directional heading cone, pulsing accuracy halo,
    * deadband hysteresis to eliminate stationary jitter, decoupled 60fps RAF bearing animation,
    * and 3D gimbal-lock free compass compensation across all orientations (flat, upright, landscape).
    */
   let compassListenerAttached = false;
-  let isCompassMode = true; // Auto-rotate map with mobile phone orientation by default
+  let isCompassMode = false; // Default North-Up when browsing / standing still (Map does NOT spin)
   let targetBearing = 0;
   let currentRenderedBearing = 0;
   let bearingRafId = null;
@@ -1059,7 +1078,9 @@ const MapEngine = (function () {
         updatePuckHeading(userHeading);
 
         // 3. SMOOTH MAP ROTATION (RAF throttled, decoupled from sensor events)
-        if (isCompassMode || isAutoFollow || (window.DriveEngine && window.DriveEngine.isActive())) {
+        // In real Google Maps, map canvas ONLY rotates when Turn-by-Turn Navigation is ACTIVE and following rider!
+        // When stationary / browsing, map stays steady North-Up while only the puck light cone turns.
+        if (window.DriveEngine && window.DriveEngine.isActive() && isAutoFollow) {
           targetBearing = userHeading;
           scheduleBearingAnimation();
         }
@@ -1098,6 +1119,19 @@ const MapEngine = (function () {
   function updateUserPuck(lat, lng, accuracy = 15, heading = 0) {
     if (!map) return;
 
+    let renderLat = lat;
+    let renderLng = lng;
+
+    // Road Snapping Logic (Map Matching / Snapping to Road)
+    // Snaps rider puck directly to centerline of road segment when in Drive Mode and within 40m
+    if (window.DriveEngine && window.DriveEngine.isActive() && window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
+      const slice = window.RouteEngine.sliceActiveRouteAtPosition(lat, lng);
+      if (slice && slice.distanceFromRouteKm <= 0.040 && slice.snappedPoint) {
+        renderLat = slice.snappedPoint[0];
+        renderLng = slice.snappedPoint[1];
+      }
+    }
+
     const rotDeg = Math.round(heading || 0);
 
     if (!userLocationMarker) {
@@ -1120,20 +1154,20 @@ const MapEngine = (function () {
         iconAnchor: [22, 22]
       });
 
-      userLocationMarker = L.marker([lat, lng], {
+      userLocationMarker = L.marker([renderLat, renderLng], {
         icon: puckIcon,
         zIndexOffset: 30000
       }).addTo(map);
       updatePuckHeading(heading);
     } else {
-      userLocationMarker.setLatLng([lat, lng]);
+      userLocationMarker.setLatLng([renderLat, renderLng]);
       updatePuckHeading(heading);
     }
 
     // Accuracy Circle
     const safeRadius = Math.max(8, Math.min(accuracy || 20, 150));
     if (!userAccuracyCircle) {
-      userAccuracyCircle = L.circle([lat, lng], {
+      userAccuracyCircle = L.circle([renderLat, renderLng], {
         radius: safeRadius,
         color: '#38bdf8',
         weight: 1.5,
@@ -1142,11 +1176,11 @@ const MapEngine = (function () {
         interactive: false
       }).addTo(map);
     } else {
-      userAccuracyCircle.setLatLng([lat, lng]);
+      userAccuracyCircle.setLatLng([renderLat, renderLng]);
       userAccuracyCircle.setRadius(safeRadius);
     }
 
-    updateSafeRangeOverlay({ lat, lng });
+    updateSafeRangeOverlay({ lat: renderLat, lng: renderLng });
   }
 
   function updateGpsButtonUi() {
@@ -1209,11 +1243,22 @@ const MapEngine = (function () {
       updateUserPuck(lat, lng, accuracy, userHeading);
 
       if (isAutoFollow && map) {
-        if (window.DriveEngine && window.DriveEngine.isActive() && typeof map.setBearing === 'function' && userHeading != null) {
-          targetBearing = userHeading;
-          scheduleBearingAnimation();
+        if (window.DriveEngine && window.DriveEngine.isActive()) {
+          // Driving Mode: Course-Up bearing & Forward-Biased Camera Lookahead
+          if (typeof map.setBearing === 'function' && userHeading != null) {
+            targetBearing = userHeading;
+            scheduleBearingAnimation();
+          }
+          // Shift camera ~60m forward along userHeading so puck is in lower 30% of screen
+          const lookaheadKm = 0.06;
+          const rad = (userHeading || 0) * Math.PI / 180;
+          const lookLat = lat + (lookaheadKm / 111.32) * Math.cos(rad);
+          const lookLng = lng + (lookaheadKm / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(rad);
+          map.panTo([lookLat, lookLng], { animate: true, duration: 0.6 });
+        } else {
+          // Stationary / Browsing Mode: Stable North-Up center (Map does NOT spin)
+          map.panTo([lat, lng], { animate: true, duration: 0.6 });
         }
-        map.panTo([lat, lng], { animate: true, duration: 0.6 });
       }
 
       updateGpsButtonUi();
@@ -1243,6 +1288,37 @@ const MapEngine = (function () {
     }
   }
 
+  function recenterCamera() {
+    if (recenterTimer) {
+      clearTimeout(recenterTimer);
+      recenterTimer = null;
+    }
+    isAutoFollow = true;
+    const recenterBtn = document.getElementById('btn-recenter-nav');
+    if (recenterBtn) recenterBtn.style.display = 'none';
+
+    if (userCoords && map) {
+      if (window.DriveEngine && window.DriveEngine.isActive()) {
+        const lookaheadKm = 0.06;
+        const rad = (userHeading || 0) * Math.PI / 180;
+        const lookLat = userCoords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
+        const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
+        map.setView([lookLat, lookLng], 17, { animate: true });
+        if (typeof map.setBearing === 'function' && userHeading != null) {
+          targetBearing = userHeading;
+          scheduleBearingAnimation();
+        }
+      } else {
+        map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
+        if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
+          targetBearing = 0;
+          scheduleBearingAnimation();
+        }
+      }
+    }
+    updateGpsButtonUi();
+  }
+
   function isAutoFollowActive() {
     return isAutoFollow;
   }
@@ -1250,17 +1326,29 @@ const MapEngine = (function () {
   async function locateUser(panTo = true) {
     if (panTo) {
       isAutoFollow = true;
-      isCompassMode = true;
+      isCompassMode = false; // Default North-Up when browsing / standing still
     }
 
     startLiveTracking(panTo);
 
     // If we already have live coordinates, pan smoothly
     if (userCoords && panTo && map) {
-      map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
-      if (typeof map.setBearing === 'function' && userHeading != null) {
-        targetBearing = userHeading;
-        scheduleBearingAnimation();
+      if (window.DriveEngine && window.DriveEngine.isActive()) {
+        const lookaheadKm = 0.06;
+        const rad = (userHeading || 0) * Math.PI / 180;
+        const lookLat = userCoords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
+        const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
+        map.setView([lookLat, lookLng], 17, { animate: true });
+        if (typeof map.setBearing === 'function' && userHeading != null) {
+          targetBearing = userHeading;
+          scheduleBearingAnimation();
+        }
+      } else {
+        map.setView([userCoords.lat, userCoords.lng], 16, { animate: true });
+        if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
+          targetBearing = 0;
+          scheduleBearingAnimation();
+        }
       }
       updateGpsButtonUi();
       return userCoords;
@@ -1308,7 +1396,15 @@ const MapEngine = (function () {
       updateUserPuck(coords.lat, coords.lng, 15, userHeading);
 
       if (panTo && map) {
-        map.setView([coords.lat, coords.lng], 16, { animate: true });
+        if (window.DriveEngine && window.DriveEngine.isActive()) {
+          const lookaheadKm = 0.06;
+          const rad = (userHeading || 0) * Math.PI / 180;
+          const lookLat = coords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
+          const lookLng = coords.lng + (lookaheadKm / (111.32 * Math.cos(coords.lat * Math.PI / 180))) * Math.sin(rad);
+          map.setView([lookLat, lookLng], 17, { animate: true });
+        } else {
+          map.setView([coords.lat, coords.lng], 16, { animate: true });
+        }
       }
 
       updateGpsButtonUi();
@@ -1412,6 +1508,8 @@ const MapEngine = (function () {
     getStateFilter,
     updateSafeRangeOverlay,
     renderRoute,
+    updateProgressAlongRoute,
+    recenterCamera,
     locateUser,
     startLiveTracking,
     setAutoFollow,
