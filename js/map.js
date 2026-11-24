@@ -86,7 +86,11 @@ const MapEngine = (function () {
       .addAttribution('&copy; <a href="https://openstreetmap.org" target="_blank">OSM</a> | VoltWay 2W')
       .addTo(map);
 
-    setTileTheme('dark');
+    let initialTheme = 'dark';
+    try {
+      initialTheme = localStorage.getItem('voltway_map_theme') || 'dark';
+    } catch (e) {}
+    setTileTheme(initialTheme);
 
     markersLayer = L.layerGroup().addTo(map);
     routeLayer = L.layerGroup().addTo(map);
@@ -125,26 +129,69 @@ const MapEngine = (function () {
 
   function setTileTheme(theme = 'dark') {
     currentTileTheme = theme;
+    try {
+      localStorage.setItem('voltway_map_theme', theme);
+    } catch (e) {}
+
     const mapEl = document.getElementById(mapContainerId) || document.getElementById('map');
-    if (tileLayer) map.removeLayer(tileLayer);
+    const themeBtnIcon = document.getElementById('theme-btn-icon');
+    const themeBtn = document.getElementById('btn-toggle-map-theme');
+    const darkOptBtn = document.getElementById('btn-theme-dark-opt');
+    const normalOptBtn = document.getElementById('btn-theme-normal-opt');
 
     if (theme === 'dark') {
       if (mapEl) mapEl.classList.add('map-dark-mode');
+      if (themeBtnIcon) themeBtnIcon.textContent = '☀️';
+      if (themeBtn) {
+        themeBtn.setAttribute('title', 'Switch to Normal Map (സാധാ മാപ്പ്)');
+        themeBtn.style.color = '#fbbf24';
+      }
+      if (darkOptBtn) {
+        darkOptBtn.classList.add('active');
+        darkOptBtn.style.background = '#0284c7';
+        darkOptBtn.style.color = '#ffffff';
+      }
+      if (normalOptBtn) {
+        normalOptBtn.classList.remove('active');
+        normalOptBtn.style.background = 'rgba(255, 255, 255, 0.08)';
+        normalOptBtn.style.color = '#cbd5e1';
+      }
     } else {
       if (mapEl) mapEl.classList.remove('map-dark-mode');
+      if (themeBtnIcon) themeBtnIcon.textContent = '🌙';
+      if (themeBtn) {
+        themeBtn.setAttribute('title', 'Switch to Dark Google Map (ഡാർക്ക് മാപ്പ്)');
+        themeBtn.style.color = '#38bdf8';
+      }
+      if (darkOptBtn) {
+        darkOptBtn.classList.remove('active');
+        darkOptBtn.style.background = 'rgba(255, 255, 255, 0.08)';
+        darkOptBtn.style.color = '#cbd5e1';
+      }
+      if (normalOptBtn) {
+        normalOptBtn.classList.add('active');
+        normalOptBtn.style.background = '#0284c7';
+        normalOptBtn.style.color = '#ffffff';
+      }
     }
 
     // High-performance OpenStreetMap raster tiles (100% Free, Zero API Key Required, 100% Uptime)
-    tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      subdomains: ['a', 'b', 'c'],
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> | VoltWay 2W'
-    }).addTo(map);
+    if (!tileLayer && map) {
+      tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        subdomains: ['a', 'b', 'c'],
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> | VoltWay 2W'
+      }).addTo(map);
+    }
   }
 
   function toggleTileTheme() {
-    setTileTheme(currentTileTheme === 'dark' ? 'daylight' : 'dark');
-    return currentTileTheme;
+    const nextTheme = (currentTileTheme === 'dark') ? 'daylight' : 'dark';
+    setTileTheme(nextTheme);
+    if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 Dark Map Mode Active' : '🗺️ Normal Map Active (സാധാ മാപ്പ്)');
+    }
+    return nextTheme;
   }
 
   /**

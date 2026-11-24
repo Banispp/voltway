@@ -541,12 +541,51 @@ html, body {
   width: 100%;
   height: 100%;
   z-index: 1;
+  background: #e2e8f0; /* Clean neutral background for normal daylight map */
+  transition: background 0.25s ease;
+}
+
+#map.map-dark-mode {
   background: #080d16; /* Deep dark OLED background for dark mode tiles */
 }
 
 /* Google Maps Dark Mode styling for Leaflet raster tiles (100% Free, Zero API Key Required) */
 #map.map-dark-mode .leaflet-tile-pane {
   filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
+/* Floating Map Theme Switcher Button (Dark Mode / Normal Daylight Map) */
+.btn-toggle-map-theme {
+  position: fixed;
+  top: 185px;
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  color: #fbbf24;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  z-index: 990;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  touch-action: manipulation;
+}
+
+.btn-toggle-map-theme:hover {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: #38bdf8;
+  transform: scale(1.05);
+}
+
+.btn-toggle-map-theme:active {
+  transform: scale(0.92);
 }
 
 /* Floating GPS Centering Button */
@@ -3246,6 +3285,17 @@ body.manual-fullscreen .btn-toggle-fullscreen {
   z-index: 1060 !important;
   border-color: #38bdf8 !important;
   color: #38bdf8 !important;
+}
+
+body.manual-fullscreen .btn-toggle-map-theme {
+  top: 68px !important;
+  z-index: 1060 !important;
+}
+
+body.nav-active .btn-toggle-map-theme {
+  top: 16px !important;
+  right: 64px !important;
+  z-index: 1060 !important;
 }
 
 /* --------------------------------------------------------------------------

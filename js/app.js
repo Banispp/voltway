@@ -445,7 +445,6 @@ function updateFilterBadges() {
 function setupBatteryControls() {
   const slider = document.getElementById('battery-slider');
   const numberInput = document.getElementById('battery-number');
-  const vehicleSelect = document.getElementById('vehicle-select');
   const effInput = document.getElementById('efficiency-input');
   const reserveSlider = document.getElementById('reserve-slider');
   const reserveVal = document.getElementById('reserve-val');
@@ -463,13 +462,6 @@ function setupBatteryControls() {
       const val = parseInt(e.target.value, 10);
       slider.value = val;
       BatteryEngine.setBatteryPct(val);
-    });
-  }
-
-  // Vehicle Presets
-  if (vehicleSelect) {
-    vehicleSelect.addEventListener('change', (e) => {
-      BatteryEngine.setVehicle(e.target.value);
     });
   }
 
