@@ -756,37 +756,15 @@ const MapEngine = (function () {
 
   function updateSafeRangeOverlay(centerCoords = null) {
     if (!map) return;
-    const center = centerCoords || userCoords || (map ? map.getCenter() : null);
-    if (!center) return;
-
-    const batteryState = window.BatteryEngine ? window.BatteryEngine.getState() : null;
-    if (!batteryState) return;
-
-    const safeKm = batteryState.reachableSafeKm || 40;
-    const maxKm = batteryState.absoluteMaxKm || 60;
-    const centerLatLng = L.latLng(center.lat || center[0], center.lng || center[1]);
-
-    if (safeRangeCircle) map.removeLayer(safeRangeCircle);
-    if (bufferRangeCircle) map.removeLayer(bufferRangeCircle);
-
-    bufferRangeCircle = L.circle(centerLatLng, {
-      radius: maxKm * 1000,
-      color: '#FFD600',
-      weight: 1.5,
-      dashArray: '6, 6',
-      fillColor: '#FFD600',
-      fillOpacity: 0.05,
-      interactive: false
-    }).addTo(map);
-
-    safeRangeCircle = L.circle(centerLatLng, {
-      radius: safeKm * 1000,
-      color: '#00E676',
-      weight: 2,
-      fillColor: '#00E676',
-      fillOpacity: 0.12,
-      interactive: false
-    }).addTo(map);
+    // Green and yellow range circles removed as requested to keep the map clean like Google Maps
+    if (safeRangeCircle) {
+      map.removeLayer(safeRangeCircle);
+      safeRangeCircle = null;
+    }
+    if (bufferRangeCircle) {
+      map.removeLayer(bufferRangeCircle);
+      bufferRangeCircle = null;
+    }
   }
 
   /**
