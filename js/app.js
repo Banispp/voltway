@@ -688,8 +688,11 @@ function renderIntermediateStops() {
     const btnDel = row.querySelector('.btn-stop-delete');
     if (btnDel) {
       btnDel.addEventListener('click', () => {
-        intermediateCustomStops.splice(index, 1);
+        const removed = intermediateCustomStops.splice(index, 1)[0];
         renderIntermediateStops();
+        if (removed && removed.id && window.removeWaypointSync) {
+          window.removeWaypointSync(removed.id);
+        }
       });
     }
 
@@ -698,8 +701,17 @@ function renderIntermediateStops() {
 }
 
 window.removeWaypointSync = function (id) {
-  intermediateCustomStops = intermediateCustomStops.filter(s => s.id !== id);
+  if (!id) return;
+  // If destinationPoint was originally promoted from this stop, clear it
+  if (destinationPoint && String(destinationPoint.id || '') === String(id)) {
+    destinationPoint = null;
+    const destInp = document.getElementById('input-destination');
+    if (destInp) destInp.value = '';
+  }
+
+  intermediateCustomStops = intermediateCustomStops.filter(s => String(s.id) !== String(id));
   renderIntermediateStops();
+
   if (window.RouteEngine) {
     window.RouteEngine.removeWaypoint(id);
   }

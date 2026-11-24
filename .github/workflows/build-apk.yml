@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.40-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.41-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.40-release
-          name: "VoltWay 2W Android APK v5.40 (Auto Final Destination from Last Stop)"
-          body: "VoltWay 2W v5.40: 1) Auto-Destination from Last Added Stop: If Final Destination is not entered, the last stop among added intermediate stops is automatically promoted to the Final Destination, seamlessly planning and navigating to it; 2) Return Trip & Round Trip enhancements: Complete flexibility to swap, reverse, or plan round trips even when starting from intermediate stops."
+          tag_name: v5.41-release
+          name: "VoltWay 2W Android APK v5.41 (Dual-Color Round Trip Lines & Seamless Stop Removal)"
+          body: "VoltWay 2W v5.41: 1) Distinct Outward vs Return Route Colors: Outward journey is rendered in Electric Cyan / Emerald Green, while Return journey is rendered in Vibrant Sunset Orange with high-visibility dashes, plus a dedicated Turnaround Point pin, so both tracks are clearly distinguishable on the same highway; 2) Seamless Stop Removal: Fixed route cut-off bug when removing stops by clearing stale distance caches and auto-reconnecting through to the destination."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

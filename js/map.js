@@ -880,23 +880,110 @@ const MapEngine = (function () {
       }
     });
 
-    // 2. Render Active Selected Route (Glowing Neon Blue/Green)
-    activeGlowLine = L.polyline(activeRoute.coordinates, {
-      color: '#00E676',
-      weight: 10,
-      opacity: 0.45,
-      lineCap: 'round',
-      lineJoin: 'round'
-    }).addTo(routeLayer);
+    // 2. Render Active Selected Route
+    const getDistKm = (lat1, lon1, lat2, lon2) => {
+      if (window.Utilities && window.Utilities.haversine) {
+        return window.Utilities.haversine(lat1, lon1, lat2, lon2);
+      }
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+      return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
 
-    activeMainLine = L.polyline(activeRoute.coordinates, {
-      color: '#00B0FF',
-      weight: 6,
-      opacity: 0.98,
-      lineCap: 'round',
-      lineJoin: 'round',
-      zIndexOffset: 1000
-    }).addTo(routeLayer);
+    const isRoundTrip = activeRoute.origin && activeRoute.destination &&
+      getDistKm(activeRoute.origin.lat, activeRoute.origin.lng, activeRoute.destination.lat, activeRoute.destination.lng) < 0.35;
+
+    if (isRoundTrip && activeRoute.coordinates.length > 8) {
+      // Find turnaround point (furthest coordinate from origin along route)
+      let maxDist = -1;
+      let turnaroundIdx = Math.floor(activeRoute.coordinates.length / 2);
+      for (let i = 0; i < activeRoute.coordinates.length; i++) {
+        const c = activeRoute.coordinates[i];
+        const d = getDistKm(activeRoute.origin.lat, activeRoute.origin.lng, c[0], c[1]);
+        if (d > maxDist) {
+          maxDist = d;
+          turnaroundIdx = i;
+        }
+      }
+
+      const forwardCoords = activeRoute.coordinates.slice(0, turnaroundIdx + 1);
+      const returnCoords = activeRoute.coordinates.slice(turnaroundIdx);
+
+      // A. Outward Leg (അങ്ങോട്ട് - Electric Cyan with Neon Green Glow)
+      L.polyline(forwardCoords, {
+        color: '#00E676',
+        weight: 10,
+        opacity: 0.45,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(routeLayer);
+
+      activeMainLine = L.polyline(forwardCoords, {
+        color: '#00E5FF',
+        weight: 6,
+        opacity: 0.98,
+        lineCap: 'round',
+        lineJoin: 'round',
+        zIndexOffset: 1000
+      }).addTo(routeLayer);
+
+      // B. Return Leg (ഇങ്ങോട്ട് - Vibrant Sunset Orange with Amber Glow & High-Visibility Dashes)
+      L.polyline(returnCoords, {
+        color: '#FF9100',
+        weight: 10,
+        opacity: 0.50,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(routeLayer);
+
+      activeGlowLine = L.polyline(returnCoords, {
+        color: '#FF6D00',
+        weight: 6,
+        opacity: 0.98,
+        dashArray: '10, 7',
+        lineCap: 'round',
+        lineJoin: 'round',
+        zIndexOffset: 1005
+      }).addTo(routeLayer);
+
+      // C. Turnaround Badge Marker at midway point
+      const turnPt = activeRoute.coordinates[turnaroundIdx];
+      L.marker([turnPt[0], turnPt[1]], {
+        icon: L.divIcon({
+          className: 'turnaround-badge-icon',
+          html: `<div style="background:#FF6D00;color:#fff;font-weight:900;padding:3px 9px;border-radius:12px;font-size:0.75rem;box-shadow:0 3px 10px rgba(0,0,0,0.6);border:1.5px solid #fff;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;">🔄 Turnaround Point</div>`,
+          iconSize: [130, 26],
+          iconAnchor: [65, 13]
+        }),
+        zIndexOffset: 25000
+      }).bindPopup(`
+        <div class="popup-card">
+          <div class="popup-header"><span class="popup-badge" style="background:#FF6D00;color:#fff;">🔄 Turnaround</span></div>
+          <div class="popup-title">Turnaround Point (${maxDist.toFixed(1)} km from origin)</div>
+          <div style="font-size:0.75rem;color:#cbd5e1;margin-top:4px;">🟢 Outward Leg: Electric Cyan<br>🟠 Return Leg: Sunset Orange</div>
+        </div>
+      `).addTo(waypointsLayer);
+
+    } else {
+      // Normal One-Way Route: Glowing Neon Blue/Green
+      activeGlowLine = L.polyline(activeRoute.coordinates, {
+        color: '#00E676',
+        weight: 10,
+        opacity: 0.45,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(routeLayer);
+
+      activeMainLine = L.polyline(activeRoute.coordinates, {
+        color: '#00B0FF',
+        weight: 6,
+        opacity: 0.98,
+        lineCap: 'round',
+        lineJoin: 'round',
+        zIndexOffset: 1000
+      }).addTo(routeLayer);
+    }
 
     // Add floating route pill badge on the active route
     if (routesList.length > 1) {

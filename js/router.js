@@ -848,12 +848,27 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Remove a charger from waypoints
+   * Remove a charger or stop from waypoints and cleanly recalculate full route
    */
   function removeWaypoint(chargerId) {
-    intermediateWaypoints = intermediateWaypoints.filter(w => w.id !== chargerId);
+    if (!chargerId) return;
+    intermediateWaypoints = intermediateWaypoints.filter(w => String(w.id) !== String(chargerId));
+    // Clear stale distance along route cache so waypoints re-sequence cleanly without cut-off
+    intermediateWaypoints.forEach(w => {
+      delete w.kmFromOrigin;
+    });
+
     if (activeRoute) {
-      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
+      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints).then(async (newRoute) => {
+        if (window.BatteryEngine && newRoute) {
+          const evalMetrics = window.BatteryEngine.evaluateTrip(newRoute.distanceKm);
+          if (evalMetrics && evalMetrics.status !== 'SAFE') {
+            await autoSuggestChargingStops(evalMetrics);
+          }
+        }
+      }).catch(err => {
+        console.warn('[VoltWay Router] Recalculate after remove waypoint note:', err);
+      });
     } else {
       notify();
     }
