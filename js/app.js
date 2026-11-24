@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bottomSheet: document.getElementById('bottom-sheet'),
     sheetHandleBar: document.getElementById('sheet-handle-bar'),
     btnToggleDrawer: document.getElementById('btn-toggle-drawer'),
-    searchInput: document.getElementById('search-input'),
+    searchInput: document.getElementById('search-places-input'),
     searchDropdown: document.getElementById('search-dropdown'),
     btnInstall: document.getElementById('btn-install-app'),
     btnForceRefresh: document.getElementById('btn-force-refresh'),
@@ -1454,7 +1454,6 @@ function onRouteStateChange(routeState) {
   const navSecondaryActions = document.getElementById('nav-secondary-actions');
   const corridorControl = document.getElementById('corridor-buffer-control');
   const mapCorridorPill = document.getElementById('map-route-corridor-pill');
-  const mapCorridorVal = document.getElementById('map-corridor-val');
   const corridorBufferBadge = document.getElementById('corridor-buffer-badge');
 
   if (!route) {
