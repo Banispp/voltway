@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.39-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.40-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.39-release
-          name: "VoltWay 2W Android APK v5.39 (Return Trip & Round Trip with Auto Charging Stops)"
-          body: "VoltWay 2W v5.39: 1) 1-Click Return Trip (B ➔ A): Added dedicated 'Plan Return Trip' action that automatically reverses the route back to the original starting point and calculates optimal corridor EV charging stops based on battery range; 2) Complete Round Trip Mode (A ➔ B ➔ A): Added one-tap round-trip planner to calculate both outward and return legs with necessary charging stops; 3) Quick Swap (⇅): Instantly flip start and destination anytime."
+          tag_name: v5.40-release
+          name: "VoltWay 2W Android APK v5.40 (Auto Final Destination from Last Stop)"
+          body: "VoltWay 2W v5.40: 1) Auto-Destination from Last Added Stop: If Final Destination is not entered, the last stop among added intermediate stops is automatically promoted to the Final Destination, seamlessly planning and navigating to it; 2) Return Trip & Round Trip enhancements: Complete flexibility to swap, reverse, or plan round trips even when starting from intermediate stops."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

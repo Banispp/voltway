@@ -737,6 +737,14 @@ function setupRoutePlanner() {
   const btnSwapLocations = document.getElementById('btn-swap-locations');
   if (btnSwapLocations) {
     btnSwapLocations.addEventListener('click', () => {
+      // If destination is missing but there are intermediate stops, promote the last one first
+      if (!destinationPoint && intermediateCustomStops.length > 0) {
+        const last = intermediateCustomStops.pop();
+        destinationPoint = { lat: last.lat, lng: last.lng, name: last.name };
+        if (destInput) destInput.value = destinationPoint.name;
+        renderIntermediateStops();
+      }
+
       if (!originPoint && !destinationPoint) return;
       const tempPoint = originPoint;
       originPoint = destinationPoint;
@@ -770,8 +778,16 @@ function setupRoutePlanner() {
   const btnToggleRoundtrip = document.getElementById('btn-toggle-roundtrip');
   if (btnToggleRoundtrip) {
     btnToggleRoundtrip.addEventListener('click', () => {
+      // If destination is missing but there are intermediate stops, promote the last one first
+      if (!destinationPoint && intermediateCustomStops.length > 0) {
+        const last = intermediateCustomStops.pop();
+        destinationPoint = { lat: last.lat, lng: last.lng, name: last.name };
+        if (destInput) destInput.value = destinationPoint.name;
+        renderIntermediateStops();
+      }
+
       if (!originPoint || !destinationPoint) {
-        alert('Please enter both Starting Point and Destination first.');
+        alert('Please enter a Starting Point and Destination (or add at least one stop) first.');
         return;
       }
 
@@ -964,23 +980,15 @@ function setupRoutePlanner() {
         }
       }
 
-      const destQuery = destInput ? destInput.value.trim() : '';
-      if (!destinationPoint || (destQuery && destinationPoint.name !== destQuery)) {
-        if (destQuery) {
-          const results = await Utilities.searchPlace(destQuery);
-          if (results && results.length > 0) {
-            destinationPoint = results[0];
-          } else {
-            alert('Could not find location. Please select a valid destination from search suggestions.');
-            return;
-          }
-        } else {
-          alert('Please enter a destination place or city.');
-          return;
+      // 1. Sync any typed values from DOM into intermediateCustomStops
+      const stopInputs = document.querySelectorAll('.input-stop-text');
+      stopInputs.forEach((inp, idx) => {
+        if (intermediateCustomStops[idx] && inp.value.trim()) {
+          intermediateCustomStops[idx].name = inp.value.trim();
         }
-      }
+      });
 
-      // Geocode any custom intermediate stops if needed
+      // 2. Geocode any custom intermediate stops if needed
       for (let i = 0; i < intermediateCustomStops.length; i++) {
         const s = intermediateCustomStops[i];
         if (s.name && (s.lat == null || s.lng == null)) {
@@ -993,7 +1001,48 @@ function setupRoutePlanner() {
         }
       }
 
-      const validCustomStops = intermediateCustomStops.filter(s => s.lat != null && s.lng != null);
+      let validCustomStops = intermediateCustomStops.filter(s => s.lat != null && s.lng != null);
+
+      // 3. Resolve Destination: if Final Destination is empty, use the LAST stop from ADD STOPs!
+      const destQuery = destInput ? destInput.value.trim() : '';
+      if (destQuery) {
+        if (!destinationPoint || destinationPoint.name !== destQuery) {
+          const results = await Utilities.searchPlace(destQuery);
+          if (results && results.length > 0) {
+            destinationPoint = results[0];
+          } else {
+            alert('Could not find location. Please select a valid destination from search suggestions.');
+            return;
+          }
+        }
+      } else {
+        // Final destination input was left empty!
+        // Automatically promote the LAST added stop to be the Final Destination!
+        if (validCustomStops.length > 0) {
+          const lastStop = validCustomStops[validCustomStops.length - 1];
+          destinationPoint = {
+            lat: lastStop.lat,
+            lng: lastStop.lng,
+            name: lastStop.name
+          };
+
+          // Remove the promoted stop from intermediate stops and update UI
+          intermediateCustomStops = intermediateCustomStops.filter(s => s.id !== lastStop.id);
+          validCustomStops = intermediateCustomStops.filter(s => s.lat != null && s.lng != null);
+          renderIntermediateStops();
+
+          if (destInput) {
+            destInput.value = destinationPoint.name;
+          }
+
+          if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+            window.SyncEngine.showAutoUpdateToast(`🎯 Last stop set as Destination: ${destinationPoint.name.split(',')[0]}`);
+          }
+        } else {
+          alert('Please enter a destination place or add at least one stop.');
+          return;
+        }
+      }
 
       // Merge with any added chargers
       const existingChargers = (RouteEngine.getWaypoints() || []).filter(w => w.network || w.type);
