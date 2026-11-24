@@ -2506,7 +2506,7 @@ function setupDriveModeControls() {
     });
   }
 
-  // Google Maps Direction & Route Sharing Actions
+  // Google Maps Direction Actions
   const btnOpenGmaps = document.getElementById('btn-open-google-maps');
   if (btnOpenGmaps) {
     btnOpenGmaps.addEventListener('click', () => {
@@ -2519,72 +2519,19 @@ function setupDriveModeControls() {
         }
         return;
       }
-      const origin = RouteEngine.getOrigin();
-      const destination = RouteEngine.getDestination();
-      const intermediateStops = RouteEngine.getIntermediateStops ? RouteEngine.getIntermediateStops() : [];
-      const chargingWaypoints = RouteEngine.getWaypoints ? RouteEngine.getWaypoints() : [];
-      const allStops = [...intermediateStops, ...chargingWaypoints];
+      const origin = (window.RouteEngine && typeof window.RouteEngine.getOrigin === 'function' && window.RouteEngine.getOrigin())
+        || originPoint
+        || (activeRoute && activeRoute.origin);
+      const destination = (window.RouteEngine && typeof window.RouteEngine.getDestination === 'function' && window.RouteEngine.getDestination())
+        || destinationPoint
+        || (activeRoute && activeRoute.destination);
+      const chargingWaypoints = (window.RouteEngine && typeof window.RouteEngine.getWaypoints === 'function')
+        ? window.RouteEngine.getWaypoints()
+        : (activeRoute.waypoints || []);
+      const allStops = [...intermediateCustomStops, ...chargingWaypoints];
 
       if (window.NavigationEngine) {
         window.NavigationEngine.startFullTrip(origin, destination, allStops);
-      }
-    });
-  }
-
-  const btnShareRoute = document.getElementById('btn-share-route-directions');
-  if (btnShareRoute) {
-    btnShareRoute.addEventListener('click', async () => {
-      const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
-      if (!activeRoute) {
-        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-          window.SyncEngine.showAutoUpdateToast('⚠️ Please plan a route first!');
-        } else {
-          alert('Please plan a route first.');
-        }
-        return;
-      }
-      const origin = RouteEngine.getOrigin();
-      const destination = RouteEngine.getDestination();
-      const intermediateStops = RouteEngine.getIntermediateStops ? RouteEngine.getIntermediateStops() : [];
-      const chargingWaypoints = RouteEngine.getWaypoints ? RouteEngine.getWaypoints() : [];
-      const allStops = [...intermediateStops, ...chargingWaypoints];
-
-      const gmapsUrl = window.NavigationEngine 
-        ? window.NavigationEngine.buildMultiStopGoogleMapsUrl(origin, destination, allStops)
-        : '';
-
-      if (!gmapsUrl) {
-        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-          window.SyncEngine.showAutoUpdateToast('⚠️ No route waypoints found');
-        }
-        return;
-      }
-
-      const startName = origin?.name || 'Current Location';
-      const destName = destination?.name || 'Destination';
-      const shareText = `VoltWay 2W EV Route Plan:\n📍 From: ${startName}\n🏁 To: ${destName}\n⚡ Charging Stops: ${allStops.length}\n🗺️ Google Maps Directions:\n${gmapsUrl}`;
-
-      let shared = false;
-      if (navigator.share) {
-        try {
-          await navigator.share({
-            title: 'VoltWay 2W EV Route Plan',
-            text: shareText,
-            url: gmapsUrl
-          });
-          shared = true;
-          return;
-        } catch (e) {
-          if (e.name === 'AbortError') return; // User closed sheet
-        }
-      }
-
-      if (!shared) {
-        if (window.Utilities && window.Utilities.copyToClipboard) {
-          await window.Utilities.copyToClipboard(gmapsUrl, '📋 Google Maps route directions copied!');
-        } else if (typeof window.copyTextToClipboard === 'function') {
-          await window.copyTextToClipboard(gmapsUrl, '📋 Google Maps route directions copied!');
-        }
       }
     });
   }

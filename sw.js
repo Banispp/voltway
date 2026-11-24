@@ -1,21 +1,21 @@
-// VoltWay 2W Service Worker - Version 5.15 (Turn-by-Turn Voice Navigation, Corridor Dropdown, Sleek Non-Overlapping UI)
+// VoltWay 2W Service Worker - Version 5.16 (Tilt-Compensated Map Compass, Fixed Top UI Colors & States, Direct Google Maps Route)
 // Enables zero-server EV Route Planning with live network-first updates
 
-const CACHE_NAME = 'voltway-2w-v5-15-fresh';
+const CACHE_NAME = 'voltway-2w-v5-16-fresh';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/app.css?v=5.15',
-  './js/leaflet-rotate.js?v=5.15',
-  './js/app.js?v=5.15',
-  './js/map.js?v=5.15',
-  './js/router.js?v=5.15',
-  './js/battery.js?v=5.15',
-  './js/navigator.js?v=5.15',
-  './js/sync.js?v=5.15',
-  './js/utilities.js?v=5.15',
-  './chargers_db.js?v=5.15',
+  './css/app.css?v=5.16',
+  './js/leaflet-rotate.js?v=5.16',
+  './js/app.js?v=5.16',
+  './js/map.js?v=5.16',
+  './js/router.js?v=5.16',
+  './js/battery.js?v=5.16',
+  './js/navigator.js?v=5.16',
+  './js/sync.js?v=5.16',
+  './js/utilities.js?v=5.16',
+  './chargers_db.js?v=5.16',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -28,7 +28,7 @@ const ASSETS_TO_CACHE = [
 
 // Install: pre-cache shell and immediately activate
 self.addEventListener('install', (event) => {
-  console.log('[VoltWay SW] Installing fresh v5.15 service worker...');
+  console.log('[VoltWay SW] Installing fresh v5.16 service worker...');
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {

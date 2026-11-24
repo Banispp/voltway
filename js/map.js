@@ -906,26 +906,51 @@ const MapEngine = (function () {
     compassListenerAttached = true;
 
     const onOrientation = (e) => {
+      // If moving (> 1.2 m/s), GPS course track is far more accurate than magnetic sensor
+      if (userCoords && userCoords.speed != null && userCoords.speed > 1.2) {
+        return;
+      }
+
       let heading = null;
       if (e.webkitCompassHeading != null) {
         heading = e.webkitCompassHeading;
       } else if (e.alpha != null) {
-        // Android absolute orientation: 360 - alpha is magnetic compass heading
-        heading = (360 - e.alpha) % 360;
+        // If device provides beta (pitch) and gamma (roll), compute 3D tilt-compensated azimuth
+        // to prevent 90° gimbal lock spinning when phone is upright on a mount
+        if (e.beta != null && e.gamma != null) {
+          const degToRad = Math.PI / 180;
+          const a = e.alpha * degToRad;
+          const b = e.beta * degToRad;
+          const g = e.gamma * degToRad;
+          const cA = Math.cos(a), sA = Math.sin(a);
+          const cB = Math.cos(b), sB = Math.sin(b);
+          const cG = Math.cos(g), sG = Math.sin(g);
+
+          // Projected horizontal magnetic vector
+          const rA = -cA * sG - sA * sB * cG;
+          const rB = -sA * sG + cA * sB * cG;
+          if (Math.hypot(rA, rB) > 0.05) {
+            heading = Math.atan2(rA, rB) * (180 / Math.PI);
+            if (heading < 0) heading += 360;
+          } else {
+            heading = (360 - e.alpha) % 360;
+          }
+        } else {
+          heading = (360 - e.alpha) % 360;
+        }
       }
 
+      // Account for screen orientation (e.g. landscape 90° or 270°)
+      const screenAngle = (window.screen && window.screen.orientation && window.screen.orientation.angle) || window.orientation || 0;
       if (heading != null && !isNaN(heading)) {
-        // Low-pass filter for smooth 60fps rotation without jitter
+        heading = (heading + screenAngle + 360) % 360;
+
+        // Smooth low-pass filter
         let diff = (heading - userHeading + 180) % 360 - 180;
         if (diff < -180) diff += 360;
-        if (Math.abs(diff) > 0.5) {
-          userHeading = (userHeading + diff * 0.35 + 360) % 360;
+        if (Math.abs(diff) > 1.5) {
+          userHeading = (userHeading + diff * 0.25 + 360) % 360;
           updatePuckHeading(userHeading);
-
-          // If in active drive guidance mode and auto-follow is on, align map heading smoothly
-          if (isAutoFollow && window.DriveEngine && window.DriveEngine.isActive() && map && typeof map.setBearing === 'function') {
-            map.setBearing(userHeading);
-          }
         }
       }
     };

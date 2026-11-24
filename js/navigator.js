@@ -69,16 +69,34 @@ const NavigationEngine = (function () {
   function openExternalUrl(url) {
     if (!url) return;
     console.log('[VoltWay Nav] Opening URL:', url);
-    const isAndroid = /android/i.test(navigator.userAgent);
-    const isCapacitor = Boolean(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 
-    if (isAndroid || isCapacitor) {
-      // In Android WebView / Capacitor, setting window.location.href triggers the Android OS Intent resolver
-      // which directly opens the native Google Maps app instead of getting blocked as a popup
-      window.location.href = url;
+    // 1. Try Capacitor App launcher
+    try {
+      if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App && typeof window.Capacitor.Plugins.App.openUrl === 'function') {
+        window.Capacitor.Plugins.App.openUrl({ url });
+        return;
+      }
+    } catch (e) {}
+
+    // 2. Try window.open with _system (Capacitor/Cordova native external app trigger)
+    try {
+      const sysWin = window.open(url, '_system');
+      if (sysWin) return;
+    } catch (e) {}
+
+    // 3. Dispatch click via anchor tag (triggers Android Intent for Google Maps)
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_system';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
       return;
-    }
+    } catch (e) {}
 
+    // 4. Standard browser fallback
     const win = window.open(url, '_blank', 'noopener,noreferrer');
     if (!win || win.closed || typeof win.closed === 'undefined') {
       window.location.href = url;

@@ -8,6 +8,8 @@ const RouteEngine = (function () {
   let allRoutes = []; // Array of { id, name, distanceKm, durationMins, coordinates, geometry, legs }
   let selectedRouteIndex = 0;
   let activeRoute = null;
+  let currentOrigin = null;
+  let currentDestination = null;
   let corridorChargers = [];
   let intermediateWaypoints = []; // [charger1, charger2, ...]
 
@@ -198,6 +200,9 @@ const RouteEngine = (function () {
     if (!origin || !destination) {
       throw new Error('Origin and destination are required');
     }
+
+    currentOrigin = origin;
+    currentDestination = destination;
 
     if (manualWaypoints !== null) {
       intermediateWaypoints = sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
@@ -975,7 +980,9 @@ const RouteEngine = (function () {
     getAllRoutes: () => allRoutes,
     getSelectedRouteIndex: () => selectedRouteIndex,
     getCorridorChargers: () => corridorChargers,
-    getWaypoints: () => intermediateWaypoints
+    getWaypoints: () => intermediateWaypoints,
+    getOrigin: () => currentOrigin || (activeRoute && activeRoute.origin),
+    getDestination: () => currentDestination || (activeRoute && activeRoute.destination)
   };
 })();
 
