@@ -733,6 +733,123 @@ function setupRoutePlanner() {
     });
   }
 
+  // Quick Swap Starting Point (A) and Final Destination (D)
+  const btnSwapLocations = document.getElementById('btn-swap-locations');
+  if (btnSwapLocations) {
+    btnSwapLocations.addEventListener('click', () => {
+      if (!originPoint && !destinationPoint) return;
+      const tempPoint = originPoint;
+      originPoint = destinationPoint;
+      destinationPoint = tempPoint;
+
+      const tempVal = originInput ? originInput.value : '';
+      if (originInput && destInput) {
+        originInput.value = destInput.value;
+        destInput.value = tempVal;
+      }
+
+      if (intermediateCustomStops && intermediateCustomStops.length > 1) {
+        intermediateCustomStops.reverse();
+        renderIntermediateStops();
+      }
+
+      const active = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+      if (active && btnPlanRoute) {
+        if (window.RouteEngine) window.RouteEngine.clearWaypoints();
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('⇅ Route Reversed with Charging Stops');
+        }
+        btnPlanRoute.click();
+      } else if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast('⇅ Start & Destination Swapped');
+      }
+    });
+  }
+
+  // Complete Round Trip (Start ➔ Destination ➔ Start)
+  const btnToggleRoundtrip = document.getElementById('btn-toggle-roundtrip');
+  if (btnToggleRoundtrip) {
+    btnToggleRoundtrip.addEventListener('click', () => {
+      if (!originPoint || !destinationPoint) {
+        alert('Please enter both Starting Point and Destination first.');
+        return;
+      }
+
+      const isAlreadyRoundTrip = destinationPoint && originPoint &&
+        (destinationPoint.lat === originPoint.lat && destinationPoint.lng === originPoint.lng);
+
+      if (isAlreadyRoundTrip) {
+        if (intermediateCustomStops.length > 0) {
+          const lastStop = intermediateCustomStops.pop();
+          destinationPoint = { lat: lastStop.lat, lng: lastStop.lng, name: lastStop.name };
+          if (destInput) destInput.value = destinationPoint.name;
+          renderIntermediateStops();
+        }
+        btnToggleRoundtrip.classList.remove('active');
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('➡️ One-Way Trip Restored');
+        }
+      } else {
+        intermediateCustomStops.push({
+          id: 'turnaround_' + Date.now(),
+          name: destinationPoint.name || 'Turnaround Stop',
+          lat: destinationPoint.lat,
+          lng: destinationPoint.lng,
+          isCustomStop: true
+        });
+        renderIntermediateStops();
+
+        destinationPoint = { ...originPoint };
+        if (destInput) destInput.value = originPoint.name || 'Return to Origin';
+
+        btnToggleRoundtrip.classList.add('active');
+        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+          window.SyncEngine.showAutoUpdateToast('🔄 Round Trip (A ➔ B ➔ A) with Charging Stops');
+        }
+      }
+
+      if (btnPlanRoute) {
+        if (window.RouteEngine) window.RouteEngine.clearWaypoints();
+        btnPlanRoute.click();
+      }
+    });
+  }
+
+  // 1-Click Return Trip (B ➔ A) with fresh charging stops
+  const btnPlanReturnTrip = document.getElementById('btn-plan-return-trip');
+  if (btnPlanReturnTrip) {
+    btnPlanReturnTrip.addEventListener('click', async () => {
+      if (!originPoint || !destinationPoint) {
+        alert('Please plan an initial route first.');
+        return;
+      }
+
+      const tempPoint = originPoint;
+      originPoint = destinationPoint;
+      destinationPoint = tempPoint;
+
+      if (originInput) originInput.value = originPoint.name || 'Start Location';
+      if (destInput) destInput.value = destinationPoint.name || 'Destination';
+
+      if (intermediateCustomStops && intermediateCustomStops.length > 1) {
+        intermediateCustomStops.reverse();
+        renderIntermediateStops();
+      }
+
+      if (window.RouteEngine) {
+        window.RouteEngine.clearWaypoints();
+      }
+
+      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast('🔁 Planning Return Trip with Charging Stops...');
+      }
+
+      if (btnPlanRoute) {
+        btnPlanRoute.click();
+      }
+    });
+  }
+
   // Attach rich autocomplete and link resolver to Starting Point (A)
   attachLocationAutocomplete(originInput, document.getElementById('origin-suggestions'), (point) => {
     originPoint = point;
@@ -916,10 +1033,13 @@ function setupRoutePlanner() {
       const summaryCard = document.getElementById('route-summary-card');
       const routeSelector = document.getElementById('route-selector-container');
       const waypointsSection = document.getElementById('trip-waypoints-section');
+      const returnActions = document.getElementById('route-return-actions');
       if (summaryCard) summaryCard.style.display = 'none';
       if (routeSelector) routeSelector.style.display = 'none';
       if (waypointsSection) waypointsSection.style.display = 'none';
+      if (returnActions) returnActions.style.display = 'none';
       if (btnStartInAppNav) btnStartInAppNav.style.display = 'none';
+      if (btnToggleRoundtrip) btnToggleRoundtrip.classList.remove('active');
     });
   }
 
@@ -1465,9 +1585,11 @@ function onRouteStateChange(routeState) {
   const corridorControl = document.getElementById('corridor-buffer-control');
   const mapCorridorPill = document.getElementById('map-route-corridor-pill');
   const corridorBufferBadge = document.getElementById('corridor-buffer-badge');
+  const returnActions = document.getElementById('route-return-actions');
 
   if (!route) {
     if (summaryCard) summaryCard.style.display = 'none';
+    if (returnActions) returnActions.style.display = 'none';
     if (routeSelectorContainer) routeSelectorContainer.style.display = 'none';
     if (waypointsSection) waypointsSection.style.display = 'none';
     if (btnStartInAppNav) btnStartInAppNav.style.display = 'none';
@@ -1561,6 +1683,15 @@ function onRouteStateChange(routeState) {
 
   // 4. Update Summary Card & Drive Mode Action
   if (summaryCard) summaryCard.style.display = 'block';
+  if (returnActions) {
+    returnActions.style.display = 'block';
+    const returnTitle = document.querySelector('#btn-plan-return-trip .return-title');
+    if (returnTitle && originPoint && destinationPoint) {
+      const origShort = (originPoint.name || 'Start').split(',')[0].trim();
+      const destShort = (destinationPoint.name || 'Dest').split(',')[0].trim();
+      returnTitle.textContent = `Plan Return Trip (${destShort} ➔ ${origShort})`;
+    }
+  }
   if (btnStartInAppNav) btnStartInAppNav.style.display = 'flex';
   if (btnFloatingStartNav) btnFloatingStartNav.style.display = 'flex';
   if (navSecondaryActions) navSecondaryActions.style.display = 'flex';

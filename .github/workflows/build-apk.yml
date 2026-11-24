@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.38-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.39-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.38-release
-          name: "VoltWay 2W Android APK v5.38 (Re-Center Button Color & State Fix)"
-          body: "VoltWay 2W v5.38: 1) Fixed Re-Center Button Color: Removed permanent green background from the floating GPS re-center button; it now displays a momentary tap pulse and smoothly returns to the sleek normal dark styling, preventing the button from staying green; 2) Synchronized Route Overview & Re-Center State: Recenter actions now automatically reset any active overview toggle, ensuring buttons never get stuck in green or active states."
+          tag_name: v5.39-release
+          name: "VoltWay 2W Android APK v5.39 (Return Trip & Round Trip with Auto Charging Stops)"
+          body: "VoltWay 2W v5.39: 1) 1-Click Return Trip (B ➔ A): Added dedicated 'Plan Return Trip' action that automatically reverses the route back to the original starting point and calculates optimal corridor EV charging stops based on battery range; 2) Complete Round Trip Mode (A ➔ B ➔ A): Added one-tap round-trip planner to calculate both outward and return legs with necessary charging stops; 3) Quick Swap (⇅): Instantly flip start and destination anytime."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

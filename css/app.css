@@ -1622,6 +1622,43 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   transform: scale(0.98);
 }
 
+.btn-pill-swap {
+  background: #0b111e;
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  color: #e2e8f0;
+}
+
+.btn-pill-swap:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #ffffff;
+}
+
+.btn-pill-swap:active {
+  transform: scale(0.96);
+}
+
+.btn-pill-roundtrip {
+  background: #0b111e;
+  border: 1.5px solid rgba(0, 230, 118, 0.35);
+  color: #00e676;
+}
+
+.btn-pill-roundtrip:hover {
+  background: rgba(0, 230, 118, 0.12);
+  border-color: #00e676;
+}
+
+.btn-pill-roundtrip:active {
+  transform: scale(0.96);
+}
+
+.btn-pill-roundtrip.active {
+  background: rgba(0, 230, 118, 0.22);
+  border-color: #00e676;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.35);
+}
+
 .intermediate-stops-list {
   display: flex;
   flex-direction: column;
@@ -2079,6 +2116,73 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   background: rgba(255, 51, 102, 0.12);
   border: 1.5px solid var(--color-danger);
   color: var(--color-danger);
+}
+
+/* Return Trip & Round Trip Action Banner */
+.route-return-actions {
+  margin: 10px 0 4px 0;
+}
+
+.btn-return-trip {
+  width: 100%;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.16) 0%, rgba(6, 78, 59, 0.4) 100%);
+  border: 1.5px solid rgba(16, 185, 129, 0.45);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+}
+
+.btn-return-trip:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(6, 78, 59, 0.55) 100%);
+  border-color: #10b981;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+}
+
+.btn-return-trip:active {
+  transform: scale(0.98);
+}
+
+.return-btn-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.return-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.return-title {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #6ee7b7;
+  letter-spacing: 0.1px;
+}
+
+.return-desc {
+  display: block;
+  font-size: 0.72rem;
+  color: #a7f3d0;
+  margin-top: 1px;
+}
+
+.return-arrow {
+  font-size: 1.1rem;
+  color: #6ee7b7;
+  font-weight: 800;
+  transition: transform 0.2s ease;
+}
+
+.btn-return-trip:hover .return-arrow {
+  transform: translateX(4px);
 }
 
 /* In-App & Google Maps Navigation Launch Buttons */
