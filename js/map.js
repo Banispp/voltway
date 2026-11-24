@@ -106,12 +106,8 @@ const MapEngine = (function () {
     });
     map.on('rotate', () => {
       if (map && typeof map.getBearing === 'function') {
-        const b = map.getBearing();
-        currentRenderedBearing = b;
-        targetBearing = b;
-        if (b === 0 && !isAutoFollow && (!window.DriveEngine || !window.DriveEngine.isActive())) {
-          isCompassMode = false;
-        }
+        currentRenderedBearing = map.getBearing();
+        updatePuckHeading(userHeading);
       }
     });
     map.on('click', () => {
@@ -993,12 +989,14 @@ const MapEngine = (function () {
 
       // Silky smooth exponential damping (ease-out) at native display refresh rate
       if (Math.abs(bDiff) > 0.3) {
-        currentRenderedBearing = (currentRenderedBearing + bDiff * 0.18 + 360) % 360;
+        currentRenderedBearing = (currentRenderedBearing + bDiff * 0.20 + 360) % 360;
         map.setBearing(currentRenderedBearing);
+        updatePuckHeading(userHeading);
         scheduleBearingAnimation();
       } else {
         currentRenderedBearing = targetBearing;
         map.setBearing(currentRenderedBearing);
+        updatePuckHeading(userHeading);
       }
     });
   }
@@ -1027,13 +1025,13 @@ const MapEngine = (function () {
         const cB = Math.cos(b), sB = Math.sin(b);
         const cG = Math.cos(g), sG = Math.sin(g);
 
-        // Blended forward vector: device +Y (flat) smoothly transitions to device -Z (vertical handlebar mount)
-        // Eliminates 100% of 90° gimbal lock and makes heading stable against roll tilts
-        const vx = cB * (-sA * cB) + sB * (-cA * sG - sA * sB * cG);
-        const vy = cB * (cA * cB) + sB * (-sA * sG + cA * sB * cG);
+        // Accurate 3D forward vector transformation onto Earth horizontal plane [East, North]
+        // Blends smoothly from flat device (+Y) to vertical 90° handlebar mount (-Z) with zero gimbal lock
+        const east = cB * (-sA * cB) - sB * (cA * sG + sA * sB * cG);
+        const north = cB * (cA * cB) - sB * (sA * sG - cA * sB * cG);
 
-        if (Math.hypot(vx, vy) > 0.04) {
-          heading = (Math.atan2(-vx, vy) * (180 / Math.PI) + 360) % 360;
+        if (Math.hypot(east, north) > 0.02) {
+          heading = (Math.atan2(east, north) * (180 / Math.PI) + 360) % 360;
         } else {
           heading = (360 - (e.alpha || 0)) % 360;
         }
@@ -1048,15 +1046,15 @@ const MapEngine = (function () {
         let diff = (heading - userHeading + 180) % 360 - 180;
         if (diff < -180) diff += 360;
 
-        // 1. DEADBAND: Ignore angular jitters smaller than 2.2° when holding or mounted
+        // 1. DEADBAND: Ignore angular jitters smaller than 2.0° when holding or mounted
         // Eliminates the back-and-forth jitter and trembling completely!
-        if (Math.abs(diff) < 2.2) {
+        if (Math.abs(diff) < 2.0) {
           return;
         }
 
         // 2. ADAPTIVE EXPONENTIAL MOVING AVERAGE (EMA):
-        // 0.12 for butter-smooth subtle movements; 0.32 for rapid deliberate turns
-        const alpha = Math.abs(diff) > 25 ? 0.32 : 0.12;
+        // 0.14 for butter-smooth subtle movements; 0.35 for rapid deliberate turns
+        const alpha = Math.abs(diff) > 25 ? 0.35 : 0.14;
         userHeading = (userHeading + diff * alpha + 360) % 360;
         updatePuckHeading(userHeading);
 
@@ -1087,7 +1085,10 @@ const MapEngine = (function () {
   }
 
   function updatePuckHeading(heading) {
-    const rotDeg = Math.round(heading || 0);
+    if (heading == null) return;
+    const mapBearing = (map && typeof map.getBearing === 'function') ? map.getBearing() : 0;
+    // Relative heading of rider/phone on the rotated map canvas
+    const rotDeg = Math.round((heading - mapBearing + 360) % 360);
     const cone = document.querySelector('.puck-heading-cone');
     const arrow = document.querySelector('.puck-arrow-icon');
     if (cone) cone.style.transform = `rotate(${rotDeg}deg)`;
@@ -1123,9 +1124,10 @@ const MapEngine = (function () {
         icon: puckIcon,
         zIndexOffset: 30000
       }).addTo(map);
+      updatePuckHeading(heading);
     } else {
       userLocationMarker.setLatLng([lat, lng]);
-      updatePuckHeading(rotDeg);
+      updatePuckHeading(heading);
     }
 
     // Accuracy Circle

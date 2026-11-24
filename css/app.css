@@ -3097,7 +3097,6 @@ body:has(.modal-overlay.open) #btn-recenter-nav {
 .user-nav-puck-container {
   background: transparent !important;
   border: none !important;
-  transition: transform 0.4s ease-out;
   will-change: transform;
 }
 
@@ -3121,7 +3120,6 @@ body:has(.modal-overlay.open) #btn-recenter-nav {
   transform-origin: 50% 100%;
   pointer-events: none;
   z-index: 1;
-  transition: transform 0.16s cubic-bezier(0.25, 1, 0.5, 1);
   will-change: transform;
 }
 
@@ -3154,7 +3152,6 @@ body:has(.modal-overlay.open) #btn-recenter-nav {
   font-weight: 900;
   line-height: 1;
   transform-origin: center center;
-  transition: transform 0.16s cubic-bezier(0.25, 1, 0.5, 1);
   will-change: transform;
 }
 
