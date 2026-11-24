@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.19-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.20-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.19-release
-          name: "VoltWay 2W Android APK v5.19 (Google Maps Human Voice Guidance, Repository Clean-up)"
-          body: "VoltWay 2W v5.19: Turn-by-turn Google Maps style human voice navigation ('Turn right', 'Turn left', 'In 100 meters', 'Destination on right', upcoming fast charging stop alerts); calibrated natural voice selection and cadence; Web Audio dual-tone EV alert chimes; unlocked audio pre-warming on user gesture; purged all older APK releases and cleaned repository."
+          tag_name: v5.20-release
+          name: "VoltWay 2W Android APK v5.20 (Fix UI Event Handlers, Full Human Voice Guidance)"
+          body: "VoltWay 2W v5.20: Fixed autocomplete closure bug that caused UI touches to freeze; full responsiveness restored across tabs, drawer, search and controls; complete Google Maps style human voice navigation ('Turn right', 'Turn left', 'In 100 meters', 'Destination on right'); Web Audio dual-tone EV alert chimes; single latest APK release."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

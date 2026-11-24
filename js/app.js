@@ -1532,6 +1532,27 @@ function attachLocationAutocomplete(inputEl, dropdownEl, onSelect) {
       if (handled) return;
     }
 
+    const qLower = query.toLowerCase();
+
+    // 1. Instant local places & chargers matching (0ms)
+    const localPlaces = window.Utilities && window.Utilities.getLocalPlaces ? window.Utilities.getLocalPlaces(query) : [];
+    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : [];
+    const matchedChargers = allChargers.filter(c =>
+      (c.name && c.name.toLowerCase().includes(qLower)) || (c.address && c.address.toLowerCase().includes(qLower))
+    ).slice(0, 5);
+
+    renderDropdown(query, localPlaces, matchedChargers);
+
+    // 2. Query Photon Komoot Geocoder in background (handles all Kerala towns and Indian cities within 150ms)
+    if (query.length >= 2) {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const fullPlaces = (window.Utilities && window.Utilities.searchPlace) ? await window.Utilities.searchPlace(query) : [];
+        renderDropdown(query, fullPlaces, matchedChargers);
+      }, 150);
+    }
+  };
+
   inputEl.addEventListener('input', () => {
     executeSearch(inputEl.value.trim());
   });
