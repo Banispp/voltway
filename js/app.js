@@ -745,47 +745,6 @@ function setupRoutePlanner() {
     });
   }
 
-  // Quick Swap Starting Point (A) and Final Destination (D)
-  const btnSwapLocations = document.getElementById('btn-swap-locations');
-  if (btnSwapLocations) {
-    btnSwapLocations.addEventListener('click', () => {
-      // If destination is missing but there are intermediate stops, promote the last one first
-      if (!destinationPoint && intermediateCustomStops.length > 0) {
-        const last = intermediateCustomStops.pop();
-        destinationPoint = { lat: last.lat, lng: last.lng, name: last.name };
-        if (destInput) destInput.value = destinationPoint.name;
-        renderIntermediateStops();
-      }
-
-      if (!originPoint && !destinationPoint) return;
-      const tempPoint = originPoint;
-      originPoint = destinationPoint;
-      destinationPoint = tempPoint;
-
-      const tempVal = originInput ? originInput.value : '';
-      if (originInput && destInput) {
-        originInput.value = destInput.value;
-        destInput.value = tempVal;
-      }
-
-      if (intermediateCustomStops && intermediateCustomStops.length > 1) {
-        intermediateCustomStops.reverse();
-        renderIntermediateStops();
-      }
-
-      const active = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
-      if (active && btnPlanRoute) {
-        if (window.RouteEngine) window.RouteEngine.clearWaypoints();
-        if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-          window.SyncEngine.showAutoUpdateToast('⇅ Route Reversed with Charging Stops');
-        }
-        btnPlanRoute.click();
-      } else if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast('⇅ Start & Destination Swapped');
-      }
-    });
-  }
-
   // Complete Round Trip (Start ➔ Destination ➔ Start)
   const btnToggleRoundtrip = document.getElementById('btn-toggle-roundtrip');
   if (btnToggleRoundtrip) {

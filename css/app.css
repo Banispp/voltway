@@ -1622,21 +1622,6 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   transform: scale(0.98);
 }
 
-.btn-pill-swap {
-  background: #0b111e;
-  border: 1.5px solid rgba(255, 255, 255, 0.18);
-  color: #e2e8f0;
-}
-
-.btn-pill-swap:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: #ffffff;
-}
-
-.btn-pill-swap:active {
-  transform: scale(0.96);
-}
-
 .btn-pill-roundtrip {
   background: #0b111e;
   border: 1.5px solid rgba(0, 230, 118, 0.35);
