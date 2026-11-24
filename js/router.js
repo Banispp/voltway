@@ -12,7 +12,29 @@ const RouteEngine = (function () {
   let currentDestination = null;
   let corridorChargers = [];
   let intermediateWaypoints = []; // [charger1, charger2, ...]
-  let lastOutwardRoute = null; // Caches latest outward route { origin, destination, coordinates, distanceKm }
+  let lastOutwardRoute = null; // Caches latest outward route { origin, destination, coordinates, distanceKm, durationMins, roadName }
+
+  function saveOutwardRoute(data) {
+    lastOutwardRoute = data;
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('voltway_last_outward_route', JSON.stringify(data));
+      }
+    } catch (e) {}
+  }
+
+  function loadOutwardRoute() {
+    if (lastOutwardRoute) return lastOutwardRoute;
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        const raw = sessionStorage.getItem('voltway_last_outward_route');
+        if (raw) {
+          lastOutwardRoute = JSON.parse(raw);
+        }
+      }
+    } catch (e) {}
+    return lastOutwardRoute;
+  }
 
   function getCorridorAnchors(coords, count = 3) {
     if (!coords || coords.length < 25) return [];
@@ -415,34 +437,206 @@ const RouteEngine = (function () {
     }
 
     const isRoundTrip = origin && destination && haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng) < 0.4;
-    const isReturnJourney = lastOutwardRoute &&
-      haversineDistance(origin.lat, origin.lng, lastOutwardRoute.destination.lat, lastOutwardRoute.destination.lng) < 1.0 &&
-      haversineDistance(destination.lat, destination.lng, lastOutwardRoute.origin.lat, lastOutwardRoute.origin.lng) < 1.0;
+    const outwardCached = loadOutwardRoute();
+    const isReturnJourney = !isRoundTrip && outwardCached && outwardCached.origin && outwardCached.destination &&
+      haversineDistance(origin.lat, origin.lng, outwardCached.destination.lat, outwardCached.destination.lng) < 1.0 &&
+      haversineDistance(destination.lat, destination.lng, outwardCached.origin.lat, outwardCached.origin.lng) < 1.0;
 
-    let points = [origin, ...intermediateWaypoints, destination];
+    allRoutes = [];
+    selectedRouteIndex = 0;
 
-    // Lock return corridor to the EXACT same highway as outward route:
-    if (isReturnJourney && lastOutwardRoute && lastOutwardRoute.coordinates && lastOutwardRoute.coordinates.length > 20) {
-      if (intermediateWaypoints.length === 0) {
-        const guideAnchors = getCorridorAnchors(lastOutwardRoute.coordinates, 3);
-        points = [origin, ...guideAnchors, destination];
-      }
-    } else if (isRoundTrip && lastOutwardRoute && lastOutwardRoute.coordinates && lastOutwardRoute.coordinates.length > 20) {
-      let turnaroundIdx = -1;
-      let maxDist = -1;
-      intermediateWaypoints.forEach((w, idx) => {
-        const d = haversineDistance(origin.lat, origin.lng, w.lat, w.lng);
-        if (d > maxDist) {
-          maxDist = d;
-          turnaroundIdx = idx;
+    // =========================================================================
+    // CASE 1: Complete Round Trip (Origin ➔ Turnaround ➔ Origin)
+    // Symmetrical Highway Lock: The return leg follows the EXACT same highway coordinates in reverse!
+    // =========================================================================
+    if (isRoundTrip) {
+      let turnaroundWp = intermediateWaypoints.find(w => w.id && String(w.id).startsWith('turnaround_'));
+      if (!turnaroundWp) {
+        let maxDist = -1;
+        for (const w of intermediateWaypoints) {
+          if (w.isReturnStop || (w.id && String(w.id).includes('_return_'))) continue;
+          const d = haversineDistance(origin.lat, origin.lng, w.lat, w.lng);
+          if (d > maxDist) {
+            maxDist = d;
+            turnaroundWp = w;
+          }
         }
-      });
-      // If turnaround stop is the last waypoint, guide the return leg back to origin along the same highway
-      if (turnaroundIdx !== -1 && turnaroundIdx === intermediateWaypoints.length - 1) {
-        const guideAnchors = getCorridorAnchors(lastOutwardRoute.coordinates, 3);
-        points = [origin, ...intermediateWaypoints, ...guideAnchors, destination];
+      }
+
+      if (turnaroundWp) {
+        const outwardStops = intermediateWaypoints.filter(w => w !== turnaroundWp && !w.isReturnStop && !String(w.id).includes('_return_'));
+        const returnStops = intermediateWaypoints.filter(w => w !== turnaroundWp && (w.isReturnStop || String(w.id).includes('_return_')));
+
+        outwardStops.sort((a, b) => haversineDistance(origin.lat, origin.lng, a.lat, a.lng) - haversineDistance(origin.lat, origin.lng, b.lat, b.lng));
+        returnStops.sort((a, b) => haversineDistance(origin.lat, origin.lng, b.lat, b.lng) - haversineDistance(origin.lat, origin.lng, a.lat, a.lng));
+
+        const forwardPoints = [origin, ...outwardStops, turnaroundWp];
+        const fwdRoutes = await fetchOsrmRaw(forwardPoints);
+        if (!fwdRoutes || fwdRoutes.length === 0) {
+          throw new Error('No driving route found to turnaround destination');
+        }
+
+        const fwdData = fwdRoutes[0];
+        const fwdCoords = fwdData.geometry.coordinates.map(c => [c[1], c[0]]);
+        const fwdDistKm = Math.round((fwdData.distance / 1000) * 10) / 10;
+        const fwdDurMins = Math.round(fwdData.duration / 60);
+
+        // Outward leg distances
+        let cumKm = 0;
+        for (let i = 0; i < outwardStops.length; i++) {
+          if (fwdData.legs && fwdData.legs[i]) {
+            cumKm += Math.round((fwdData.legs[i].distance / 1000) * 10) / 10;
+            outwardStops[i].kmFromOrigin = Math.round(cumKm * 10) / 10;
+          }
+        }
+        turnaroundWp.kmFromOrigin = fwdDistKm;
+
+        // Mathematical Highway Symmetry: return leg is EXACT reverse of forward highway!
+        const retCoords = fwdCoords.slice().reverse();
+        const roundTripCoords = [...fwdCoords, ...retCoords];
+        const totalDistKm = Math.round(fwdDistKm * 2 * 10) / 10;
+        const totalDurMins = fwdDurMins * 2;
+
+        // Return stop distances along the full round-trip route
+        for (let i = 0; i < returnStops.length; i++) {
+          const rs = returnStops[i];
+          const matchOut = outwardStops.find(o => (o.originalId || o.id) === (rs.originalId || rs.id));
+          if (matchOut && matchOut.kmFromOrigin) {
+            rs.kmFromOrigin = Math.round((fwdDistKm + (fwdDistKm - matchOut.kmFromOrigin)) * 10) / 10;
+          } else {
+            const dTurn = haversineDistance(turnaroundWp.lat, turnaroundWp.lng, rs.lat, rs.lng);
+            const dOrig = haversineDistance(origin.lat, origin.lng, rs.lat, rs.lng);
+            const ratio = dTurn / (dTurn + dOrig || 1);
+            rs.kmFromOrigin = Math.round((fwdDistKm + ratio * fwdDistKm) * 10) / 10;
+          }
+        }
+
+        intermediateWaypoints = [...outwardStops, turnaroundWp, ...returnStops];
+
+        // Synthesize route legs
+        const synthesizedLegs = [];
+        let prevKm = 0;
+        for (let i = 0; i < intermediateWaypoints.length; i++) {
+          const wpKm = intermediateWaypoints[i].kmFromOrigin || prevKm;
+          const legDist = Math.max(0.1, Math.round((wpKm - prevKm) * 10) / 10);
+          synthesizedLegs.push({
+            distance: legDist * 1000,
+            duration: Math.round((legDist / (totalDistKm || 1)) * (totalDurMins * 60)),
+            summary: intermediateWaypoints[i].name || 'Waysegment'
+          });
+          prevKm = wpKm;
+        }
+        const finalLegDist = Math.max(0.1, Math.round((totalDistKm - prevKm) * 10) / 10);
+        synthesizedLegs.push({
+          distance: finalLegDist * 1000,
+          duration: Math.round((finalLegDist / (totalDistKm || 1)) * (totalDurMins * 60)),
+          summary: origin.name || 'Arrival at Origin'
+        });
+
+        const prominentRoad = extractMainRoadName(fwdData.legs) || 'Main Highway';
+        const name = `${prominentRoad} (Round Trip - ${totalDistKm} km)`;
+
+        allRoutes = [{
+          id: 'route-0',
+          name,
+          roadName: prominentRoad,
+          origin,
+          destination,
+          waypoints: [...intermediateWaypoints],
+          distanceKm: totalDistKm,
+          durationMins: totalDurMins,
+          timeDiffMins: 0,
+          geometry: { type: 'LineString', coordinates: roundTripCoords.map(c => [c[1], c[0]]) },
+          coordinates: roundTripCoords,
+          legs: synthesizedLegs,
+          isPrimary: true
+        }];
+
+        saveOutwardRoute({
+          origin: { ...origin },
+          destination: { lat: turnaroundWp.lat, lng: turnaroundWp.lng, name: turnaroundWp.name },
+          coordinates: fwdCoords.slice(),
+          distanceKm: fwdDistKm,
+          durationMins: fwdDurMins,
+          roadName: prominentRoad
+        });
+
+        selectedRouteIndex = 0;
+        activeRoute = allRoutes[0];
+        findCorridorChargers(activeRoute.coordinates);
+        notify();
+        return activeRoute;
       }
     }
+
+    // =========================================================================
+    // CASE 2: Return Journey (B ➔ A) after Outward Journey (A ➔ B)
+    // Symmetrical Highway Lock: Retrace the outward journey highway in reverse!
+    // =========================================================================
+    if (isReturnJourney && outwardCached && outwardCached.coordinates && outwardCached.coordinates.length > 10) {
+      const retCoords = outwardCached.coordinates.slice().reverse();
+      const totalDistKm = outwardCached.distanceKm;
+      const totalDurMins = outwardCached.durationMins;
+      const prominentRoad = outwardCached.roadName || 'Main Highway';
+
+      const cleanWaypoints = intermediateWaypoints.filter(w => !w._isCorridorGuide);
+      cleanWaypoints.forEach(wp => {
+        const dOrig = haversineDistance(origin.lat, origin.lng, wp.lat, wp.lng);
+        const dDest = haversineDistance(destination.lat, destination.lng, wp.lat, wp.lng);
+        const ratio = dOrig / (dOrig + dDest || 1);
+        wp.kmFromOrigin = Math.round((ratio * totalDistKm) * 10) / 10;
+      });
+      cleanWaypoints.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
+      intermediateWaypoints = cleanWaypoints;
+
+      const synthesizedLegs = [];
+      let prevKm = 0;
+      for (let i = 0; i < intermediateWaypoints.length; i++) {
+        const wpKm = intermediateWaypoints[i].kmFromOrigin || prevKm;
+        const legDist = Math.max(0.1, Math.round((wpKm - prevKm) * 10) / 10);
+        synthesizedLegs.push({
+          distance: legDist * 1000,
+          duration: Math.round((legDist / (totalDistKm || 1)) * (totalDurMins * 60)),
+          summary: intermediateWaypoints[i].name || 'Waysegment'
+        });
+        prevKm = wpKm;
+      }
+      const finalLegDist = Math.max(0.1, Math.round((totalDistKm - prevKm) * 10) / 10);
+      synthesizedLegs.push({
+        distance: finalLegDist * 1000,
+        duration: Math.round((finalLegDist / (totalDistKm || 1)) * (totalDurMins * 60)),
+        summary: destination.name || 'Arrival at Destination'
+      });
+
+      const name = `${prominentRoad} (Return Trip - ${totalDistKm} km)`;
+
+      allRoutes = [{
+        id: 'route-0',
+        name,
+        roadName: prominentRoad,
+        origin,
+        destination,
+        waypoints: [...intermediateWaypoints],
+        distanceKm: totalDistKm,
+        durationMins: totalDurMins,
+        timeDiffMins: 0,
+        geometry: { type: 'LineString', coordinates: retCoords.map(c => [c[1], c[0]]) },
+        coordinates: retCoords,
+        legs: synthesizedLegs,
+        isPrimary: true
+      }];
+
+      selectedRouteIndex = 0;
+      activeRoute = allRoutes[0];
+      findCorridorChargers(activeRoute.coordinates);
+      notify();
+      return activeRoute;
+    }
+
+    // =========================================================================
+    // CASE 3: Standard One-Way Route (A ➔ B) via OSRM
+    // =========================================================================
+    let points = [origin, ...intermediateWaypoints, destination];
 
     allRoutes = [];
     selectedRouteIndex = 0;
@@ -558,12 +752,14 @@ const RouteEngine = (function () {
 
       // Cache outward route geometry for locking return corridor (do NOT overwrite on return journeys!)
       if (!isRoundTrip && !isReturnJourney && activeRoute && activeRoute.coordinates && activeRoute.coordinates.length > 10) {
-        lastOutwardRoute = {
+        saveOutwardRoute({
           origin: { ...origin },
           destination: { ...destination },
           coordinates: activeRoute.coordinates.slice(),
-          distanceKm: activeRoute.distanceKm
-        };
+          distanceKm: activeRoute.distanceKm,
+          durationMins: activeRoute.durationMins,
+          roadName: activeRoute.roadName || (extractMainRoadName(activeRoute.legs) || 'Main Highway')
+        });
       }
 
       // Discover chargers along the selected route corridor

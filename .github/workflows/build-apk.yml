@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.45-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.46-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.45-release
-          name: "VoltWay 2W Android APK v5.45 (Bulletproof Same-Charger Return Stops & Symmetrical Corridor)"
-          body: "VoltWay 2W v5.45: Complete fix for same-charger stops on return routes: 1) Added explicit '➕ Add Return Stop' buttons to both map pin popups and corridor charger cards; 2) Fixed waypoint sequencing so outward stops (Stop 1), turnaround point, and return stops (Stop 2) are ordered with mathematical precision; 3) Recalculated leg-by-leg road distances directly from OSRM driving geometry so Stop 1 is visited at outward km (e.g. 25 km) and Stop 2 is visited at return km (e.g. 74 km); 4) Return journeys strictly follow the outward highway corridor."
+          tag_name: v5.46-release
+          name: "VoltWay 2W Android APK v5.46 (Restored Swap Button & Zero-Divergence Symmetrical Return Highway)"
+          body: "VoltWay 2W v5.46: 1) Restored '⇅ Swap' button in route action bar to instantly reverse starting point and destination; 2) Solved differing return road issue permanently with Symmetrical Corridor Lock: return journeys and round trips strictly follow the exact same highway coordinates as the outward trip with zero road divergence; 3) Full support for visiting the same charger on both outward (Stop 1) and return (Stop 2) legs with precise progression distances; 4) SessionStorage persistence for outward highway corridor across browser reloads."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:
