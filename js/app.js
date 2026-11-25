@@ -574,13 +574,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (item.isCharger) {
           const icon = item.type === 'FAST' ? '⚡' : '🔌';
           div.innerHTML = `
-            <span class="dropdown-item-title">${icon} ${esc(item.name)}</span>
-            <span class="dropdown-item-sub">${esc(item.address || item.connector || 'Verified 2W Charger')}</span>
+            <div class="item-title">${icon} ${esc(item.name)}</div>
+            <div class="item-sub">${esc(item.address || item.connector || 'Verified 2W Charger')}</div>
           `;
         } else {
           div.innerHTML = `
-            <span class="dropdown-item-title">📍 ${esc(item.name)}</span>
-            <span class="dropdown-item-sub">${esc(item.fullName || `${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}`)}</span>
+            <div class="item-title">📍 ${esc(item.name)}</div>
+            <div class="item-sub">${esc(item.fullName || `${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}`)}</div>
           `;
         }
 
@@ -599,17 +599,15 @@ document.addEventListener('DOMContentLoaded', () => {
       openDropdownEl = dropdownEl;
     };
 
-    inputEl.addEventListener('input', () => {
-      if (options.onClearSelection) options.onClearSelection();
+    const runLookup = () => {
       const q = inputEl.value.trim();
       clearTimeout(debounceTimer);
 
-      if (q.length < 2) {
+      if (q.length < 2 || q.toLowerCase().includes('current location')) {
         dropdownEl.classList.remove('visible');
         return;
       }
 
-      // Check direct coords or Google Maps link on paste/input
       if (/^https?:\/\//i.test(q) || /^-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+$/.test(q)) {
         debounceTimer = setTimeout(async () => {
           if (q.includes('/maps/dir/') || q.includes('goo.gl')) {
@@ -625,29 +623,30 @@ document.addEventListener('DOMContentLoaded', () => {
               showItems([{ ...resolved, isCharger: false }]);
             }
           }
-        }, 250);
+        }, 220);
         return;
       }
 
       const qLower = q.toLowerCase();
-      const immediateResults = [];
+      const immediatePlaces = window.Utilities
+        ? window.Utilities.getLocalPlaces(q).map(p => ({ ...p, isCharger: false }))
+        : [];
+      const immediateChargers = [];
 
       if (options.includeChargers && window.SyncEngine) {
         const allChargers = window.SyncEngine.getChargers() || [];
         let matchedCount = 0;
-        for (let i = 0; i < allChargers.length && matchedCount < 6; i++) {
+        for (let i = 0; i < allChargers.length && matchedCount < 5; i++) {
           const c = allChargers[i];
           if ((c.name && c.name.toLowerCase().includes(qLower)) || (c.address && c.address.toLowerCase().includes(qLower))) {
-            immediateResults.push({ ...c, isCharger: true });
+            immediateChargers.push({ ...c, isCharger: true });
             matchedCount++;
           }
         }
       }
 
-      if (window.Utilities) {
-        window.Utilities.getLocalPlaces(q).forEach(p => immediateResults.push({ ...p, isCharger: false }));
-      }
-
+      // Show matching cities/towns first, followed by matching chargers
+      const immediateResults = [...immediatePlaces, ...immediateChargers];
       if (immediateResults.length > 0) {
         showItems(immediateResults.slice(0, 8));
       }
@@ -655,15 +654,36 @@ document.addEventListener('DOMContentLoaded', () => {
       if (navigator.onLine && window.Utilities) {
         debounceTimer = setTimeout(async () => {
           const onlinePlaces = await window.Utilities.searchPlace(q);
-          if (document.activeElement !== inputEl && dropdownEl !== openDropdownEl) return;
-          const merged = [...immediateResults.filter(i => i.isCharger)];
+          if (inputEl.value.trim() !== q) return;
+          const merged = [];
           (onlinePlaces || []).forEach(p => {
             if (!merged.some(m => !m.isCharger && Math.abs(m.lat - p.lat) < 0.02 && Math.abs(m.lng - p.lng) < 0.02)) {
               merged.push({ ...p, isCharger: false });
             }
           });
-          showItems(merged.slice(0, 8));
-        }, 320);
+          immediateChargers.forEach(c => {
+            if (merged.length < 8) merged.push(c);
+          });
+          if (merged.length > 0) {
+            showItems(merged.slice(0, 8));
+          }
+        }, 220);
+      }
+    };
+
+    inputEl.addEventListener('input', () => {
+      if (options.onClearSelection) options.onClearSelection();
+      runLookup();
+    });
+
+    inputEl.addEventListener('focus', () => {
+      const q = inputEl.value.trim();
+      if (q.length >= 2 && !q.toLowerCase().includes('current location') && dropdownEl.children.length === 0) {
+        runLookup();
+      } else if (dropdownEl.children.length > 0 && q.length >= 2 && !q.toLowerCase().includes('current location')) {
+        closeOpenDropdown();
+        dropdownEl.classList.add('visible');
+        openDropdownEl = dropdownEl;
       }
     });
   }
