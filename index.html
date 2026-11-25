@@ -364,17 +364,26 @@
                   <span class="btn-nav-arrow">↗</span>
                 </button>
               </div>
+
+              <div id="voice-quick-bar" class="voice-quick-bar" style="display: none;">
+                <button type="button" id="btn-route-voice-toggle" class="btn-voice-toggle" title="Toggle Turn-by-Turn Voice Guidance">
+                  🔊 Voice Prompts: ON
+                </button>
+                <button type="button" id="btn-route-voice-test" class="btn-voice-test" title="Play Sample Turn Left / Turn Right Voice Cue">
+                  ▶ Test Voice
+                </button>
+              </div>
             </div>
 
             <div id="trip-battery-timeline-section" class="battery-timeline-section" style="display: none;">
-              <div class="section-title" style="flex-wrap: wrap; gap: 6px; align-items: center;">
-                <span>🔋 Est. Battery &amp; Charging Plan</span>
+              <div class="plan-header-row">
+                <span class="plan-header-title">🔋 Battery &amp; Charging Plan</span>
                 <div class="timeline-mode-toggle" id="timeline-mode-toggle">
-                  <button type="button" class="btn-timeline-mode active" id="btn-mode-optimal" title="Charge only what is needed to reach next stop safely">⚡ Fast Hop</button>
-                  <button type="button" class="btn-timeline-mode" id="btn-mode-target" title="Charge up to configured Fast Charge Target at every stop">🔋 Full Target</button>
+                  <button type="button" class="btn-timeline-mode active" id="btn-mode-optimal" title="Charge only what is needed to reach next stop">⚡ Min Needed</button>
+                  <button type="button" class="btn-timeline-mode" id="btn-mode-target" title="Charge up to your target battery %">🔋 To 80%</button>
                 </div>
               </div>
-              <div id="trip-battery-timeline-container" class="battery-timeline-container"></div>
+              <div id="trip-battery-timeline-container" class="battery-timeline-container timeline-nodes-list"></div>
             </div>
 
             <div class="corridor-container">

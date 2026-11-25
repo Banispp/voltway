@@ -57,6 +57,8 @@ import java.util.Locale;
 public class MainActivity extends BridgeActivity {
     private TextToSpeech tts;
     private boolean ttsReady = false;
+    private String pendingSpeech = null;
+    private boolean pendingFlush = true;
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
 
@@ -147,6 +149,16 @@ public class MainActivity extends BridgeActivity {
                     });
 
                     ttsReady = true;
+                    if (pendingSpeech != null) {
+                        String textToSpeak = pendingSpeech;
+                        boolean doFlush = pendingFlush;
+                        pendingSpeech = null;
+                        requestNavAudioFocus();
+                        int mode = doFlush ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD;
+                        Bundle params = new Bundle();
+                        params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
+                        tts.speak(textToSpeak, mode, params, "VoltWayNav_" + System.currentTimeMillis());
+                    }
                 }
             });
         } catch (Exception e) {
@@ -157,12 +169,16 @@ public class MainActivity extends BridgeActivity {
             this.bridge.getWebView().addJavascriptInterface(new Object() {
                 @JavascriptInterface
                 public void speak(String text, boolean flush) {
-                    if (tts != null && ttsReady && text != null && !text.trim().isEmpty()) {
+                    if (text == null || text.trim().isEmpty()) return;
+                    if (tts != null && ttsReady) {
                         requestNavAudioFocus();
                         int mode = flush ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD;
                         Bundle params = new Bundle();
                         params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
                         tts.speak(text, mode, params, "VoltWayNav_" + System.currentTimeMillis());
+                    } else if (tts != null) {
+                        pendingSpeech = text;
+                        pendingFlush = flush;
                     }
                 }
 

@@ -1046,6 +1046,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const timelineMode = payload ? payload.timelineMode : 'optimal';
     const bufKm = payload ? payload.corridorBufferKm : 5;
 
+    const voiceQuickBar = document.getElementById('voice-quick-bar');
     if (!route) {
       if (routeSelectorContainer) routeSelectorContainer.style.display = 'none';
       if (routeSummaryCard) routeSummaryCard.style.display = 'none';
@@ -1054,12 +1055,17 @@ document.addEventListener('DOMContentLoaded', () => {
       if (btnFloatingStartNav) btnFloatingStartNav.style.display = 'none';
       if (btnStartInAppNav) btnStartInAppNav.style.display = 'none';
       if (navSecondaryActions) navSecondaryActions.style.display = 'none';
+      if (voiceQuickBar) voiceQuickBar.style.display = 'none';
       return;
     }
 
     if (mapRouteCorridorPill) mapRouteCorridorPill.style.display = 'flex';
     if (btnStartInAppNav) btnStartInAppNav.style.display = 'flex';
     if (navSecondaryActions) navSecondaryActions.style.display = 'flex';
+    if (voiceQuickBar) voiceQuickBar.style.display = 'flex';
+    if (window.DriveEngine && window.DriveEngine.updateSoundButtonUi) {
+      window.DriveEngine.updateSoundButtonUi();
+    }
     if (btnFloatingStartNav && !(window.DriveEngine && window.DriveEngine.isActive())) {
       btnFloatingStartNav.style.display = 'flex';
     }
@@ -1160,14 +1166,31 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // Battery Timeline Section
+    // Battery & Charging Plan Section (Clean Scannable Cards)
     if (btnModeOptimal) btnModeOptimal.classList.toggle('active', timelineMode === 'optimal');
-    if (btnModeTarget) btnModeTarget.classList.toggle('active', timelineMode === 'target');
+    if (btnModeTarget) {
+      btnModeTarget.classList.toggle('active', timelineMode === 'target');
+      btnModeTarget.textContent = `🔋 To ${batState.targetChargePct || 80}%`;
+    }
 
     if (tripTimelineSection && tripTimelineContainer && timelineResult && timelineResult.timeline) {
       tripTimelineSection.style.display = 'block';
       tripTimelineContainer.className = 'battery-timeline-container timeline-nodes-list';
       tripTimelineContainer.innerHTML = '';
+
+      if (timelineResult.totalChargingStops > 0) {
+        const sumStrip = document.createElement('div');
+        sumStrip.className = 'plan-summary-strip';
+        const totChargeTxt = window.Utilities
+          ? window.Utilities.formatMinutes(timelineResult.totalChargingMins)
+          : `${timelineResult.totalChargingMins}m`;
+        sumStrip.innerHTML = `
+          <span>⚡ ${timelineResult.totalChargingStops} Charging Stop${timelineResult.totalChargingStops > 1 ? 's' : ''}</span>
+          <span style="color:#38bdf8;">Charge Time: ~${esc(totChargeTxt)}</span>
+          <span style="color:${finalArrivalSoC < batState.safetyReservePct ? '#fbbf24' : '#00e676'};">Finish: ${finalArrivalSoC}%</span>
+        `;
+        tripTimelineContainer.appendChild(sumStrip);
+      }
 
       timelineResult.timeline.forEach(node => {
         const el = document.createElement('div');
@@ -1175,23 +1198,26 @@ document.addEventListener('DOMContentLoaded', () => {
           el.className = 'timeline-step';
           el.innerHTML = `
             <div class="step-icon-col">
-              <div class="step-dot" style="background: rgba(56,189,248,0.2); border: 1.5px solid #38bdf8; color: #38bdf8;">🚩</div>
+              <div class="step-dot dot-origin">🚩</div>
               <div class="step-stem"></div>
             </div>
             <div class="step-content">
               <div class="step-title-row">
-                <span class="step-title">Start: ${esc(node.name)}</span>
-                <span class="stop-pill-spec">${node.batteryPct}% SoC</span>
+                <span class="step-title">${esc(node.name)}</span>
+                <span class="stop-pill-spec" style="color:#38bdf8;">Start: ${node.batteryPct}%</span>
               </div>
-              <div class="step-sub">Departing on active scooter profile</div>
             </div>
           `;
         } else if (node.type === 'LEG') {
+          const rideDur = window.Utilities ? window.Utilities.formatMinutes(node.durationMins) : `${node.durationMins}m`;
           el.className = 'timeline-step timeline-step-leg';
           el.innerHTML = `
             <div class="step-icon-col"><div class="step-stem"></div></div>
-            <div class="step-content" style="padding-bottom: 8px;">
-              <div class="step-sub" style="color: #94a3b8;">🛵 Ride ${node.distanceKm} km (~${node.durationMins} min) • Est. -${node.batteryUsedPct}% SoC</div>
+            <div class="step-content" style="padding-top:2px; padding-bottom:10px;">
+              <div class="leg-pill">
+                <span>🛵 ${node.distanceKm} km • ${esc(rideDur)}</span>
+                <span class="leg-bat-used">-${node.batteryUsedPct}% battery</span>
+              </div>
             </div>
           `;
         } else if (node.type === 'CHARGER_STOP') {
@@ -1199,53 +1225,78 @@ document.addEventListener('DOMContentLoaded', () => {
           const compat = (window.BatteryEngine && window.BatteryEngine.isChargerCompatible)
             ? window.BatteryEngine.isChargerCompatible(st)
             : { compatible: true, reason: '' };
-          const fmtTime = window.Utilities ? window.Utilities.formatMinutes(node.chargeTimeMins) : `${node.chargeTimeMins} min`;
-          const dotBg = node.isCriticalArrival ? 'rgba(255,51,102,0.22)' : 'rgba(0,230,118,0.2)';
-          const dotBd = node.isCriticalArrival ? '#ff3366' : '#00e676';
+          const fmtTime = window.Utilities ? window.Utilities.formatMinutes(node.chargeTimeMins) : `${node.chargeTimeMins}m`;
+          const arrColor = node.arrivalSoC < 0 ? '#ff4d6d' : (node.arrivalSoC < batState.safetyReservePct ? '#fbbf24' : '#38bdf8');
+          const cardStateClass = node.arrivalSoC < 0 ? 'critical' : (!node.isSafeArrival ? 'warn' : '');
+          const fillPct = Math.max(4, Math.min(100, node.departureSoC));
+
+          let warningHtml = '';
+          if (node.arrivalSoC < 0) {
+            warningHtml = `<div class="plan-alert-pill critical">⚠️ Out of battery before reaching this stop (${node.arrivalSoC}%). Add an earlier stop.</div>`;
+          } else if (node.arrivalSoC < batState.safetyReservePct) {
+            warningHtml = `<div class="plan-alert-pill">⚠️ Low arrival battery (${node.arrivalSoC}%, below ${batState.safetyReservePct}% reserve).</div>`;
+          }
+          if (!compat.compatible) {
+            warningHtml += `<div class="plan-alert-pill">🔌 ${esc(compat.reason)}</div>`;
+          }
+
           el.className = 'timeline-step';
           el.innerHTML = `
             <div class="step-icon-col">
-              <div class="step-dot" style="background: ${dotBg}; border: 1.5px solid ${dotBd}; color: ${dotBd};">⚡</div>
+              <div class="step-dot dot-stop">⚡</div>
               <div class="step-stem"></div>
             </div>
             <div class="step-content">
-              <div class="step-title-row">
-                <span class="step-title">Stop #${node.index}: ${esc(st.name || 'Charger')}</span>
-                <span class="stop-pill-spec">+${node.chargeNeededPct}% • ${esc(fmtTime)}</span>
+              <div class="plan-stop-card ${cardStateClass}">
+                <div class="plan-stop-top">
+                  <div class="plan-stop-name">Stop ${node.index} • ${esc(st.name || 'Charger')}</div>
+                  <span class="plan-stop-badge">${node.isFast ? `⚡ ${st.power_kw || 3} kW` : '🔌 15A'}</span>
+                </div>
+                <div class="plan-charge-flow">
+                  <div class="plan-flow-col">
+                    <span class="plan-flow-lbl">Arrive</span>
+                    <span class="plan-flow-val" style="color:${arrColor};">${node.arrivalSoC}%</span>
+                  </div>
+                  <div class="plan-flow-mid">+${node.chargeNeededPct}% • ${esc(fmtTime)}</div>
+                  <div class="plan-flow-col">
+                    <span class="plan-flow-lbl">Leave</span>
+                    <span class="plan-flow-val" style="color:#00e676;">${node.departureSoC}%</span>
+                  </div>
+                </div>
+                <div class="plan-bat-bar-track">
+                  <div class="plan-bat-bar-fill" style="width:${fillPct}%;"></div>
+                </div>
+                ${warningHtml}
               </div>
-              <div class="step-sub">Arrive ~<strong>${node.arrivalSoC}%</strong> → Charge ~${node.unitsKWh} kWh → Depart <strong>${node.departureSoC}%</strong></div>
-              <div class="step-sub" style="color: #cbd5e1;">${esc(node.smartAdvice)}</div>
-              ${!compat.compatible ? `<div class="step-sub" style="color: #fbbf24; font-weight: 700;">⚠️ ${esc(compat.reason)}</div>` : ''}
             </div>
           `;
         } else if (node.type === 'CUSTOM_STOP') {
+          const arrCol = node.isCriticalArrival ? '#ff4d6d' : (node.isSafeArrival ? '#00e676' : '#fbbf24');
           el.className = 'timeline-step';
           el.innerHTML = `
             <div class="step-icon-col">
-              <div class="step-dot" style="background: rgba(251,191,36,0.2); border: 1.5px solid #fbbf24; color: #fbbf24;">📍</div>
+              <div class="step-dot" style="background:#fbbf24; color:#451a03;">📍</div>
               <div class="step-stem"></div>
             </div>
             <div class="step-content">
               <div class="step-title-row">
-                <span class="step-title">Stop #${node.index}: ${esc(node.name)}</span>
-                <span class="stop-pill-spec">Arrive ${node.arrivalSoC}%</span>
+                <span class="step-title">Stop ${node.index} • ${esc(node.name)}</span>
+                <span class="stop-pill-spec" style="color:${arrCol};">Arrive: ${node.arrivalSoC}%</span>
               </div>
-              <div class="step-sub">Custom stop • Next leg: ${node.nextLegDist} km</div>
             </div>
           `;
         } else if (node.type === 'DESTINATION') {
-          const endBd = node.isCritical ? '#ff3366' : (node.isSafe ? '#00e676' : '#fbbf24');
+          const endCol = node.isCritical ? '#ff4d6d' : (node.isSafe ? '#00e676' : '#fbbf24');
           el.className = 'timeline-step';
           el.innerHTML = `
             <div class="step-icon-col">
-              <div class="step-dot" style="background: rgba(16,185,129,0.22); border: 1.5px solid ${endBd}; color: ${endBd};">🏁</div>
+              <div class="step-dot dot-dest" style="background:${endCol};">🏁</div>
             </div>
             <div class="step-content" style="padding-bottom: 2px;">
               <div class="step-title-row">
-                <span class="step-title">Destination: ${esc(node.name)}</span>
-                <span class="stop-pill-spec" style="color: ${endBd};">${node.arrivalSoC}% SoC</span>
+                <span class="step-title">${esc(node.name)}</span>
+                <span class="stop-pill-spec" style="color:${endCol};">Finish: ${node.arrivalSoC}%</span>
               </div>
-              <div class="step-sub">Est. final arrival state of charge</div>
             </div>
           `;
         }
@@ -1601,11 +1652,18 @@ document.addEventListener('DOMContentLoaded', () => {
     let overviewMode = false;
 
     function updateSoundButtonUi() {
-      if (!btnHudSound || !window.VoiceEngine) return;
+      if (!window.VoiceEngine) return;
       const on = window.VoiceEngine.isEnabled();
-      btnHudSound.textContent = on ? '🔊' : '🔇';
-      btnHudSound.classList.toggle('muted', !on);
-      btnHudSound.title = on ? 'Voice Guidance On (Tap to Mute)' : 'Voice Guidance Muted (Tap to Unmute)';
+      if (btnHudSound) {
+        btnHudSound.textContent = on ? '🔊' : '🔇';
+        btnHudSound.classList.toggle('muted', !on);
+        btnHudSound.title = on ? 'Voice Guidance On (Tap to Mute)' : 'Voice Guidance Muted (Tap to Unmute)';
+      }
+      const btnRouteVoice = document.getElementById('btn-route-voice-toggle');
+      if (btnRouteVoice) {
+        btnRouteVoice.textContent = on ? '🔊 Voice Prompts: ON' : '🔇 Voice Prompts: OFF';
+        btnRouteVoice.classList.toggle('muted', !on);
+      }
     }
 
     async function requestWakeLock() {
@@ -1635,27 +1693,29 @@ document.addEventListener('DOMContentLoaded', () => {
       const m = step.maneuver || {};
       const type = (m.type || 'continue').toLowerCase();
       const mod = (m.modifier || '').toLowerCase();
-      const road = step.name && step.name.trim() ? step.name.trim() : 'the road';
+      const hasRoad = Boolean(step.name && step.name.trim() && !/unnamed/i.test(step.name));
+      const onto = hasRoad ? ` onto ${step.name.trim()}` : '';
+      const onRoad = hasRoad ? ` on ${step.name.trim()}` : '';
 
       if (type === 'arrive') {
         return { icon: '🏁', text: 'Arrive at destination', speech: 'You have arrived at your destination.' };
       }
       if (type === 'depart') {
-        return { icon: '⬆', text: `Head onto ${road}`, speech: `Head onto ${road}` };
+        return { icon: '⬆', text: `Head${onto}`, speech: hasRoad ? `Head onto ${step.name.trim()}` : 'Head straight ahead' };
       }
       if (type === 'roundabout' || type === 'rotary') {
         const ex = m.exit ? `${m.exit} ` : '';
-        return { icon: '⟲', text: `Take roundabout ${ex}exit onto ${road}`, speech: `At the roundabout, take exit ${m.exit || ''} onto ${road}` };
+        return { icon: '⟲', text: `Take roundabout ${ex}exit${onto}`, speech: `At the roundabout, take exit ${m.exit || ''}${onto}` };
       }
-      if (mod.includes('sharp left')) return { icon: '↙', text: `Sharp left onto ${road}`, speech: `Make a sharp left onto ${road}` };
-      if (mod.includes('slight left')) return { icon: '↖', text: `Keep left onto ${road}`, speech: `Keep left onto ${road}` };
-      if (mod.includes('left')) return { icon: '↰', text: `Turn left onto ${road}`, speech: `Turn left onto ${road}` };
-      if (mod.includes('sharp right')) return { icon: '↘', text: `Sharp right onto ${road}`, speech: `Make a sharp right onto ${road}` };
-      if (mod.includes('slight right')) return { icon: '↗', text: `Keep right onto ${road}`, speech: `Keep right onto ${road}` };
-      if (mod.includes('right')) return { icon: '↱', text: `Turn right onto ${road}`, speech: `Turn right onto ${road}` };
-      if (mod.includes('uturn')) return { icon: '↺', text: `Make a U-turn onto ${road}`, speech: `Make a U-turn onto ${road}` };
+      if (mod.includes('sharp left')) return { icon: '↙', text: `Sharp left${onto}`, speech: `Turn sharp left${onto}` };
+      if (mod.includes('slight left')) return { icon: '↖', text: `Keep left${onto}`, speech: `Keep left${onto}` };
+      if (mod.includes('left')) return { icon: '↰', text: `Turn left${onto}`, speech: `Turn left${onto}` };
+      if (mod.includes('sharp right')) return { icon: '↘', text: `Sharp right${onto}`, speech: `Turn sharp right${onto}` };
+      if (mod.includes('slight right')) return { icon: '↗', text: `Keep right${onto}`, speech: `Keep right${onto}` };
+      if (mod.includes('right')) return { icon: '↱', text: `Turn right${onto}`, speech: `Turn right${onto}` };
+      if (mod.includes('uturn')) return { icon: '↺', text: `Make a U-turn${onto}`, speech: `Make a U-turn${onto}` };
 
-      return { icon: '⬆', text: `Continue on ${road}`, speech: `Continue on ${road}` };
+      return { icon: '⬆', text: `Continue${onRoad}`, speech: hasRoad ? `Continue straight${onRoad}` : 'Continue straight' };
     }
 
     function extractSteps(route) {
@@ -1979,7 +2039,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (distToStepM <= 35 && currentStepIdx < steps.length - 1) {
           if (!spokenStages.has(`${lookIdx}_now`)) {
             spokenStages.add(`${lookIdx}_now`);
-            if (window.VoiceEngine) window.VoiceEngine.speak(targetStep.speech, { chime: 'turn' });
+            if (window.VoiceEngine) window.VoiceEngine.speak(`${targetStep.speech} now`, { chime: 'turn' });
           }
           currentStepIdx = lookIdx;
         } else if (distToStepM <= 120 && !spokenStages.has(`${lookIdx}_100`)) {
@@ -1987,7 +2047,12 @@ document.addEventListener('DOMContentLoaded', () => {
           if (window.VoiceEngine) {
             window.VoiceEngine.speak(`In ${Math.round(distToStepM / 10) * 10} meters, ${targetStep.speech}`, { chime: 'turn' });
           }
-        } else if (distToStepM <= 500 && distToStepM >= 220 && !spokenStages.has(`${lookIdx}_500`)) {
+        } else if (distToStepM <= 240 && distToStepM >= 145 && !spokenStages.has(`${lookIdx}_200`)) {
+          spokenStages.add(`${lookIdx}_200`);
+          if (window.VoiceEngine) {
+            window.VoiceEngine.speak(`In 200 meters, ${targetStep.speech}`);
+          }
+        } else if (distToStepM <= 550 && distToStepM >= 320 && !spokenStages.has(`${lookIdx}_500`)) {
           spokenStages.add(`${lookIdx}_500`);
           if (window.VoiceEngine) {
             window.VoiceEngine.speak(`In 500 meters, ${targetStep.speech}`);
@@ -2034,6 +2099,27 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.VoiceEngine) {
         window.VoiceEngine.toggle();
         DriveEngine.updateSoundButtonUi();
+      }
+    });
+  }
+  const btnRouteVoiceToggle = document.getElementById('btn-route-voice-toggle');
+  if (btnRouteVoiceToggle) {
+    btnRouteVoiceToggle.addEventListener('click', () => {
+      if (window.VoiceEngine) {
+        window.VoiceEngine.unlockAudio();
+        window.VoiceEngine.toggle();
+        DriveEngine.updateSoundButtonUi();
+      }
+    });
+  }
+  const btnRouteVoiceTest = document.getElementById('btn-route-voice-test');
+  if (btnRouteVoiceTest) {
+    btnRouteVoiceTest.addEventListener('click', () => {
+      if (window.VoiceEngine) {
+        window.VoiceEngine.unlockAudio();
+        window.VoiceEngine.setEnabled(true);
+        DriveEngine.updateSoundButtonUi();
+        window.VoiceEngine.speak('In 200 meters, turn left, then turn right onto NH 544. Voice guidance ready.', { force: true, chime: 'turn' });
       }
     });
   }

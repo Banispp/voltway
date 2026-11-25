@@ -176,6 +176,9 @@ const VoiceEngine = (function () {
         utter.rate = 0.98;
         utter.pitch = 1.0;
         utter.volume = 1.0;
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
         window.speechSynthesis.speak(utter);
         return true;
       }
