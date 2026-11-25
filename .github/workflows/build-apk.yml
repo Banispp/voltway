@@ -34,7 +34,7 @@ jobs:
           mkdir -p www
           cp -r index.html manifest.json sw.js chargers_db.json css js icons www/
           npm init -y
-          npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/geolocation@^6 @capacitor/app@^6 @capacitor-community/text-to-speech@^6
+          npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/geolocation@^6 @capacitor/app@^6 @capacitor-community/text-to-speech@^5.1.0
           npx cap add android
           npx cap sync android
           python scripts/inject_permissions.py
