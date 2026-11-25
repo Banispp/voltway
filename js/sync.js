@@ -247,16 +247,22 @@ const SyncEngine = (function () {
 
     try {
       let remoteChargers = null;
-      const remoteRepoUrl = 'https://raw.githubusercontent.com/Banispp/voltway/master/chargers_db.json?v=' + Date.now();
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 7000);
-        const resp = await fetch(remoteRepoUrl, { cache: 'no-store', signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (resp.ok) {
-          remoteChargers = await resp.json();
-        }
-      } catch (errRemote) {}
+      const remoteUrls = [
+        'https://raw.githubusercontent.com/Banispp/voltway/master/chargers_db.json?v=' + Date.now(),
+        'https://banispp.github.io/voltway/chargers_db.json?v=' + Date.now()
+      ];
+      for (const remoteRepoUrl of remoteUrls) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 7000);
+          const resp = await fetch(remoteRepoUrl, { cache: 'no-store', signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (resp.ok) {
+            remoteChargers = await resp.json();
+            if (Array.isArray(remoteChargers) && remoteChargers.length > 0) break;
+          }
+        } catch (errRemote) {}
+      }
 
       if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) {
         return { added: 0, removed: 0 };
@@ -565,14 +571,18 @@ const SyncEngine = (function () {
     }, 4000);
   }
 
-  function getStats() {
+  function getStats(stateFilter = 'all') {
     let atherFast = 0;
     let vidaFast = 0;
     let boltFast = 0;
     let boltSlow = 0;
+    let total = 0;
+    const region = stateFilter || 'all';
 
     for (let i = 0; i < inMemoryChargers.length; i++) {
       const c = inMemoryChargers[i];
+      if (region !== 'all' && c.state !== region) continue;
+      total++;
       if (c.network === 'ATHER_GRID') atherFast++;
       else if (c.network === 'VIDA_GRID') vidaFast++;
       else if (c.network === 'BOLT_EARTH') {
@@ -582,11 +592,12 @@ const SyncEngine = (function () {
     }
 
     return {
-      total: inMemoryChargers.length,
+      total,
       atherFast,
       vidaFast,
       boltFast,
       boltSlow,
+      stateFilter: region,
       lastSync: localStorage.getItem('voltway_last_sync')
     };
   }

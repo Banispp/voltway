@@ -2939,7 +2939,8 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   -webkit-overflow-scrolling: touch;
 }
 
-.modal-overlay.open {
+.modal-overlay.open,
+.modal-overlay.active {
   display: flex;
 }
 

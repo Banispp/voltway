@@ -15,6 +15,7 @@ const MapEngine = (function () {
   let waypointsLayer = null;
   let userLocationMarker = null;
   let userAccuracyCircle = null;
+  let batteryRangeCircle = null;
   let activeMainLine = null;
   let activeGlowLine = null;
   let traversedMainLine = null;
@@ -506,8 +507,10 @@ const MapEngine = (function () {
     }
 
     const batteryState = window.BatteryEngine ? window.BatteryEngine.getState() : { efficiency: 0.85, currentBatteryPct: 85, targetChargePct: 80 };
-    const startPct = Math.min(batteryState.currentBatteryPct ?? 85, 80);
-    const gainPct = Math.max(10, (batteryState.targetChargePct ?? 80) - startPct);
+    const targetLimit = batteryState.targetChargePct ?? 80;
+    const curBat = batteryState.currentBatteryPct ?? 85;
+    const startPct = curBat < targetLimit ? Math.max(0, curBat) : Math.min(20, Math.max(5, targetLimit - 15));
+    const gainPct = Math.max(5, targetLimit - startPct);
     const estMins = window.Utilities
       ? window.Utilities.computeChargingDuration(gainPct, startPct, isFast, charger.power_kw, batteryState.vehicleDetails)
       : (isFast ? 35 : 180);
@@ -739,6 +742,7 @@ const MapEngine = (function () {
     traversedMainLine = null;
 
     if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
+      updateBatteryRangeCircle();
       return;
     }
 
@@ -818,6 +822,8 @@ const MapEngine = (function () {
         <div class="popup-title">${esc(activeRoute.destination.name || 'Destination')}</div>
       </div>
     `).addTo(waypointsLayer);
+
+    updateBatteryRangeCircle();
 
     if (userCoords && lastGpsFixTime > 0) {
       updateProgressAlongRoute(userCoords);
@@ -1098,6 +1104,69 @@ const MapEngine = (function () {
     } else {
       userAccuracyCircle.setRadius(safeRadius);
     }
+
+    updateBatteryRangeCircle();
+  }
+
+  function updateBatteryRangeCircle() {
+    if (!map || !window.BatteryEngine) return;
+    const bat = window.BatteryEngine.getState();
+    const safeKm = bat && typeof bat.reachableSafeKm === 'number' ? bat.reachableSafeKm : 0;
+    const safeRadiusM = Math.max(0, safeKm * 1000);
+
+    const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+    let center = null;
+    if (userCoords && lastGpsFixTime > 0) {
+      center = [userCoords.lat, userCoords.lng];
+    } else if (activeRoute && activeRoute.origin) {
+      center = [activeRoute.origin.lat, activeRoute.origin.lng];
+    }
+
+    if (!center || safeRadiusM < 200) {
+      if (batteryRangeCircle) {
+        map.removeLayer(batteryRangeCircle);
+        batteryRangeCircle = null;
+      }
+      return;
+    }
+
+    const ringColor = safeKm <= 5 ? '#ff4d6d' : (safeKm <= 20 ? '#fbbf24' : '#00e676');
+    if (!batteryRangeCircle) {
+      batteryRangeCircle = L.circle(center, {
+        radius: safeRadiusM,
+        color: ringColor,
+        weight: 1.8,
+        dashArray: '6, 8',
+        opacity: 0.55,
+        fillColor: ringColor,
+        fillOpacity: 0.04,
+        interactive: false
+      }).addTo(map);
+    } else {
+      batteryRangeCircle.setLatLng(center);
+      batteryRangeCircle.setRadius(safeRadiusM);
+      batteryRangeCircle.setStyle({ color: ringColor, fillColor: ringColor });
+    }
+  }
+
+  function refreshBatteryVisuals() {
+    updateBatteryRangeCircle();
+    if (!map) return;
+
+    for (const marker of markerMap.values()) {
+      if (marker && marker._chargerData) {
+        marker.setPopupContent(createChargerPopupHtml(marker._chargerData, null));
+      }
+    }
+
+    const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
+    const wps = (activeRoute && activeRoute.waypoints) || [];
+    wps.forEach((wp, idx) => {
+      const m = waypointMarkersMap.get(wp.id);
+      if (m) {
+        m.setPopupContent(createChargerPopupHtml(wp, idx));
+      }
+    });
   }
 
   function updateGpsButtonUi() {
@@ -1439,6 +1508,9 @@ const MapEngine = (function () {
     setStateFilter,
     getStateFilter: () => activeStateFilter,
     renderRoute,
+    updateBatteryRangeCircle,
+    refreshBatteryVisuals,
+    getBatteryRangeRadiusM: () => (batteryRangeCircle && map && map.hasLayer(batteryRangeCircle) ? Math.round(batteryRangeCircle.getRadius()) : 0),
     updateProgressAlongRoute,
     recenterCamera,
     locateUser,

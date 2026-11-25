@@ -76,34 +76,41 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateStationCountsUI(statsObj = null) {
-    const stats = statsObj || (window.SyncEngine ? window.SyncEngine.getStats() : null);
-    if (!stats) return;
+    if (!window.SyncEngine) return;
+    const activeState = window.MapEngine ? window.MapEngine.getStateFilter() : 'all';
+    const regionStats = (statsObj && statsObj.stateFilter === activeState)
+      ? statsObj
+      : window.SyncEngine.getStats(activeState);
+    const globalStats = (statsObj && (statsObj.stateFilter === 'all' || !statsObj.stateFilter))
+      ? statsObj
+      : window.SyncEngine.getStats('all');
 
-    const fastTotal = (stats.atherFast || 0) + (stats.vidaFast || 0) + (stats.boltFast || 0);
+    const fastTotal = (regionStats.atherFast || 0) + (regionStats.vidaFast || 0) + (regionStats.boltFast || 0);
     const setTxt = (id, val) => {
       const el = document.getElementById(id);
       if (el) el.textContent = Number(val || 0).toLocaleString();
     };
 
-    setTxt('header-station-count', stats.total);
-    setTxt('sync-total-chargers', stats.total);
+    setTxt('header-station-count', regionStats.total);
     setTxt('count-fast-only', fastTotal);
-    setTxt('count-ather-fast', stats.atherFast);
-    setTxt('count-vida-fast', stats.vidaFast);
-    setTxt('count-bolt-fast', stats.boltFast);
-    setTxt('count-bolt-slow', stats.boltSlow);
-    setTxt('modal-ather-count', stats.atherFast);
-    setTxt('modal-vida-count', stats.vidaFast);
-    setTxt('modal-bolt-fast-count', stats.boltFast);
-    setTxt('modal-bolt-slow-count', stats.boltSlow);
+    setTxt('count-ather-fast', regionStats.atherFast);
+    setTxt('count-vida-fast', regionStats.vidaFast);
+    setTxt('count-bolt-fast', regionStats.boltFast);
+    setTxt('count-bolt-slow', regionStats.boltSlow);
+
+    setTxt('sync-total-chargers', globalStats.total);
+    setTxt('modal-ather-count', globalStats.atherFast);
+    setTxt('modal-vida-count', globalStats.vidaFast);
+    setTxt('modal-bolt-fast-count', globalStats.boltFast);
+    setTxt('modal-bolt-slow-count', globalStats.boltSlow);
 
     const lastTsEl = document.getElementById('sync-last-timestamp');
-    if (lastTsEl && stats.lastSync) {
+    if (lastTsEl && globalStats.lastSync) {
       try {
-        const d = new Date(stats.lastSync);
-        lastTsEl.textContent = isNaN(d.getTime()) ? stats.lastSync : d.toLocaleString();
+        const d = new Date(globalStats.lastSync);
+        lastTsEl.textContent = isNaN(d.getTime()) ? globalStats.lastSync : d.toLocaleString();
       } catch (e) {
-        lastTsEl.textContent = String(stats.lastSync);
+        lastTsEl.textContent = String(globalStats.lastSync);
       }
     }
   }
@@ -245,6 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const st = chip.dataset.state || 'all';
       stateChips.forEach(c => c.classList.toggle('active', c.dataset.state === st));
       if (window.MapEngine) window.MapEngine.setStateFilter(st);
+      updateStationCountsUI();
     });
   });
 
@@ -367,6 +375,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   let latestRoutePayload = null;
+  let lastBatterySig = null;
+  let batteryReconcileTimer = null;
 
   function renderBatteryUI(batState) {
     if (!batState) return;
@@ -396,12 +406,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateChargingEstimator(batState);
 
-    // Refresh route metrics & timeline WITHOUT wiping the map polyline
+    const newSig = `${batState.selectedVehicle}|${batState.currentBatteryPct}|${batState.efficiency}|${batState.safetyReservePct}|${batState.targetChargePct}`;
+    const batteryChanged = (lastBatterySig !== null && lastBatterySig !== newSig);
+    lastBatterySig = newSig;
+
+    // Refresh route metrics, timeline, map range & active stops live
     if (latestRoutePayload && latestRoutePayload.route) {
       renderRouteSummaryAndTimeline(latestRoutePayload);
     }
+    if (window.MapEngine && typeof window.MapEngine.refreshBatteryVisuals === 'function') {
+      window.MapEngine.refreshBatteryVisuals();
+    }
     if (window.DriveEngine && window.DriveEngine.isActive()) {
       window.DriveEngine.refreshHudBattery();
+    }
+
+    if (batteryChanged && window.RouteEngine && window.RouteEngine.getActiveRoute()) {
+      clearTimeout(batteryReconcileTimer);
+      batteryReconcileTimer = setTimeout(() => {
+        if (!window.RouteEngine || !window.RouteEngine.getActiveRoute()) return;
+        const coords = window.MapEngine ? window.MapEngine.getUserCoords() : null;
+        window.RouteEngine.reconcileStopsForBattery(coords).then((updated) => {
+          if (updated && window.SyncEngine) {
+            window.SyncEngine.showAutoUpdateToast('⚡ Map stops & plan updated for new battery settings');
+          }
+        }).catch(() => {});
+      }, 450);
     }
   }
 
@@ -1025,10 +1055,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnClearRoute) {
     btnClearRoute.addEventListener('click', resetActiveTrip);
   }
-  const btnSummaryResetRoute = document.getElementById('btn-summary-reset-route');
-  if (btnSummaryResetRoute) {
-    btnSummaryResetRoute.addEventListener('click', resetActiveTrip);
-  }
 
   function renderWaypointsList(waypoints) {
     if (!tripWaypointsSection || !tripWaypointsContainer || !tripWaypointsCount) return;
@@ -1456,6 +1482,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       renderRouteSummaryAndTimeline(payload);
       updateForegroundLiveProgress();
+      if (window.DriveEngine && window.DriveEngine.isActive() && typeof window.DriveEngine.refreshActiveRoute === 'function') {
+        window.DriveEngine.refreshActiveRoute(route);
+      }
     });
 
     // Restore saved active trip across app close / removal from Recents
@@ -1601,27 +1630,33 @@ document.addEventListener('DOMContentLoaded', () => {
     btnOpenSync.addEventListener('click', () => {
       updateStationCountsUI();
       updateConnectivityUi();
-      syncModal.classList.add('active');
+      syncModal.classList.add('open');
     });
   }
   if (btnCloseSync && syncModal) {
-    btnCloseSync.addEventListener('click', () => syncModal.classList.remove('active'));
+    btnCloseSync.addEventListener('click', () => syncModal.classList.remove('open'));
   }
   if (syncModal) {
     syncModal.addEventListener('click', (e) => {
-      if (e.target === syncModal) syncModal.classList.remove('active');
+      if (e.target === syncModal) syncModal.classList.remove('open');
     });
   }
   if (btnRunSync) {
     btnRunSync.addEventListener('click', async () => {
       if (!window.SyncEngine) return;
+      const origLabel = btnRunSync.innerHTML;
       btnRunSync.disabled = true;
-      await window.SyncEngine.performFullSync(({ status, percent }) => {
-        if (syncProgressBar) syncProgressBar.style.width = `${percent || 0}%`;
-        if (syncProgressText) syncProgressText.textContent = status || '';
-      });
-      btnRunSync.disabled = false;
-      updateStationCountsUI();
+      btnRunSync.textContent = '⏳ Syncing 2W Networks...';
+      try {
+        await window.SyncEngine.performFullSync(({ status, percent }) => {
+          if (syncProgressBar) syncProgressBar.style.width = `${percent || 0}%`;
+          if (syncProgressText) syncProgressText.textContent = status || '';
+        });
+      } finally {
+        btnRunSync.disabled = false;
+        btnRunSync.innerHTML = origLabel;
+        updateStationCountsUI();
+      }
     });
   }
 
@@ -2192,12 +2227,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    function refreshActiveRoute(routeOverride = null) {
+      if (!active) return;
+      const rt = routeOverride || (window.RouteEngine ? window.RouteEngine.getActiveRoute() : null);
+      if (!rt) return;
+      steps = extractSteps(rt);
+      currentStepIdx = 0;
+      spokenStages.clear();
+      updateStepBanner(rt);
+      refreshHudBattery(rt.distanceKm);
+      if (navStatDist) navStatDist.textContent = `${rt.distanceKm} km`;
+      if (navStatTime) navStatTime.textContent = window.Utilities ? window.Utilities.formatMinutes(rt.durationMins) : `${rt.durationMins} min`;
+      if (navStatEta) navStatEta.textContent = formatEtaClock(rt.durationMins);
+    }
+
     return {
       isActive: () => active,
       start,
       stop,
       onLocationUpdate,
       refreshHudBattery,
+      refreshActiveRoute,
       updateSoundButtonUi,
       toggleOverview: () => {
         if (!window.MapEngine || !window.RouteEngine) return;
@@ -2251,9 +2301,9 @@ document.addEventListener('DOMContentLoaded', () => {
       DriveEngine.stop();
       return;
     }
-    if (syncModal && syncModal.classList.contains('active')) {
+    if (syncModal && syncModal.classList.contains('open')) {
       if (e && e.preventDefault) e.preventDefault();
-      syncModal.classList.remove('active');
+      syncModal.classList.remove('open');
       return;
     }
     if (window.MapEngine && window.MapEngine.isPopupOpen && window.MapEngine.isPopupOpen()) {

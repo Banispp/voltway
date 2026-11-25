@@ -516,8 +516,9 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Primary Main-Road Router using FOSSGIS Valhalla (strongly prefers NH/SH/Arterial roads,
-   * heavily penalizes residential/alley shortcuts and unpaved tracks).
+   * Primary Google-Maps-style Router using FOSSGIS Valhalla:
+   * Optimizes fastest practical travel time with natural neighborhood access roads onto main highways,
+   * avoiding artificial detours while still excluding unpaved tracks.
    */
   async function fetchValhallaRoutes(cleanPoints) {
     const body = {
@@ -525,12 +526,13 @@ const RouteEngine = (function () {
       costing: 'auto',
       costing_options: {
         auto: {
-          use_highways: 0.96,
+          use_highways: 0.65,
           use_tracks: 0.0,
-          use_living_streets: 0.02,
-          alley_factor: 8.0,
-          service_penalty: 450,
-          maneuver_penalty: 25,
+          use_living_streets: 0.35,
+          alley_factor: 1.5,
+          service_penalty: 15,
+          maneuver_penalty: 5,
+          top_speed: 65,
           exclude_unpaved: true,
           use_ferry: 0.05
         }
@@ -566,7 +568,7 @@ const RouteEngine = (function () {
       }
 
       if (out.length === 0) throw new Error('Valhalla decoded 0 routes');
-      return out;
+      return scoreAndSortMainRoadRoutes(out);
     } catch (err) {
       if (timeoutId) clearTimeout(timeoutId);
       throw err;
@@ -574,7 +576,8 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Evaluates highway quality vs alley shortcuts so even OSRM alternates pick NH/SH arterial routes first.
+   * Google-Maps-style route ranking: prioritizes fastest practical travel time first,
+   * breaking near-ties (<= 4% / 90s) in favor of main arterial highways and fewer zigzag turns.
    */
   function scoreAndSortMainRoadRoutes(routes) {
     if (!Array.isArray(routes) || routes.length <= 1) return routes || [];
@@ -590,16 +593,17 @@ const RouteEngine = (function () {
         const d = st.distance || 0;
         const n = (st.name || '').trim();
         if (!n || /unnamed|\b(lane|cross|galli|by-?lane|alley)\b/i.test(n)) {
-          if (d < 450) narrowLaneDist += d;
+          if (d < 350) narrowLaneDist += d;
         } else if (/\b(NH|SH|AH)\s*\d+|highway|bypass|ring road|expressway|mc road|main road|state highway|national highway/i.test(n)) {
           arterialDist += d;
         }
       });
 
-      const withinReasonableTime = (r.duration || 0) <= (minDuration * 1.15 + 180);
+      const extraSecs = Math.max(0, (r.duration || 0) - minDuration);
+      const withinFastWindow = extraSecs <= Math.min(240, Math.max(90, minDuration * 0.05));
       const highwayRatio = arterialDist / totalDist;
       const laneRatio = narrowLaneDist / totalDist;
-      const qualityScore = (withinReasonableTime ? 500 : 0) + (highwayRatio * 120) - (laneRatio * 100) - (steps.length * 0.6) - origIdx * 2;
+      const qualityScore = (withinFastWindow ? 300 : -extraSecs * 0.25) + (highwayRatio * 45) - (laneRatio * 35) - (steps.length * 0.25) - origIdx;
       return { r, qualityScore };
     });
 
@@ -950,37 +954,19 @@ const RouteEngine = (function () {
     return corridorChargers;
   }
 
-  /**
-   * Simulates leg-by-leg battery consumption with any existing user waypoints,
-   * then inserts ONLY needed vehicle-compatible charging stops without discarding manual stops!
-   */
-  async function autoSuggestChargingStops(batteryEvaluation = null) {
-    if (!activeRoute) return [];
+  function pickAutoStopsForRoute(route, baseWaypoints = [], batState = {}) {
+    if (!route || corridorChargers.length === 0) return [];
 
-    const batState = window.BatteryEngine ? window.BatteryEngine.getState() : {};
-    const eff = batState.efficiency ?? 0.85;
+    const eff = (batState.efficiency && batState.efficiency > 0) ? batState.efficiency : 0.85;
     const minReserve = batState.safetyReservePct ?? 15;
     const startBat = batState.currentBatteryPct ?? 85;
     const targetCharge = batState.targetChargePct ?? 80;
 
-    const currentPlan = calculateTripTimeline(activeRoute, batState);
-    if (currentPlan && currentPlan.timeline) {
-      const hasUnsafeNode = currentPlan.timeline.some(s =>
-        (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'DESTINATION') &&
-        s.arrivalSoC < minReserve
-      );
-      if (!hasUnsafeNode) {
-        return [];
-      }
-    }
-
-    if (corridorChargers.length === 0) return [];
-
     const firstLegSafeRange = Math.max(8, Math.round((startBat - minReserve) * eff * 10) / 10);
     const intermediateSafeRange = Math.max(12, Math.round((targetCharge - minReserve) * eff * 10) / 10);
-    const totalDist = activeRoute.distanceKm;
+    const totalDist = route.distanceKm;
 
-    const existingWaypoints = [...intermediateWaypoints];
+    const existingWaypoints = [...baseWaypoints];
     const existingIds = new Set(existingWaypoints.map(w => String(w.originalId || w.id)));
 
     const isCompat = (c) => {
@@ -1064,17 +1050,144 @@ const RouteEngine = (function () {
       });
 
       const selected = candidates[0];
-      newlySuggested.push(selected);
+      newlySuggested.push({ ...selected, isAutoSuggested: true });
       currentCoveredKm = selected.kmFromOrigin;
     }
+
+    return newlySuggested;
+  }
+
+  /**
+   * Simulates leg-by-leg battery consumption with any existing user waypoints,
+   * then inserts ONLY needed vehicle-compatible charging stops without discarding manual stops!
+   */
+  async function autoSuggestChargingStops(batteryEvaluation = null) {
+    if (!activeRoute) return [];
+
+    const batState = window.BatteryEngine ? window.BatteryEngine.getState() : {};
+    const minReserve = batState.safetyReservePct ?? 15;
+
+    const currentPlan = calculateTripTimeline(activeRoute, batState);
+    if (currentPlan && currentPlan.timeline) {
+      const hasUnsafeNode = currentPlan.timeline.some(s =>
+        (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'DESTINATION') &&
+        s.arrivalSoC < minReserve
+      );
+      if (!hasUnsafeNode) {
+        return [];
+      }
+    }
+
+    const existingWaypoints = [...intermediateWaypoints];
+    const newlySuggested = pickAutoStopsForRoute(activeRoute, existingWaypoints, batState);
 
     if (newlySuggested.length > 0) {
       const merged = [...existingWaypoints, ...newlySuggested];
       intermediateWaypoints = sortWaypointsSequentially(merged, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
-      await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
+      await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true);
     }
 
     return newlySuggested;
+  }
+
+  let isReconcilingBatteryStops = false;
+
+  /**
+   * Dynamically updates auto-suggested charging stops on the map & active trip
+   * whenever Current Battery %, Efficiency / Riding Mode, Reserve, or Fast Charge Limit changes.
+   */
+  async function reconcileStopsForBattery(liveUserCoords = null) {
+    if (!activeRoute || !navigator.onLine || isReconcilingBatteryStops) return false;
+    isReconcilingBatteryStops = true;
+
+    try {
+      const batState = window.BatteryEngine ? window.BatteryEngine.getState() : {};
+      const eff = (batState.efficiency && batState.efficiency > 0) ? batState.efficiency : 0.85;
+      const minReserve = batState.safetyReservePct ?? 15;
+      const startBat = batState.currentBatteryPct ?? 85;
+
+      const currentPlan = calculateTripTimeline(activeRoute, batState);
+      const hasUnsafeNode = Boolean(currentPlan && currentPlan.timeline && currentPlan.timeline.some(s =>
+        (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'DESTINATION') &&
+        s.arrivalSoC < minReserve
+      ));
+
+      const isDriving = Boolean(window.DriveEngine && window.DriveEngine.isActive() && liveUserCoords);
+      let slice = null;
+      if (isDriving) {
+        slice = sliceActiveRouteAtPosition(liveUserCoords.lat, liveUserCoords.lng);
+      }
+
+      const routeOriginForReplan = (isDriving && slice && slice.distanceFromRouteKm < 0.25)
+        ? { lat: liveUserCoords.lat, lng: liveUserCoords.lng, name: 'Current Location' }
+        : activeRoute.origin;
+      const traversedKm = (isDriving && slice && typeof slice.remainingKm === 'number')
+        ? Math.max(0, activeRoute.distanceKm - slice.remainingKm)
+        : 0;
+      const remainingDistKm = (isDriving && slice && typeof slice.remainingKm === 'number')
+        ? slice.remainingKm
+        : activeRoute.distanceKm;
+
+      const manualStops = intermediateWaypoints.filter(w =>
+        !w.isAutoSuggested && (!isDriving || typeof w.kmFromOrigin !== 'number' || w.kmFromOrigin > traversedKm + 0.3)
+      );
+      const hasAutoStops = intermediateWaypoints.some(w => w.isAutoSuggested);
+
+      if (!hasUnsafeNode && !hasAutoStops) {
+        return false;
+      }
+
+      let desired = [...manualStops];
+      const directArrival = startBat - (remainingDistKm / eff);
+
+      if (manualStops.length > 0 || directArrival < minReserve) {
+        const simRoute = isDriving
+          ? {
+              ...activeRoute,
+              distanceKm: remainingDistKm,
+              origin: routeOriginForReplan
+            }
+          : activeRoute;
+
+        const baseForSim = manualStops.map(w => ({
+          ...w,
+          kmFromOrigin: typeof w.kmFromOrigin === 'number' ? Math.max(0.5, w.kmFromOrigin - traversedKm) : w.kmFromOrigin
+        }));
+        const shiftedCorridor = isDriving
+          ? corridorChargers.map(c => ({ ...c, kmFromOrigin: (c.kmFromOrigin || 0) - traversedKm })).filter(c => c.kmFromOrigin > 0.5)
+          : null;
+
+        const origCorridor = corridorChargers;
+        if (shiftedCorridor) corridorChargers = shiftedCorridor;
+        const neededAuto = pickAutoStopsForRoute(simRoute, baseForSim, batState);
+        if (shiftedCorridor) corridorChargers = origCorridor;
+
+        if (hasUnsafeNode || (hasAutoStops && neededAuto.length > 0)) {
+          desired = sortWaypointsSequentially(
+            [...manualStops, ...neededAuto],
+            routeOriginForReplan,
+            activeRoute.destination,
+            activeRoute.coordinates
+          );
+        } else if (hasAutoStops && neededAuto.length === 0 && !hasUnsafeNode) {
+          desired = [...manualStops];
+        } else {
+          desired = [...intermediateWaypoints];
+        }
+      }
+
+      const normIds = (arr) => arr.map(w => String(w.originalId || w.id)).join('|');
+      if (normIds(desired) === normIds(intermediateWaypoints)) {
+        return false;
+      }
+
+      await calculateRoute(routeOriginForReplan, activeRoute.destination, desired, true);
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      isReconcilingBatteryStops = false;
+    }
   }
 
   function addWaypoint(charger) {
@@ -1371,6 +1484,7 @@ const RouteEngine = (function () {
     selectRoute,
     findCorridorChargers,
     autoSuggestChargingStops,
+    reconcileStopsForBattery,
     calculateTripTimeline,
     setTimelineMode,
     getTimelineMode,

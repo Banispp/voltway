@@ -1,5 +1,5 @@
 // VoltWay 2W Service Worker - Version 5.50 (Aligned Cache Shell & Bounded Tile Cache)
-const CACHE_NAME = 'voltway-2w-v5-54';
+const CACHE_NAME = 'voltway-2w-v5-55';
 const TILE_CACHE_NAME = 'voltway-2w-tiles-v1';
 const MAX_CACHED_TILES = 350;
 

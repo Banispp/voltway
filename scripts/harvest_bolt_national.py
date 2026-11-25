@@ -38,7 +38,7 @@ def query_url(url, max_retries=6):
             req = urllib.request.Request(url, headers=HEADERS)
             with urllib.request.urlopen(req, timeout=16) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
-                return data.get('data', [])
+                return data.get('data') or []
         except urllib.error.HTTPError as he:
             if he.code == 429:
                 wait_sec = 15
@@ -49,10 +49,10 @@ def query_url(url, max_retries=6):
                 print(f" [429: Pausing {wait_sec}s...] ", end='', flush=True)
                 time.sleep(wait_sec)
             else:
-                return []
+                return None
         except Exception:
             time.sleep(1.0)
-    return []
+    return None
 
 
 def is_verified_2w_fast(cid, model_id):
@@ -143,11 +143,19 @@ def harvest_national():
     print(f"[3/3] Harvesting all {total_cells} cells at Zoom 18 (unclustered)...", flush=True)
 
     start_time = time.time()
+    scanned_boxes = []
+    seen_live_ids = set()
+
     for idx, (b, l, t, r) in enumerate(boxes):
         url = f"https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom={b}&lng_left={l}&lat_top={t}&lng_right={r}&zoom=18"
         items = query_url(url)
         time.sleep(0.75)
 
+        if items is None:
+            print(f"[{idx+1}/{total_cells}] ({b:.2f}, {l:.2f}) -> API failed (skipping removal check for cell)", flush=True)
+            continue
+
+        scanned_boxes.append((b, l, t, r))
         new_in_cell = 0
         for it in items:
             cid = it.get('chargerId')
@@ -183,6 +191,7 @@ def harvest_national():
             if not fast and not slow:
                 continue
 
+            seen_live_ids.add(cid)
             conn_std, compat_vehicles, conn_label = parse_bolt_connector(model_id, fast)
             power_kw = parse_bolt_power_kw(model_id, fast)
             verified = bool(model_id) and not (not fast and str(cid).upper().startswith(('L2', 'L3', 'ST')))
@@ -215,6 +224,24 @@ def harvest_national():
             fast_c = sum(1 for x in master.values() if x.get('type') == 'FAST')
             slow_c = sum(1 for x in master.values() if x.get('type') == 'SLOW')
             print(f"[{idx+1}/{total_cells}] ({b:.2f}, {l:.2f}) -> +{new_in_cell} new (2W Total: {len(master)} | ⚡{fast_c} Fast, 🔌{slow_c} Slow)", flush=True)
+
+    # Reconcile removals only when >= 80% of cells responded cleanly (prevents wiping on temporary outage)
+    removed_count = 0
+    if total_cells > 0 and (len(scanned_boxes) / total_cells) >= 0.80:
+        to_remove = []
+        for cid, rec in master.items():
+            if cid in seen_live_ids:
+                continue
+            rlat, rlng = rec.get('lat'), rec.get('lng')
+            if isinstance(rlat, (int, float)) and isinstance(rlng, (int, float)):
+                if any(b <= rlat <= t and l <= rlng <= r for (b, l, t, r) in scanned_boxes):
+                    to_remove.append(cid)
+        for cid in to_remove:
+            master.pop(cid, None)
+            removed_count += 1
+        print(f"Reconciled deleted Bolt stations in scanned regions: -{removed_count} removed", flush=True)
+    else:
+        print(f"Skipped Bolt removal pass ({len(scanned_boxes)}/{total_cells} cells succeeded).", flush=True)
 
     elapsed = time.time() - start_time
     print(f"\nNational harvest completed in {elapsed:.1f}s. Clean 2W Bolt stations: {len(master)}", flush=True)
