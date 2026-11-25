@@ -123,6 +123,12 @@ const VoiceEngine = (function () {
 
   function stop() {
     try {
+      const capTts = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.TextToSpeech;
+      if (capTts && typeof capTts.stop === 'function') {
+        capTts.stop().catch(() => {});
+      }
+    } catch (e) {}
+    try {
       if (window.AndroidTTS && typeof window.AndroidTTS.stop === 'function') {
         window.AndroidTTS.stop();
       }
@@ -152,18 +158,39 @@ const VoiceEngine = (function () {
       playChime(options.chime);
     }
 
-    // 1. Native Android TTS bridge (offline capable + AudioFocus ducking + Bluetooth headset routing)
+    // 1. Official Capacitor 6 Native TextToSpeech Plugin (Android APK / iOS)
     try {
-      if (window.AndroidTTS && typeof window.AndroidTTS.speak === 'function') {
-        const isReady = typeof window.AndroidTTS.isReady === 'function' ? window.AndroidTTS.isReady() : true;
-        if (isReady) {
-          window.AndroidTTS.speak(text, options.flush !== false);
-          return true;
-        }
+      const capTts = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.TextToSpeech;
+      if (capTts && typeof capTts.speak === 'function') {
+        capTts.speak({
+          text,
+          lang: 'en-IN',
+          rate: 0.98,
+          pitch: 1.0,
+          volume: 1.0,
+          category: 'playback'
+        }).catch(() => {
+          capTts.speak({ text, lang: 'en-US', rate: 0.98, pitch: 1.0, volume: 1.0 }).catch(() => {
+            try {
+              if (window.AndroidTTS && typeof window.AndroidTTS.speak === 'function') {
+                window.AndroidTTS.speak(text, options.flush !== false);
+              }
+            } catch (err) {}
+          });
+        });
+        return true;
       }
     } catch (e) {}
 
-    // 2. Web Speech API fallback (desktop & mobile PWA)
+    // 2. Native AndroidTTS WebView JavascriptInterface bridge (offline AudioFocus ducking fallback)
+    try {
+      if (window.AndroidTTS && typeof window.AndroidTTS.speak === 'function') {
+        window.AndroidTTS.speak(text, options.flush !== false);
+        return true;
+      }
+    } catch (e) {}
+
+    // 3. Web Speech API fallback (desktop & mobile PWA browsers)
     try {
       if ('speechSynthesis' in window) {
         if (options.flush !== false) {

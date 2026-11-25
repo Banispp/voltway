@@ -57,6 +57,7 @@ import java.util.Locale;
 public class MainActivity extends BridgeActivity {
     private TextToSpeech tts;
     private boolean ttsReady = false;
+    private boolean ttsJsAttached = false;
     private String pendingSpeech = null;
     private boolean pendingFlush = true;
     private AudioManager audioManager;
@@ -104,6 +105,53 @@ public class MainActivity extends BridgeActivity {
                 audioManager.abandonAudioFocus(focusChangeListener);
             }
         } catch (Exception ignored) {}
+    }
+
+    private void attachAndroidTtsBridge() {
+        if (ttsJsAttached) return;
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            ttsJsAttached = true;
+            getBridge().getWebView().addJavascriptInterface(new Object() {
+                @JavascriptInterface
+                public void speak(String text, boolean flush) {
+                    if (text == null || text.trim().isEmpty()) return;
+                    if (tts != null && ttsReady) {
+                        requestNavAudioFocus();
+                        int mode = flush ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD;
+                        Bundle params = new Bundle();
+                        params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
+                        tts.speak(text, mode, params, "VoltWayNav_" + System.currentTimeMillis());
+                    } else if (tts != null) {
+                        pendingSpeech = text;
+                        pendingFlush = flush;
+                    }
+                }
+
+                @JavascriptInterface
+                public void speak(String text) {
+                    speak(text, true);
+                }
+
+                @JavascriptInterface
+                public void stop() {
+                    if (tts != null) {
+                        tts.stop();
+                    }
+                    abandonNavAudioFocus();
+                }
+
+                @JavascriptInterface
+                public boolean isReady() {
+                    return ttsReady;
+                }
+            }, "AndroidTTS");
+        }
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        attachAndroidTtsBridge();
     }
 
     @Override
@@ -165,42 +213,7 @@ public class MainActivity extends BridgeActivity {
             e.printStackTrace();
         }
 
-        if (this.bridge != null && this.bridge.getWebView() != null) {
-            this.bridge.getWebView().addJavascriptInterface(new Object() {
-                @JavascriptInterface
-                public void speak(String text, boolean flush) {
-                    if (text == null || text.trim().isEmpty()) return;
-                    if (tts != null && ttsReady) {
-                        requestNavAudioFocus();
-                        int mode = flush ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD;
-                        Bundle params = new Bundle();
-                        params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
-                        tts.speak(text, mode, params, "VoltWayNav_" + System.currentTimeMillis());
-                    } else if (tts != null) {
-                        pendingSpeech = text;
-                        pendingFlush = flush;
-                    }
-                }
-
-                @JavascriptInterface
-                public void speak(String text) {
-                    speak(text, true);
-                }
-
-                @JavascriptInterface
-                public void stop() {
-                    if (tts != null) {
-                        tts.stop();
-                    }
-                    abandonNavAudioFocus();
-                }
-
-                @JavascriptInterface
-                public boolean isReady() {
-                    return ttsReady;
-                }
-            }, "AndroidTTS");
-        }
+        attachAndroidTtsBridge();
     }
 
     @Override

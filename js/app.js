@@ -1648,8 +1648,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const hudDistVal = document.getElementById('hud-distance-val');
   const hudBatPill = document.getElementById('hud-battery-pill');
   const hudStreetName = document.getElementById('hud-street-name');
+  const hudTowardDest = document.getElementById('hud-toward-dest');
   const hudSubStep = document.getElementById('hud-subsequent-step');
   const hudSubTurnIcon = document.getElementById('hud-sub-turn-icon');
+  const hudSubText = document.getElementById('hud-sub-text');
   const hudNextChargerBadge = document.getElementById('hud-next-charger-badge');
   const hudNextChargerName = document.getElementById('hud-next-charger-name');
   const hudNextChargerDist = document.getElementById('hud-next-charger-dist');
@@ -1709,52 +1711,105 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    function mapManeuver(step) {
+    function shortPlaceName(raw, fallback = 'Destination') {
+      if (!raw || typeof raw !== 'string') return fallback;
+      const clean = raw.replace(/\s+/g, ' ').trim();
+      if (!clean) return fallback;
+      const parts = clean.split(',').map(p => p.trim()).filter(Boolean);
+      if (parts.length === 0) return fallback;
+      let head = (/^\d+[A-Za-z-]*$/.test(parts[0]) && parts[1]) ? `${parts[0]}, ${parts[1]}` : parts[0];
+      const stripped = head.replace(/\s+(?:EV\s+)?(?:Fast\s+)?Charging\s+Station$/i, '').trim();
+      if (stripped.length >= 3) head = stripped;
+      return head;
+    }
+
+    function extractTowardHint(instruction) {
+      if (!instruction || typeof instruction !== 'string') return '';
+      const m = instruction.match(/\btoward\s+([^.;]+)/i);
+      return m && m[1] ? m[1].trim() : '';
+    }
+
+    function mapManeuver(step, legTarget = '') {
       const m = step.maneuver || {};
       const type = (m.type || 'continue').toLowerCase();
       const mod = (m.modifier || '').toLowerCase();
-      const hasRoad = Boolean(step.name && step.name.trim() && !/unnamed/i.test(step.name));
-      const onto = hasRoad ? ` onto ${step.name.trim()}` : '';
-      const onRoad = hasRoad ? ` on ${step.name.trim()}` : '';
+      const road = step.name && step.name.trim() && !/unnamed/i.test(step.name) ? step.name.trim() : '';
+      const hint = extractTowardHint(step.instruction) || legTarget;
+      const onto = road ? ` onto ${road}` : (hint ? ` toward ${hint}` : '');
+      const onRoad = road ? ` on ${road}` : (hint ? ` toward ${hint}` : '');
+      const shortWhere = road || hint || 'Route';
 
       if (type === 'arrive') {
-        return { icon: '🏁', text: 'Arrive at destination', speech: 'You have arrived at your destination.' };
+        const place = legTarget || 'destination';
+        return {
+          icon: '🏁',
+          text: `Arrive at ${place}`,
+          shortSub: `Arrive at ${place}`,
+          speech: `You have arrived at ${place}.`
+        };
       }
       if (type === 'depart') {
-        return { icon: '⬆', text: `Head${onto}`, speech: hasRoad ? `Head onto ${step.name.trim()}` : 'Head straight ahead' };
+        return {
+          icon: '⬆',
+          text: `Head${onRoad}`,
+          shortSub: `Head • ${shortWhere}`,
+          speech: road ? `Head on ${road}` : (hint ? `Head toward ${hint}` : 'Head straight ahead')
+        };
       }
       if (type === 'roundabout' || type === 'rotary') {
         const ex = m.exit ? `${m.exit} ` : '';
-        return { icon: '⟲', text: `Take roundabout ${ex}exit${onto}`, speech: `At the roundabout, take exit ${m.exit || ''}${onto}` };
+        return {
+          icon: '⟲',
+          text: `Take roundabout ${ex}exit${onto}`,
+          shortSub: `Roundabout → ${shortWhere}`,
+          speech: `At the roundabout, take exit ${m.exit || ''}${onto}`
+        };
       }
-      if (mod.includes('sharp left')) return { icon: '↙', text: `Sharp left${onto}`, speech: `Turn sharp left${onto}` };
-      if (mod.includes('slight left')) return { icon: '↖', text: `Keep left${onto}`, speech: `Keep left${onto}` };
-      if (mod.includes('left')) return { icon: '↰', text: `Turn left${onto}`, speech: `Turn left${onto}` };
-      if (mod.includes('sharp right')) return { icon: '↘', text: `Sharp right${onto}`, speech: `Turn sharp right${onto}` };
-      if (mod.includes('slight right')) return { icon: '↗', text: `Keep right${onto}`, speech: `Keep right${onto}` };
-      if (mod.includes('right')) return { icon: '↱', text: `Turn right${onto}`, speech: `Turn right${onto}` };
-      if (mod.includes('uturn')) return { icon: '↺', text: `Make a U-turn${onto}`, speech: `Make a U-turn${onto}` };
+      if (mod.includes('sharp left')) return { icon: '↙', text: `Sharp left${onto}`, shortSub: `Sharp left → ${shortWhere}`, speech: `Turn sharp left${onto}` };
+      if (mod.includes('slight left')) return { icon: '↖', text: `Keep left${onto}`, shortSub: `Keep left → ${shortWhere}`, speech: `Keep left${onto}` };
+      if (mod.includes('left')) return { icon: '↰', text: `Turn left${onto}`, shortSub: `Turn left → ${shortWhere}`, speech: `Turn left${onto}` };
+      if (mod.includes('sharp right')) return { icon: '↘', text: `Sharp right${onto}`, shortSub: `Sharp right → ${shortWhere}`, speech: `Turn sharp right${onto}` };
+      if (mod.includes('slight right')) return { icon: '↗', text: `Keep right${onto}`, shortSub: `Keep right → ${shortWhere}`, speech: `Keep right${onto}` };
+      if (mod.includes('right')) return { icon: '↱', text: `Turn right${onto}`, shortSub: `Turn right → ${shortWhere}`, speech: `Turn right${onto}` };
+      if (mod.includes('uturn')) return { icon: '↺', text: `Make a U-turn${onto}`, shortSub: `U-turn → ${shortWhere}`, speech: `Make a U-turn${onto}` };
 
-      return { icon: '⬆', text: `Continue${onRoad}`, speech: hasRoad ? `Continue straight${onRoad}` : 'Continue straight' };
+      return {
+        icon: '⬆',
+        text: `Continue${onRoad}`,
+        shortSub: `${shortWhere}`,
+        speech: road ? `Continue straight on ${road}` : 'Continue straight'
+      };
     }
 
     function extractSteps(route) {
       const out = [];
       if (!route || !route.legs) return out;
-      route.legs.forEach(leg => {
+      const destName = shortPlaceName(route.destination && route.destination.name, 'Destination');
+      const waypoints = Array.isArray(route.waypoints) ? route.waypoints : [];
+
+      route.legs.forEach((leg, legIdx) => {
+        const isStopLeg = legIdx < waypoints.length;
+        const legTarget = isStopLeg
+          ? shortPlaceName(waypoints[legIdx].name, 'Charging Stop')
+          : destName;
+
         (leg.steps || []).forEach(st => {
           const loc = st.maneuver && st.maneuver.location;
           if (!loc || loc.length < 2) return;
-          const mapped = mapManeuver(st);
+          const mapped = mapManeuver(st, legTarget);
           out.push({
             lat: loc[1],
             lng: loc[0],
             name: st.name || 'Road',
             distanceM: st.distance || 0,
+            legTarget,
+            destName,
+            isStopLeg,
             icon: mapped.icon,
             text: mapped.text,
+            shortSub: mapped.shortSub,
             speech: mapped.speech,
-            isArrive: st.maneuver && st.maneuver.type === 'arrive'
+            isArrive: Boolean(st.maneuver && st.maneuver.type === 'arrive')
           });
         });
       });
@@ -1798,22 +1853,64 @@ document.addEventListener('DOMContentLoaded', () => {
       return arr.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
-    function updateStepBanner() {
-      if (steps.length === 0) return;
-      const cur = steps[Math.min(currentStepIdx, steps.length - 1)];
-      const nxt = steps[currentStepIdx + 1] || null;
-      if (hudTurnIcon) hudTurnIcon.textContent = cur.icon;
-      if (hudStreetName) hudStreetName.textContent = cur.text;
-      if (navRoadPillText && cur.name) navRoadPillText.textContent = cur.name;
+    function formatTowardLabel(step) {
+      if (!step) return '➔ Destination';
+      if (step.isStopLeg && step.legTarget && step.destName && step.legTarget !== step.destName) {
+        return `➔ To: ${step.destName} • via ${step.legTarget}`;
+      }
+      return `➔ To: ${step.destName || step.legTarget || 'Destination'}`;
+    }
+
+    function renderStepHud(targetStep, nextAfter, distToStepM) {
+      if (!targetStep) return;
+      if (hudDistVal) {
+        hudDistVal.textContent = (typeof distToStepM === 'number' && Number.isFinite(distToStepM))
+          ? `In ${formatHudDist(distToStepM)}`
+          : 'Now';
+      }
+      if (hudTurnIcon) hudTurnIcon.textContent = targetStep.icon;
+      if (hudStreetName) hudStreetName.textContent = targetStep.text;
+      if (hudTowardDest) hudTowardDest.textContent = formatTowardLabel(targetStep);
+      if (navRoadPillText && targetStep.name) navRoadPillText.textContent = targetStep.name;
 
       if (hudSubStep && hudSubTurnIcon) {
-        if (nxt) {
+        if (nextAfter) {
           hudSubStep.style.display = 'inline-flex';
-          hudSubTurnIcon.textContent = nxt.icon;
+          hudSubTurnIcon.textContent = nextAfter.icon;
+          if (hudSubText) {
+            const placeTag = nextAfter.legTarget ? ` • ${nextAfter.legTarget}` : '';
+            const label = nextAfter.shortSub || nextAfter.text || 'Next turn';
+            hudSubText.textContent = (nextAfter.isArrive || (nextAfter.legTarget && label.includes(nextAfter.legTarget)))
+              ? label
+              : `${label}${placeTag}`;
+          }
         } else {
           hudSubStep.style.display = 'none';
+          if (hudSubText) hudSubText.textContent = '';
         }
       }
+    }
+
+    function updateStepBanner(routeOverride = null) {
+      if (steps.length === 0) return null;
+      const route = routeOverride || (window.RouteEngine ? window.RouteEngine.getActiveRoute() : null);
+      const lookIdx = steps.length > 1 ? Math.min(currentStepIdx + 1, steps.length - 1) : 0;
+      const targetStep = steps[lookIdx];
+      const nextAfter = steps[lookIdx + 1] || null;
+
+      let refPos = route && route.origin ? route.origin : steps[0];
+      const gps = window.MapEngine ? window.MapEngine.getUserCoords() : null;
+      if (gps && window.Utilities) {
+        const dFromOriginKm = refPos ? window.Utilities.haversine(gps.lat, gps.lng, refPos.lat, refPos.lng) : 0;
+        if (!refPos || dFromOriginKm <= 1.5) refPos = gps;
+      }
+
+      const distToStepM = (refPos && window.Utilities)
+        ? window.Utilities.haversine(refPos.lat, refPos.lng, targetStep.lat, targetStep.lng) * 1000
+        : (steps[0].distanceM || 0);
+
+      renderStepHud(targetStep, nextAfter, distToStepM);
+      return { lookIdx, targetStep, nextAfter, distToStepM };
     }
 
     async function handleOffRoute(coords, route, slice) {
@@ -1849,7 +1946,7 @@ document.addEventListener('DOMContentLoaded', () => {
           steps = extractSteps(refreshed);
           currentStepIdx = 0;
           spokenStages.clear();
-          updateStepBanner();
+          updateStepBanner(refreshed);
         }
       } catch (e) {} finally {
         isRerouting = false;
@@ -1888,7 +1985,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {}
 
       updateSoundButtonUi();
-      updateStepBanner();
+      const bannerInfo = updateStepBanner(route);
       refreshHudBattery(route.distanceKm);
 
       if (navStatDist) navStatDist.textContent = `${route.distanceKm} km`;
@@ -1898,8 +1995,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.VoiceEngine) {
         window.VoiceEngine.unlockAudio();
         window.VoiceEngine.resetDedup();
-        const firstSpeech = steps[0] ? steps[0].speech : 'Navigation started';
-        window.VoiceEngine.speak(`Navigation started. ${firstSpeech}`, { force: true, chime: 'turn' });
+        const destLabel = (steps[0] && steps[0].destName) || shortPlaceName(route.destination && route.destination.name, 'destination');
+        const departSpeech = steps[0] ? steps[0].speech : 'Navigation started';
+        const nextHint = bannerInfo && bannerInfo.targetStep && bannerInfo.lookIdx > 0
+          ? `. Then in ${formatHudDist(bannerInfo.distToStepM)}, ${bannerInfo.targetStep.speech}`
+          : '';
+        window.VoiceEngine.speak(`Head toward ${destLabel}. ${departSpeech}${nextHint}`, { force: true, chime: 'turn' });
       }
 
       requestWakeLock();
@@ -2002,8 +2103,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (nearestUpcoming) {
           nextChargerDistKm = Math.round(minD * 10) / 10;
-          hudNextChargerBadge.style.display = 'inline-flex';
-          hudNextChargerName.textContent = nearestUpcoming.name || 'Charging Stop';
+          hudNextChargerBadge.style.display = 'inline-block';
+          hudNextChargerName.textContent = shortPlaceName(nearestUpcoming.name, 'Charging Stop');
           hudNextChargerDist.textContent = `${nextChargerDistKm} km`;
           const wpKey = `charger_${nearestUpcoming.id}`;
           if (minD <= 0.4 && !spokenStages.has(wpKey)) {
@@ -2029,12 +2130,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (destDistM <= 50 && !spokenStages.has('arrived')) {
         spokenStages.add('arrived');
         currentStepIdx = Math.max(0, steps.length - 1);
+        const finalPlace = (steps[currentStepIdx] && steps[currentStepIdx].destName) || shortPlaceName(route.destination && route.destination.name, 'destination');
         if (hudDistVal) hudDistVal.textContent = '0 m';
         if (hudTurnIcon) hudTurnIcon.textContent = '🏁';
-        if (hudStreetName) hudStreetName.textContent = 'Arrive at destination';
+        if (hudStreetName) hudStreetName.textContent = `Arrive at ${finalPlace}`;
+        if (hudTowardDest) hudTowardDest.textContent = `🏁 Reached ${finalPlace}`;
         if (hudSubStep) hudSubStep.style.display = 'none';
+        if (hudSubText) hudSubText.textContent = '';
         if (window.VoiceEngine) {
-          window.VoiceEngine.speak('You have arrived at your destination.', { force: true, chime: 'arrival' });
+          window.VoiceEngine.speak(`You have arrived at ${finalPlace}.`, { force: true, chime: 'arrival' });
         }
         if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🏁 You have arrived!');
         return;
@@ -2052,22 +2156,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const lookIdx = Math.min(currentStepIdx + 1, steps.length - 1);
         const targetStep = steps[lookIdx];
+        const nextAfter = steps[lookIdx + 1] || null;
         const distToStepM = window.Utilities.haversine(coords.lat, coords.lng, targetStep.lat, targetStep.lng) * 1000;
 
-        if (hudDistVal) hudDistVal.textContent = `In ${formatHudDist(distToStepM)}`;
-        if (hudTurnIcon) hudTurnIcon.textContent = targetStep.icon;
-        if (hudStreetName) hudStreetName.textContent = targetStep.text;
-        if (navRoadPillText && targetStep.name) navRoadPillText.textContent = targetStep.name;
-
-        const nextAfter = steps[lookIdx + 1];
-        if (hudSubStep && hudSubTurnIcon) {
-          if (nextAfter) {
-            hudSubStep.style.display = 'inline-flex';
-            hudSubTurnIcon.textContent = nextAfter.icon;
-          } else {
-            hudSubStep.style.display = 'none';
-          }
-        }
+        renderStepHud(targetStep, nextAfter, distToStepM);
 
         if (targetStep.isArrive && distToStepM <= 50 && !spokenStages.has('arrived')) {
           spokenStages.add('arrived');

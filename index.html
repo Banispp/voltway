@@ -134,10 +134,11 @@
         </div>
         <div class="hud-instruction-content">
           <div class="hud-distance-row">
-            <span id="hud-distance-val" class="hud-distance-val">In 200 m</span>
+            <span id="hud-distance-val" class="hud-distance-val">--</span>
             <span id="hud-battery-pill" class="hud-battery-pill">🔋 --%</span>
           </div>
-          <div id="hud-street-name" class="hud-street-name">Continue on route</div>
+          <div id="hud-street-name" class="hud-street-name">Follow route</div>
+          <div id="hud-toward-dest" class="hud-toward-dest">➔ Destination</div>
           <div id="hud-next-charger-badge" class="hud-next-charger-badge" style="display: none;">
             ⚡ Stop: <span id="hud-next-charger-name">Charging Station</span> (<span id="hud-next-charger-dist">-- km</span>)
           </div>
@@ -150,6 +151,7 @@
       <div id="hud-subsequent-step" class="hud-subsequent-step" style="display: none;">
         <span class="then-badge-label">Then</span>
         <span id="hud-sub-turn-icon" class="hud-sub-turn-icon">↱</span>
+        <span id="hud-sub-text" class="hud-sub-text"></span>
       </div>
     </div>
 
