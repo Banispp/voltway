@@ -34,7 +34,7 @@ jobs:
           mkdir -p www
           cp -r index.html manifest.json sw.js chargers_db.json css js icons www/
           npm init -y
-          npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/geolocation@^6 @capacitor/app@^6 @capacitor-community/text-to-speech@^5.1.0
+          npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/geolocation@^6 @capacitor/app@^6
           npx cap add android
           npx cap sync android
           python scripts/inject_permissions.py
@@ -67,7 +67,7 @@ jobs:
         with:
           tag_name: v5.50-release
           name: "VoltWay 2W Android APK v5.50 (Verified 9,373 2W DB, Valhalla Highway Routing, Persistent Trip)"
-          body: "VoltWay 2W v5.50: Quarantined 2,328 4W/OCPI records keeping 9,373 verified 2W stations, Valhalla main-road routing avoiding narrow alleys, persistent active trip across app close/reopen without background GPS, restored offline AndroidTTS + Web Speech voice guidance, physics-accurate charging & range estimates, and OLED night-ride UI."
+          body: "VoltWay 2W v5.50: 9,373 verified 2W stations, Google-Maps-style natural highway routing, persistent active trip across app close/reopen without background GPS, Turn-by-Turn HUD with destination & next-turn tracking, live battery map/plan sync, and OLED night-ride UI."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

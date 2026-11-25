@@ -3184,32 +3184,6 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   white-space: nowrap;
 }
 
-.btn-hud-sound {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  border-radius: 50%;
-  background: rgba(2, 6, 23, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  color: #ffffff;
-  font-size: 1.15rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: transform 0.15s, background 0.15s;
-}
-
-.btn-hud-sound:active {
-  transform: scale(0.94);
-}
-
-.btn-hud-sound.muted {
-  opacity: 0.65;
-  background: rgba(2, 6, 23, 0.55);
-}
-
 .hud-distance-val {
   font-size: 1.25rem;
   font-weight: 800;
@@ -3297,26 +3271,6 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   font-weight: 900;
   color: #ffffff;
   line-height: 1;
-}
-
-.btn-hud-sound {
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  cursor: pointer;
-  color: #ffffff;
-  transition: transform 0.15s;
-}
-
-.btn-hud-sound:active {
-  transform: scale(0.92);
 }
 
 /* OLED Floating Live Speedometer (Bottom-Left during Drive Mode) */

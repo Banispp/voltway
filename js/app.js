@@ -1,6 +1,6 @@
 /**
  * VoltWay 2W v5.50 - Main Application Controller
- * Ties together BatteryEngine, SyncEngine, RouteEngine, MapEngine, VoiceEngine, Utilities & DriveEngine.
+ * Ties together BatteryEngine, SyncEngine, RouteEngine, MapEngine, Utilities & DriveEngine.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1690,7 +1690,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const hudNextChargerBadge = document.getElementById('hud-next-charger-badge');
   const hudNextChargerName = document.getElementById('hud-next-charger-name');
   const hudNextChargerDist = document.getElementById('hud-next-charger-dist');
-  const btnHudSound = document.getElementById('btn-hud-sound');
   const navSpeedometer = document.getElementById('nav-speedometer');
   const navSpeedVal = document.getElementById('nav-speed-val');
   const navRoadPill = document.getElementById('nav-road-pill');
@@ -1707,21 +1706,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let active = false;
     let steps = [];
     let currentStepIdx = 0;
-    let spokenStages = new Set();
+    let arrivedAnnounced = false;
     let offRouteCount = 0;
     let lastRerouteTime = 0;
     let isRerouting = false;
     let wakeLockSentinel = null;
     let gpsWatchdogTimer = null;
     let overviewMode = false;
-
-    function updateSoundButtonUi() {
-      if (!btnHudSound || !window.VoiceEngine) return;
-      const on = window.VoiceEngine.isEnabled();
-      btnHudSound.textContent = on ? '🔊' : '🔇';
-      btnHudSound.classList.toggle('muted', !on);
-      btnHudSound.title = on ? 'Voice Guidance On (Tap to Mute)' : 'Voice Guidance Muted (Tap to Unmute)';
-    }
 
     async function requestWakeLock() {
       try {
@@ -1955,9 +1946,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
       isRerouting = true;
       lastRerouteTime = now;
-      if (window.VoiceEngine) {
-        window.VoiceEngine.speak('Rerouting to keep you on track', { force: true, chime: 'reroute' });
-      }
       if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔄 Rerouting...');
 
       try {
@@ -1980,7 +1968,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (refreshed) {
           steps = extractSteps(refreshed);
           currentStepIdx = 0;
-          spokenStages.clear();
+          arrivedAnnounced = false;
           updateStepBanner(refreshed);
         }
       } catch (e) {} finally {
@@ -2000,7 +1988,7 @@ document.addEventListener('DOMContentLoaded', () => {
       offRouteCount = 0;
       steps = extractSteps(route);
       currentStepIdx = 0;
-      spokenStages.clear();
+      arrivedAnnounced = false;
 
       document.body.classList.remove('manual-fullscreen');
       document.body.classList.add('nav-active');
@@ -2019,24 +2007,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } catch (e) {}
 
-      updateSoundButtonUi();
-      const bannerInfo = updateStepBanner(route);
+      updateStepBanner(route);
       refreshHudBattery(route.distanceKm);
 
       if (navStatDist) navStatDist.textContent = `${route.distanceKm} km`;
       if (navStatTime) navStatTime.textContent = window.Utilities ? window.Utilities.formatMinutes(route.durationMins) : `${route.durationMins} min`;
       if (navStatEta) navStatEta.textContent = formatEtaClock(route.durationMins);
-
-      if (window.VoiceEngine) {
-        window.VoiceEngine.unlockAudio();
-        window.VoiceEngine.resetDedup();
-        const destLabel = (steps[0] && steps[0].destName) || shortPlaceName(route.destination && route.destination.name, 'destination');
-        const departSpeech = steps[0] ? steps[0].speech : 'Navigation started';
-        const nextHint = bannerInfo && bannerInfo.targetStep && bannerInfo.lookIdx > 0
-          ? `. Then in ${formatHudDist(bannerInfo.distToStepM)}, ${bannerInfo.targetStep.speech}`
-          : '';
-        window.VoiceEngine.speak(`Head toward ${destLabel}. ${departSpeech}${nextHint}`, { force: true, chime: 'turn' });
-      }
 
       requestWakeLock();
 
@@ -2068,7 +2044,6 @@ document.addEventListener('DOMContentLoaded', () => {
         gpsWatchdogTimer = null;
       }
       releaseWakeLock();
-      if (window.VoiceEngine) window.VoiceEngine.stop();
 
       document.body.classList.remove('nav-active', 'manual-fullscreen');
       try {
@@ -2141,13 +2116,6 @@ document.addEventListener('DOMContentLoaded', () => {
           hudNextChargerBadge.style.display = 'inline-block';
           hudNextChargerName.textContent = shortPlaceName(nearestUpcoming.name, 'Charging Stop');
           hudNextChargerDist.textContent = `${nextChargerDistKm} km`;
-          const wpKey = `charger_${nearestUpcoming.id}`;
-          if (minD <= 0.4 && !spokenStages.has(wpKey)) {
-            spokenStages.add(wpKey);
-            if (window.VoiceEngine) {
-              window.VoiceEngine.speak(`Approaching charging stop: ${nearestUpcoming.name}`, { chime: 'charger' });
-            }
-          }
         }
       } else if (hudNextChargerBadge) {
         hudNextChargerBadge.style.display = 'none';
@@ -2162,8 +2130,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ? window.Utilities.haversine(coords.lat, coords.lng, route.destination.lat, route.destination.lng) * 1000
         : Infinity;
 
-      if (destDistM <= 50 && !spokenStages.has('arrived')) {
-        spokenStages.add('arrived');
+      if (destDistM <= 50 && !arrivedAnnounced) {
+        arrivedAnnounced = true;
         currentStepIdx = Math.max(0, steps.length - 1);
         const finalPlace = (steps[currentStepIdx] && steps[currentStepIdx].destName) || shortPlaceName(route.destination && route.destination.name, 'destination');
         if (hudDistVal) hudDistVal.textContent = '0 m';
@@ -2172,14 +2140,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hudTowardDest) hudTowardDest.textContent = `🏁 Reached ${finalPlace}`;
         if (hudSubStep) hudSubStep.style.display = 'none';
         if (hudSubText) hudSubText.textContent = '';
-        if (window.VoiceEngine) {
-          window.VoiceEngine.speak(`You have arrived at ${finalPlace}.`, { force: true, chime: 'arrival' });
-        }
         if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🏁 You have arrived!');
         return;
       }
 
-      // Maneuver progression & voice cues (resilient to skipped intermediate steps)
+      // Maneuver progression (resilient to skipped intermediate steps)
       if (steps.length > 0) {
         for (let j = steps.length - 1; j > currentStepIdx; j--) {
           const jd = window.Utilities.haversine(coords.lat, coords.lng, steps[j].lat, steps[j].lng) * 1000;
@@ -2196,33 +2161,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         renderStepHud(targetStep, nextAfter, distToStepM);
 
-        if (targetStep.isArrive && distToStepM <= 50 && !spokenStages.has('arrived')) {
-          spokenStages.add('arrived');
-          if (window.VoiceEngine) {
-            window.VoiceEngine.speak('You have arrived at your destination.', { force: true, chime: 'arrival' });
-          }
+        if (targetStep.isArrive && distToStepM <= 50 && !arrivedAnnounced) {
+          arrivedAnnounced = true;
           if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🏁 You have arrived!');
         } else if (distToStepM <= 35 && currentStepIdx < steps.length - 1) {
-          if (!spokenStages.has(`${lookIdx}_now`)) {
-            spokenStages.add(`${lookIdx}_now`);
-            if (window.VoiceEngine) window.VoiceEngine.speak(`${targetStep.speech} now`, { chime: 'turn' });
-          }
           currentStepIdx = lookIdx;
-        } else if (distToStepM <= 120 && !spokenStages.has(`${lookIdx}_100`)) {
-          spokenStages.add(`${lookIdx}_100`);
-          if (window.VoiceEngine) {
-            window.VoiceEngine.speak(`In ${Math.round(distToStepM / 10) * 10} meters, ${targetStep.speech}`, { chime: 'turn' });
-          }
-        } else if (distToStepM <= 240 && distToStepM >= 145 && !spokenStages.has(`${lookIdx}_200`)) {
-          spokenStages.add(`${lookIdx}_200`);
-          if (window.VoiceEngine) {
-            window.VoiceEngine.speak(`In 200 meters, ${targetStep.speech}`);
-          }
-        } else if (distToStepM <= 550 && distToStepM >= 320 && !spokenStages.has(`${lookIdx}_500`)) {
-          spokenStages.add(`${lookIdx}_500`);
-          if (window.VoiceEngine) {
-            window.VoiceEngine.speak(`In 500 meters, ${targetStep.speech}`);
-          }
         }
       }
     }
@@ -2233,7 +2176,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!rt) return;
       steps = extractSteps(rt);
       currentStepIdx = 0;
-      spokenStages.clear();
+      arrivedAnnounced = false;
       updateStepBanner(rt);
       refreshHudBattery(rt.distanceKm);
       if (navStatDist) navStatDist.textContent = `${rt.distanceKm} km`;
@@ -2248,7 +2191,6 @@ document.addEventListener('DOMContentLoaded', () => {
       onLocationUpdate,
       refreshHudBattery,
       refreshActiveRoute,
-      updateSoundButtonUi,
       toggleOverview: () => {
         if (!window.MapEngine || !window.RouteEngine) return;
         const route = window.RouteEngine.getActiveRoute();
@@ -2275,14 +2217,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnFloatingStartNav) btnFloatingStartNav.addEventListener('click', () => DriveEngine.start());
   if (btnStartInAppNav) btnStartInAppNav.addEventListener('click', () => DriveEngine.start());
   if (btnExitDrive) btnExitDrive.addEventListener('click', () => DriveEngine.stop());
-  if (btnHudSound) {
-    btnHudSound.addEventListener('click', () => {
-      if (window.VoiceEngine) {
-        window.VoiceEngine.toggle();
-        DriveEngine.updateSoundButtonUi();
-      }
-    });
-  }
   if (btnNavCompass) {
     btnNavCompass.addEventListener('click', () => {
       if (window.MapEngine) {
