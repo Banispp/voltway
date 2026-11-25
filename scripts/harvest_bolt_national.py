@@ -91,11 +91,18 @@ def build_grid_cells():
         c_lng = round(lng / step) * step
         cells.add((round(c_lat, 2), round(c_lng, 2)))
 
-    kerala_lat_steps = [8.3, 8.5, 8.7, 8.9, 9.1, 9.3, 9.5, 9.7, 9.9, 10.1, 10.3, 10.5, 10.7, 10.9, 11.1, 11.3, 11.5, 11.7, 11.9, 12.1, 12.3, 12.5]
-    kerala_lng_steps = [75.0, 75.3, 75.6, 75.9, 76.2, 76.5, 76.8, 77.1]
+    kerala_lat_steps = [8.3, 8.6, 8.9, 9.2, 9.5, 9.8, 10.1, 10.4, 10.7, 11.0, 11.3, 11.6, 11.9, 12.2, 12.5, 12.8]
+    kerala_lng_steps = [74.9, 75.3, 75.7, 76.1, 76.5, 76.9, 77.3]
     for klat in kerala_lat_steps:
         for klng in kerala_lng_steps:
             cells.add((round(klat, 2), round(klng, 2)))
+
+    # Dense Karnataka & Tamil Nadu highway/urban grid so non-clustered town fast chargers are never missed
+    south_lat_steps = [8.2, 9.0, 9.8, 10.6, 11.4, 12.2, 13.0, 13.8, 14.6, 15.4, 16.2]
+    south_lng_steps = [74.6, 75.5, 76.5, 77.5, 78.5, 79.5, 80.2]
+    for slat in south_lat_steps:
+        for slng in south_lng_steps:
+            cells.add((round(slat, 2), round(slng, 2)))
 
     boxes = []
     for clat, clng in sorted(cells):
@@ -140,7 +147,7 @@ def harvest_national():
 
     boxes = build_grid_cells()
     total_cells = len(boxes)
-    print(f"[3/3] Harvesting all {total_cells} cells at Zoom 18 (unclustered)...", flush=True)
+    print(f"[3/3] Harvesting all {total_cells} cells slowly at Zoom 18 (unclustered)...", flush=True)
 
     start_time = time.time()
     scanned_boxes = []
@@ -149,7 +156,7 @@ def harvest_national():
     for idx, (b, l, t, r) in enumerate(boxes):
         url = f"https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom={b}&lng_left={l}&lat_top={t}&lng_right={r}&zoom=18"
         items = query_url(url)
-        time.sleep(0.75)
+        time.sleep(0.88)
 
         if items is None:
             print(f"[{idx+1}/{total_cells}] ({b:.2f}, {l:.2f}) -> API failed (skipping removal check for cell)", flush=True)

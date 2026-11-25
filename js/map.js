@@ -423,15 +423,41 @@ const MapEngine = (function () {
       const fastInBounds = inBounds.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID');
       const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID' && c.network !== 'VIDA_GRID');
 
-      if (zoom < 8) {
-        const step = Math.max(1, Math.floor(fastInBounds.length / 75));
-        for (let i = 0; i < fastInBounds.length && visibleChargers.length < 75; i += step) {
-          visibleChargers.push(fastInBounds[i]);
+      const sampleInterleavedByNetwork = (list, limit) => {
+        if (list.length <= limit) return list;
+        const buckets = new Map();
+        for (let i = 0; i < list.length; i++) {
+          const net = list[i].network || 'OTHER';
+          if (!buckets.has(net)) buckets.set(net, []);
+          buckets.get(net).push(list[i]);
         }
+        const keys = Array.from(buckets.keys());
+        const out = [];
+        const cursors = new Map(keys.map(k => [k, 0]));
+        const stride = Math.max(1, Math.floor(list.length / limit));
+        while (out.length < limit) {
+          let progressed = false;
+          for (const k of keys) {
+            const arr = buckets.get(k);
+            const idx = cursors.get(k);
+            if (idx < arr.length) {
+              out.push(arr[idx]);
+              cursors.set(k, idx + stride);
+              progressed = true;
+              if (out.length >= limit) break;
+            }
+          }
+          if (!progressed) break;
+        }
+        return out;
+      };
+
+      if (zoom < 9) {
+        visibleChargers.push(...sampleInterleavedByNetwork(fastInBounds, 240));
       } else {
-        visibleChargers.push(...fastInBounds.slice(0, 240));
+        visibleChargers.push(...sampleInterleavedByNetwork(fastInBounds, 900));
         if (filters.boltSlow && slowInBounds.length > 0) {
-          const remainingSlots = Math.max(0, 280 - visibleChargers.length);
+          const remainingSlots = Math.max(0, 1050 - visibleChargers.length);
           visibleChargers.push(...slowInBounds.slice(0, remainingSlots));
         }
       }
@@ -462,16 +488,55 @@ const MapEngine = (function () {
         if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
       }
       if (id === activePopupChargerId) continue;
-      if (activeWpIds.has(id) || (isCorridorActive && !newVisibleIds.has(id)) || !bounds.contains(marker.getLatLng())) {
+      if (activeWpIds.has(id) || (isCorridorActive && !newVisibleIds.has(id)) || !bounds.contains(L.latLng((c && c.lat) || marker.getLatLng().lat, (c && c.lng) || marker.getLatLng().lng))) {
         markersLayer.removeLayer(marker);
         markerMap.delete(id);
       }
     }
 
-    visibleChargers.forEach((charger) => {
-      if (activeWpIds.has(charger.id) || markerMap.has(charger.id)) return;
+    // Spread co-located overlapping chargers (within ~25m) neatly into a clickable ring without altering true GPS coords
+    const displayPosMap = new Map();
+    const ungrouped = visibleChargers.filter(c => !activeWpIds.has(c.id)).sort((a, b) => a.lat - b.lat || a.lng - b.lng);
+    const assigned = new Set();
+    const spreadDeg = zoom >= 17 ? 0.00010 : (zoom >= 15 ? 0.00022 : (zoom >= 13 ? 0.00048 : (zoom >= 11 ? 0.0011 : 0.0026)));
 
-      const marker = L.marker(L.latLng(charger.lat, charger.lng), { icon: createPinIcon(charger) });
+    for (let i = 0; i < ungrouped.length; i++) {
+      const base = ungrouped[i];
+      if (assigned.has(base.id)) continue;
+      const group = [base];
+      assigned.add(base.id);
+      for (let j = i + 1; j < ungrouped.length; j++) {
+        const cand = ungrouped[j];
+        if (cand.lat - base.lat > 0.00024) break;
+        if (!assigned.has(cand.id) && Math.abs(cand.lng - base.lng) <= 0.00024) {
+          group.push(cand);
+          assigned.add(cand.id);
+        }
+      }
+      if (group.length === 1) {
+        displayPosMap.set(base.id, [base.lat, base.lng]);
+      } else {
+        group.sort((x, y) => String(x.id).localeCompare(String(y.id)));
+        const cLat = group.reduce((s, g) => s + g.lat, 0) / group.length;
+        const cLng = group.reduce((s, g) => s + g.lng, 0) / group.length;
+        const ringRadius = spreadDeg * (group.length > 4 ? 1.35 : 1.0);
+        group.forEach((item, idx) => {
+          const theta = (2 * Math.PI * idx) / group.length;
+          displayPosMap.set(item.id, [cLat + ringRadius * Math.sin(theta), cLng + ringRadius * Math.cos(theta)]);
+        });
+      }
+    }
+
+    visibleChargers.forEach((charger) => {
+      if (activeWpIds.has(charger.id)) return;
+      const pos = displayPosMap.get(charger.id) || [charger.lat, charger.lng];
+      const existing = markerMap.get(charger.id);
+      if (existing) {
+        existing.setLatLng(pos);
+        return;
+      }
+
+      const marker = L.marker(L.latLng(pos[0], pos[1]), { icon: createPinIcon(charger) });
       marker._chargerData = charger;
 
       marker.bindPopup(() => createChargerPopupHtml(charger), {
@@ -590,6 +655,30 @@ const MapEngine = (function () {
       ? window.Utilities.renderAmenitiesHtml(charger.name, charger.address)
       : '';
 
+    let coLocatedHtml = '';
+    if (window.SyncEngine && typeof window.SyncEngine.getChargersInBounds === 'function') {
+      const box = {
+        south: charger.lat - 0.00045,
+        north: charger.lat + 0.00045,
+        west: charger.lng - 0.00045,
+        east: charger.lng + 0.00045
+      };
+      const nearby = window.SyncEngine.getChargersInBounds(box).filter(c => {
+        if (!c || c.id === charger.id || c.is_2w === false) return false;
+        if (Math.abs(c.lat - charger.lat) > 0.00038 || Math.abs(c.lng - charger.lng) > 0.00038) return false;
+        return c.type === 'FAST' || c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID' || filters.boltSlow;
+      }).slice(0, 4);
+
+      if (nearby.length > 0) {
+        const btns = nearby.map(o => {
+          const safeJsId = esc(String(o.id).replace(/['"\\]/g, ''));
+          const badge = o.network === 'ATHER_GRID' ? '⚡Ather' : (o.network === 'VIDA_GRID' ? '⚡VIDA' : (o.type === 'FAST' ? '⚡Bolt' : '🔌15A'));
+          return `<button type="button" onclick="MapEngine.handleFocusChargerById('${safeJsId}')" style="width:100%; text-align:left; background:rgba(15,23,42,0.88); border:1px solid rgba(56,189,248,0.3); color:#e2e8f0; border-radius:6px; padding:5px 8px; font-size:0.68rem; font-weight:700; cursor:pointer; display:flex; justify-content:space-between; gap:6px; align-items:center;"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${badge} • ${esc((o.name || 'Charger').slice(0, 26))}</span><span style="color:#38bdf8; flex-shrink:0;">View ➔</span></button>`;
+        }).join('');
+        coLocatedHtml = `<div style="margin:6px 0; padding:6px; border-radius:8px; background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.28); display:flex; flex-direction:column; gap:4px;"><div style="font-size:0.67rem; font-weight:800; color:#7dd3fc;">📍 ${nearby.length} Other Charger${nearby.length > 1 ? 's' : ''} Right Here:</div>${btns}</div>`;
+      }
+    }
+
     return `
       <div class="popup-card">
         <div class="popup-header">
@@ -614,6 +703,7 @@ const MapEngine = (function () {
 
         ${safeAddr ? `<div class="popup-address">📍 ${safeAddr}</div>` : ''}
         ${venueHints}
+        ${coLocatedHtml}
         ${stopActionButtons}
       </div>
     `;
@@ -1498,6 +1588,18 @@ const MapEngine = (function () {
     }, 450);
   }
 
+  function handleFocusChargerById(chargerId) {
+    const c = window.SyncEngine ? window.SyncEngine.getChargerById(chargerId) : null;
+    if (!c) return;
+    activePopupChargerId = c.id;
+    renderChargers();
+    setTimeout(() => {
+      const m = waypointMarkersMap.get(c.id) || markerMap.get(c.id);
+      if (m) m.openPopup();
+      else focusCharger(c);
+    }, 60);
+  }
+
   return {
     initMap,
     setTileTheme,
@@ -1519,6 +1621,7 @@ const MapEngine = (function () {
     setAutoFollow,
     isAutoFollowActive: () => isAutoFollow,
     focusCharger,
+    handleFocusChargerById,
     isPopupOpen: () => Boolean(activePopupChargerId),
     getUserCoords: () => userCoords,
     getLastGpsFixAgeMs: () => (lastGpsFixTime ? Date.now() - lastGpsFixTime : Infinity),

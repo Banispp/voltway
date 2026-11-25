@@ -7,7 +7,7 @@
 const SyncEngine = (function () {
   const DB_NAME = 'VoltWay2W_DB';
   const DB_VERSION = 2;
-  const DB_SCHEMA_TAG = '5.50-clean-2w';
+  const DB_SCHEMA_TAG = '5.51-deep-2w';
   const STORE_NAME = 'chargers';
 
   let db = null;
