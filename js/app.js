@@ -266,13 +266,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnFullscreen = document.getElementById('btn-toggle-fullscreen');
   if (btnFullscreen) {
     btnFullscreen.addEventListener('click', () => {
+      const activeFs = document.body.classList.toggle('manual-fullscreen');
+      btnFullscreen.textContent = activeFs ? '🗗' : '⛶';
       try {
-        if (!document.fullscreenElement) {
+        if (activeFs && !document.fullscreenElement) {
           document.documentElement.requestFullscreen().catch(() => {});
-        } else {
+        } else if (!activeFs && document.fullscreenElement) {
           document.exitFullscreen().catch(() => {});
         }
       } catch (e) {}
+      setTimeout(() => {
+        if (window.MapEngine && window.MapEngine.getMap()) {
+          window.MapEngine.getMap().invalidateSize();
+        }
+      }, 150);
     });
   }
 
@@ -984,17 +991,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function resetActiveTrip() {
+    if (window.DriveEngine && window.DriveEngine.isActive()) {
+      window.DriveEngine.stop();
+    }
+    if (window.RouteEngine) window.RouteEngine.clearRoute();
+    destCoords = null;
+    if (destInput) destInput.value = '';
+    if (intermediateStopsList) intermediateStopsList.innerHTML = '';
+    if (window.MapEngine) window.MapEngine.renderChargers();
+  }
+
   if (btnClearRoute) {
-    btnClearRoute.addEventListener('click', () => {
-      if (window.DriveEngine && window.DriveEngine.isActive()) {
-        window.DriveEngine.stop();
-      }
-      if (window.RouteEngine) window.RouteEngine.clearRoute();
-      destCoords = null;
-      if (destInput) destInput.value = '';
-      if (intermediateStopsList) intermediateStopsList.innerHTML = '';
-      if (window.MapEngine) window.MapEngine.renderChargers();
-    });
+    btnClearRoute.addEventListener('click', resetActiveTrip);
+  }
+  const btnSummaryResetRoute = document.getElementById('btn-summary-reset-route');
+  if (btnSummaryResetRoute) {
+    btnSummaryResetRoute.addEventListener('click', resetActiveTrip);
   }
 
   function renderWaypointsList(waypoints) {
@@ -1046,7 +1059,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const timelineMode = payload ? payload.timelineMode : 'optimal';
     const bufKm = payload ? payload.corridorBufferKm : 5;
 
-    const voiceQuickBar = document.getElementById('voice-quick-bar');
     if (!route) {
       if (routeSelectorContainer) routeSelectorContainer.style.display = 'none';
       if (routeSummaryCard) routeSummaryCard.style.display = 'none';
@@ -1055,17 +1067,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (btnFloatingStartNav) btnFloatingStartNav.style.display = 'none';
       if (btnStartInAppNav) btnStartInAppNav.style.display = 'none';
       if (navSecondaryActions) navSecondaryActions.style.display = 'none';
-      if (voiceQuickBar) voiceQuickBar.style.display = 'none';
       return;
     }
 
     if (mapRouteCorridorPill) mapRouteCorridorPill.style.display = 'flex';
     if (btnStartInAppNav) btnStartInAppNav.style.display = 'flex';
     if (navSecondaryActions) navSecondaryActions.style.display = 'flex';
-    if (voiceQuickBar) voiceQuickBar.style.display = 'flex';
-    if (window.DriveEngine && window.DriveEngine.updateSoundButtonUi) {
-      window.DriveEngine.updateSoundButtonUi();
-    }
     if (btnFloatingStartNav && !(window.DriveEngine && window.DriveEngine.isActive())) {
       btnFloatingStartNav.style.display = 'flex';
     }
@@ -1652,18 +1659,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let overviewMode = false;
 
     function updateSoundButtonUi() {
-      if (!window.VoiceEngine) return;
+      if (!btnHudSound || !window.VoiceEngine) return;
       const on = window.VoiceEngine.isEnabled();
-      if (btnHudSound) {
-        btnHudSound.textContent = on ? '🔊' : '🔇';
-        btnHudSound.classList.toggle('muted', !on);
-        btnHudSound.title = on ? 'Voice Guidance On (Tap to Mute)' : 'Voice Guidance Muted (Tap to Unmute)';
-      }
-      const btnRouteVoice = document.getElementById('btn-route-voice-toggle');
-      if (btnRouteVoice) {
-        btnRouteVoice.textContent = on ? '🔊 Voice Prompts: ON' : '🔇 Voice Prompts: OFF';
-        btnRouteVoice.classList.toggle('muted', !on);
-      }
+      btnHudSound.textContent = on ? '🔊' : '🔇';
+      btnHudSound.classList.toggle('muted', !on);
+      btnHudSound.title = on ? 'Voice Guidance On (Tap to Mute)' : 'Voice Guidance Muted (Tap to Unmute)';
     }
 
     async function requestWakeLock() {
@@ -1850,15 +1850,22 @@ document.addEventListener('DOMContentLoaded', () => {
       currentStepIdx = 0;
       spokenStages.clear();
 
-      document.body.classList.add('driving-mode-active');
+      document.body.classList.remove('manual-fullscreen');
+      document.body.classList.add('nav-active');
       setDrawerCollapsed(true);
 
       if (btnFloatingStartNav) btnFloatingStartNav.style.display = 'none';
       if (hudWrapper) hudWrapper.style.display = 'flex';
       if (navSpeedometer) navSpeedometer.style.display = 'flex';
-      if (navRoadPill) navRoadPill.style.display = 'inline-flex';
+      if (navRoadPill) navRoadPill.style.display = 'none';
       if (navBottomBar) navBottomBar.style.display = 'flex';
       if (btnNavCompass) btnNavCompass.style.display = 'flex';
+
+      try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } catch (e) {}
 
       updateSoundButtonUi();
       updateStepBanner();
@@ -1881,12 +1888,15 @@ document.addEventListener('DOMContentLoaded', () => {
       gpsWatchdogTimer = setInterval(() => {
         if (!active || !window.MapEngine) return;
         const ageMs = window.MapEngine.getLastGpsFixAgeMs();
-        if (ageMs > 15000 && navRoadPillText) {
-          navRoadPillText.textContent = '📡 Searching GPS signal...';
+        if (ageMs > 15000 && hudStreetName) {
+          hudStreetName.textContent = '📡 Searching GPS signal...';
         }
       }, 3000);
 
       if (window.MapEngine) {
+        if (window.MapEngine.getMap()) {
+          setTimeout(() => window.MapEngine.getMap().invalidateSize(), 120);
+        }
         window.MapEngine.startLiveTracking(true);
         window.MapEngine.recenterCamera(17.5);
       }
@@ -1904,7 +1914,13 @@ document.addEventListener('DOMContentLoaded', () => {
       releaseWakeLock();
       if (window.VoiceEngine) window.VoiceEngine.stop();
 
-      document.body.classList.remove('driving-mode-active');
+      document.body.classList.remove('nav-active', 'manual-fullscreen');
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+      } catch (e) {}
+
       if (hudWrapper) hudWrapper.style.display = 'none';
       if (navSpeedometer) navSpeedometer.style.display = 'none';
       if (navRoadPill) navRoadPill.style.display = 'none';
@@ -1915,6 +1931,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (window.MapEngine) {
+        if (window.MapEngine.getMap()) {
+          setTimeout(() => window.MapEngine.getMap().invalidateSize(), 120);
+        }
         window.MapEngine.setBearing(0);
         window.MapEngine.recenterCamera(15);
       }
@@ -2099,27 +2118,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.VoiceEngine) {
         window.VoiceEngine.toggle();
         DriveEngine.updateSoundButtonUi();
-      }
-    });
-  }
-  const btnRouteVoiceToggle = document.getElementById('btn-route-voice-toggle');
-  if (btnRouteVoiceToggle) {
-    btnRouteVoiceToggle.addEventListener('click', () => {
-      if (window.VoiceEngine) {
-        window.VoiceEngine.unlockAudio();
-        window.VoiceEngine.toggle();
-        DriveEngine.updateSoundButtonUi();
-      }
-    });
-  }
-  const btnRouteVoiceTest = document.getElementById('btn-route-voice-test');
-  if (btnRouteVoiceTest) {
-    btnRouteVoiceTest.addEventListener('click', () => {
-      if (window.VoiceEngine) {
-        window.VoiceEngine.unlockAudio();
-        window.VoiceEngine.setEnabled(true);
-        DriveEngine.updateSoundButtonUi();
-        window.VoiceEngine.speak('In 200 meters, turn left, then turn right onto NH 544. Voice guidance ready.', { force: true, chime: 'turn' });
       }
     });
   }

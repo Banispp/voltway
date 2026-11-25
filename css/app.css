@@ -2366,48 +2366,10 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   color: #cbd5e1;
 }
 
-.voice-quick-bar {
+.nav-secondary-actions {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  background: rgba(15, 23, 42, 0.9);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  border-radius: 10px;
-  padding: 6px 10px;
-}
-
-.btn-voice-toggle {
-  flex: 1;
-  min-height: 36px;
-  background: rgba(0, 230, 118, 0.14);
-  border: 1px solid rgba(0, 230, 118, 0.4);
-  color: #86efac;
-  border-radius: 8px;
-  font-size: 0.76rem;
-  font-weight: 800;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
-.btn-voice-toggle.muted {
-  background: rgba(100, 116, 139, 0.16);
-  border-color: rgba(148, 163, 184, 0.3);
-  color: #94a3b8;
-}
-
-.btn-voice-test {
-  min-height: 36px;
-  padding: 6px 12px;
-  background: rgba(56, 189, 248, 0.16);
-  border: 1px solid rgba(56, 189, 248, 0.4);
-  color: #7dd3fc;
-  border-radius: 8px;
-  font-size: 0.75rem;
-  font-weight: 800;
-  cursor: pointer;
-  white-space: nowrap;
-  touch-action: manipulation;
+  align-items: stretch;
 }
 
 .timeline-nodes-list {
@@ -3594,7 +3556,10 @@ body.nav-active .app-header,
 body.nav-active .map-top-bar,
 body.nav-active #bottom-sheet,
 body.nav-active #btn-floating-start-nav,
-body.nav-active .btn-toggle-fullscreen {
+body.nav-active .btn-toggle-fullscreen,
+body.nav-active .btn-toggle-map-theme,
+body.nav-active #map-route-corridor-pill,
+body.nav-active #nav-road-pill {
   display: none !important;
 }
 

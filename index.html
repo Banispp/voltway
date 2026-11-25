@@ -301,8 +301,8 @@
             <button id="btn-plan-route" class="btn-primary-action">
               ⚡ Plan 2W Route
             </button>
-            <button id="btn-clear-route" class="btn-secondary-action" style="max-width: 96px;">
-              Reset
+            <button id="btn-clear-route" class="btn-secondary-action" style="min-width: 88px; padding: 0 14px; flex-shrink: 0;">
+              🔄 Reset
             </button>
           </div>
 
@@ -355,7 +355,7 @@
               </button>
 
               <div id="nav-secondary-actions" class="nav-secondary-actions" style="display: none;">
-                <button type="button" id="btn-open-google-maps" class="btn-nav-gmaps-link" title="Open multi-stop route in Google Maps app">
+                <button type="button" id="btn-open-google-maps" class="btn-nav-gmaps-link" style="flex: 1;" title="Open multi-stop route in Google Maps app">
                   <span class="btn-nav-icon">🗺️</span>
                   <div class="btn-nav-text">
                     <span class="btn-nav-title">Open in Google Maps</span>
@@ -363,14 +363,8 @@
                   </div>
                   <span class="btn-nav-arrow">↗</span>
                 </button>
-              </div>
-
-              <div id="voice-quick-bar" class="voice-quick-bar" style="display: none;">
-                <button type="button" id="btn-route-voice-toggle" class="btn-voice-toggle" title="Toggle Turn-by-Turn Voice Guidance">
-                  🔊 Voice Prompts: ON
-                </button>
-                <button type="button" id="btn-route-voice-test" class="btn-voice-test" title="Play Sample Turn Left / Turn Right Voice Cue">
-                  ▶ Test Voice
+                <button type="button" id="btn-summary-reset-route" class="btn-secondary-action" style="min-width: 78px; padding: 0 12px; flex-shrink: 0; height: auto;" title="Clear active route & saved stops">
+                  🔄 Reset
                 </button>
               </div>
             </div>
