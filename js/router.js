@@ -583,15 +583,117 @@ const RouteEngine = (function () {
     }
   }
 
+  const ETA_NH_RE = /\b(NH|AH)\s*-?\s*\d+|national highway|expressway|ring road|bypass|salem\s*-\s*kochi|kochi\s*-\s*salem|bengaluru\s*-\s*mysuru/i;
+  const ETA_SH_RE = /\bSH\s*-?\s*\d+|state highway|mc road|main central|main road|highway/i;
+
+  /**
+   * Calibrates step/leg durations to realistic Indian 2-wheeler / Google Maps travel times.
+   * Valhalla often assigns ~31-35 km/h to untagged Indian highways, while OSRM car routing can be
+   * slightly fast (~62 km/h); blending by road class keeps highway & city ETAs accurate.
+   */
+  function calibrate2WRouteDurations(route) {
+    if (!route || !Array.isArray(route.legs) || route.legs.length === 0 || route._etaCalibrated) {
+      return route;
+    }
+
+    let totalDur = 0;
+    for (const leg of route.legs) {
+      const steps = Array.isArray(leg.steps) ? leg.steps : [];
+      const legDistM = Math.max(0, Number(leg.distance) || 0);
+      let legDur = 0;
+      let stepDistSum = 0;
+
+      if (steps.length > 0) {
+        for (const step of steps) {
+          const dM = Math.max(0, Number(step.distance) || 0);
+          const rawS = Math.max(0, Number(step.duration) || 0);
+          if (dM <= 0) {
+            step.duration = 0;
+            continue;
+          }
+          stepDistSum += dM;
+
+          const roadLabel = [step.ref, step.name].filter(Boolean).join(' / ');
+          const isNh = ETA_NH_RE.test(roadLabel);
+          const isSh = ETA_SH_RE.test(roadLabel);
+
+          let targetKmh;
+          if (isNh && dM >= 8000) targetKmh = 52;
+          else if (isNh || dM >= 8000) targetKmh = 49;
+          else if (isSh && dM >= 2500) targetKmh = 44;
+          else if (isSh || dM >= 3000) targetKmh = 41;
+          else if (dM >= 1200) targetKmh = 34;
+          else if (dM >= 400) targetKmh = 28;
+          else targetKmh = 22;
+
+          const mType = (step.maneuver && step.maneuver.type) || '';
+          const turnDelayS = (mType === 'depart' || mType === 'arrive') ? 0 : (dM < 1500 ? 6 : 3);
+          const targetS = ((dM / 1000) / targetKmh) * 3600 + turnDelayS;
+
+          let calS;
+          if (rawS > 0) {
+            const rawKmh = (dM / 1000) / (rawS / 3600);
+            if (rawKmh < targetKmh * 0.78 || rawKmh > targetKmh * 1.18) {
+              calS = 0.80 * targetS + 0.20 * rawS;
+            } else {
+              calS = 0.50 * targetS + 0.50 * rawS;
+            }
+          } else {
+            calS = targetS;
+          }
+
+          const minS = ((dM / 1000) / 56) * 3600;
+          step.duration = Math.round(Math.max(minS, calS));
+          legDur += step.duration;
+        }
+
+        if (legDistM > 0 && stepDistSum > 0 && Math.abs(stepDistSum - legDistM) > Math.max(500, legDistM * 0.12)) {
+          const distScale = legDistM / stepDistSum;
+          legDur = 0;
+          for (const step of steps) {
+            step.duration = Math.round((step.duration || 0) * distScale);
+            legDur += step.duration;
+          }
+        }
+      } else {
+        const rawLegS = Math.max(0, Number(leg.duration) || 0);
+        if (legDistM > 0) {
+          const targetKmh = legDistM >= 25000 ? 46 : 32;
+          const targetS = ((legDistM / 1000) / targetKmh) * 3600;
+          if (rawLegS > 0) {
+            const rawKmh = (legDistM / 1000) / (rawLegS / 3600);
+            const calS = (rawKmh < targetKmh * 0.78 || rawKmh > targetKmh * 1.18)
+              ? (0.80 * targetS + 0.20 * rawLegS)
+              : (0.50 * targetS + 0.50 * rawLegS);
+            legDur = Math.round(Math.max(((legDistM / 1000) / 56) * 3600, calS));
+          } else {
+            legDur = Math.round(targetS);
+          }
+        }
+      }
+
+      leg.duration = Math.round(legDur);
+      totalDur += leg.duration;
+    }
+
+    if (totalDur > 0) {
+      route.duration = Math.round(totalDur);
+    }
+    route._etaCalibrated = true;
+    return route;
+  }
+
   /**
    * Google-Maps-style route ranking: prioritizes fastest practical travel time first,
    * breaking near-ties (<= 4% / 90s) in favor of main arterial highways and fewer zigzag turns.
    */
   function scoreAndSortMainRoadRoutes(routes) {
-    if (!Array.isArray(routes) || routes.length <= 1) return routes || [];
-    const minDuration = Math.min(...routes.map(r => r.duration || Infinity));
+    if (!Array.isArray(routes) || routes.length === 0) return [];
+    const calibrated = routes.map(calibrate2WRouteDurations);
+    if (calibrated.length <= 1) return calibrated;
+    const minDuration = Math.min(...calibrated.map(r => r.duration || Infinity));
 
-    const scored = routes.map((r, origIdx) => {
+    const scored = calibrated.map((r, origIdx) => {
       const totalDist = Math.max(1, r.distance || 1);
       const steps = (r.legs || []).flatMap(l => l.steps || []);
       let arterialDist = 0;

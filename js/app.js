@@ -1189,8 +1189,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (distEl) distEl.textContent = `${route.distanceKm} km`;
     if (timeEl) {
-      const mins = timelineResult ? timelineResult.totalTripDurationMins : route.durationMins;
-      timeEl.textContent = window.Utilities ? window.Utilities.formatMinutes(mins) : `${mins} min`;
+      const fmtMin = m => (window.Utilities ? window.Utilities.formatMinutes(m) : `${m} min`);
+      const rideMins = (timelineResult && typeof timelineResult.totalDrivingMins === 'number')
+        ? timelineResult.totalDrivingMins
+        : route.durationMins;
+      const totalMins = (timelineResult && typeof timelineResult.totalTripDurationMins === 'number')
+        ? timelineResult.totalTripDurationMins
+        : rideMins;
+      const chargeMins = Math.max(0, totalMins - rideMins);
+      timeEl.textContent = fmtMin(rideMins);
+      const timeLabelEl = document.getElementById('metric-trip-time-label');
+      if (timeLabelEl) {
+        timeLabelEl.textContent = chargeMins > 0
+          ? `Ride (+${fmtMin(chargeMins)}⚡ = ${fmtMin(totalMins)})`
+          : 'Ride Time';
+      }
     }
     if (neededEl) neededEl.textContent = `~${totalUsedPct}%`;
     if (arrivalEl) {
