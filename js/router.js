@@ -9,6 +9,7 @@ const RouteEngine = (function () {
   const SAVED_TRIP_KEY = 'voltway_saved_trip_v1';
 
   let allRoutes = [];
+  let baseRouteOptions = [];
   let selectedRouteIndex = 0;
   let activeRoute = null;
   let currentOrigin = null;
@@ -108,6 +109,7 @@ const RouteEngine = (function () {
       }
 
       const compactAll = allRoutes.map(compactRouteForStorage).filter(Boolean);
+      const compactBase = baseRouteOptions.map(compactRouteForStorage).filter(Boolean);
       const snapshot = {
         version: 1,
         savedAt: Date.now(),
@@ -119,7 +121,8 @@ const RouteEngine = (function () {
         timelineMode: currentTimelineMode,
         corridorBufferKm,
         routeFilters,
-        allRoutes: compactAll
+        allRoutes: compactAll,
+        baseRouteOptions: compactBase
       };
 
       try {
@@ -127,6 +130,7 @@ const RouteEngine = (function () {
       } catch (quotaErr) {
         // Fallback: keep active route only if storage quota is tight
         snapshot.allRoutes = [compactAll[selectedRouteIndex] || compactAll[0]];
+        snapshot.baseRouteOptions = [];
         snapshot.selectedRouteIndex = 0;
         localStorage.setItem(SAVED_TRIP_KEY, JSON.stringify(snapshot));
       }
@@ -146,6 +150,10 @@ const RouteEngine = (function () {
 
       allRoutes = parsed.allRoutes.filter(r => r && Array.isArray(r.coordinates) && r.coordinates.length >= 2);
       if (allRoutes.length === 0) return null;
+
+      baseRouteOptions = (Array.isArray(parsed.baseRouteOptions) && parsed.baseRouteOptions.length > 0)
+        ? parsed.baseRouteOptions.filter(r => r && Array.isArray(r.coordinates) && r.coordinates.length >= 2)
+        : allRoutes.map(r => ({ ...r, waypoints: (r.waypoints || []).map(w => ({ ...w })) }));
 
       selectedRouteIndex = Math.max(0, Math.min(allRoutes.length - 1, Number(parsed.selectedRouteIndex) || 0));
       activeRoute = allRoutes[selectedRouteIndex];
@@ -702,6 +710,27 @@ const RouteEngine = (function () {
     try {
       const valhallaRoutes = await fetchValhallaRoutes(cleanPoints);
       if (valhallaRoutes && valhallaRoutes.length > 0) {
+        if (cleanPoints.length === 2 && valhallaRoutes.length === 1) {
+          try {
+            const osrmAlts = await Promise.race([
+              fetchOsrmRaw(cleanPoints),
+              new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3200))
+            ]);
+            if (Array.isArray(osrmAlts) && osrmAlts.length > 0) {
+              const primary = valhallaRoutes[0];
+              const pRoad = extractMainRoadName(primary.legs);
+              const distinct = osrmAlts.filter(alt => {
+                const aRoad = extractMainRoadName(alt.legs);
+                const distDiff = Math.abs((alt.distance || 0) - (primary.distance || 0));
+                const durDiff = Math.abs((alt.duration || 0) - (primary.duration || 0));
+                return (aRoad && pRoad && aRoad !== pRoad) || distDiff > ((primary.distance || 1) * 0.04) || durDiff > 240;
+              });
+              if (distinct.length > 0) {
+                return [primary, ...distinct.slice(0, 2)];
+              }
+            }
+          } catch (e) {}
+        }
         return valhallaRoutes;
       }
     } catch (valErr) {
@@ -762,10 +791,22 @@ const RouteEngine = (function () {
     });
   }
 
-  async function calculateRoute(origin, destination, manualWaypoints = null, preserveManualOrder = false) {
+  function refreshRouteTimeDiffs(pool) {
+    if (!Array.isArray(pool) || pool.length === 0) return;
+    const minDur = Math.min(...pool.map(r => (typeof r.durationMins === 'number' ? r.durationMins : Infinity)));
+    pool.forEach(r => {
+      r.timeDiffMins = Number.isFinite(minDur) ? Math.max(0, (r.durationMins || 0) - minDur) : 0;
+      r.isPrimary = (r.durationMins === minDur);
+    });
+  }
+
+  async function calculateRoute(origin, destination, manualWaypoints = null, preserveManualOrder = false, options = {}) {
     if (!origin || !destination) {
       throw new Error('Origin and destination are required');
     }
+
+    const preserveOtherOptions = Boolean(options && options.preserveOtherOptions);
+    const targetOptionIdx = (options && typeof options.optionIndex === 'number') ? options.optionIndex : selectedRouteIndex;
 
     currentOrigin = origin;
     currentDestination = destination;
@@ -778,8 +819,6 @@ const RouteEngine = (function () {
     }
 
     const points = [origin, ...intermediateWaypoints, destination];
-    allRoutes = [];
-    selectedRouteIndex = 0;
 
     try {
       const primaryRoutes = await fetchBestMainRoadRoutes(points);
@@ -787,13 +826,12 @@ const RouteEngine = (function () {
         throw new Error('No driving route found');
       }
 
-      const baseDurationMins = Math.round((primaryRoutes[0].duration || 0) / 60);
-      primaryRoutes.slice(0, 3).forEach((routeData, idx) => {
+      const buildRouteObj = (routeData, idx, isPrimaryFlag) => {
         const distKm = Math.round((routeData.distance / 1000) * 10) / 10;
         const durMins = Math.round(routeData.duration / 60);
         const prominentRoad = extractMainRoadName(routeData.legs);
         const roadLabel = prominentRoad ? `via ${prominentRoad}` : (idx === 0 ? 'Main Highway' : `Alternate Route ${idx + 1}`);
-        const name = idx === 0 ? `${roadLabel} (Main Road)` : `${roadLabel} (${distKm} km)`;
+        const name = isPrimaryFlag ? `${roadLabel} (Main Road)` : `${roadLabel} (${distKm} km)`;
 
         const clonedWaypoints = intermediateWaypoints.map(w => ({ ...w }));
         let cumKm = 0;
@@ -804,7 +842,7 @@ const RouteEngine = (function () {
           }
         }
 
-        allRoutes.push({
+        return {
           id: `route-${idx}`,
           name,
           roadName: prominentRoad || (idx === 0 ? 'Main Highway' : `Route ${idx + 1}`),
@@ -813,17 +851,35 @@ const RouteEngine = (function () {
           waypoints: clonedWaypoints,
           distanceKm: distKm,
           durationMins: durMins,
-          timeDiffMins: idx === 0 ? 0 : Math.max(0, durMins - baseDurationMins),
+          timeDiffMins: 0,
           geometry: routeData.geometry,
           coordinates: routeData.geometry.coordinates.map(c => [c[1], c[0]]),
           legs: routeData.legs || [],
-          isPrimary: idx === 0,
+          isPrimary: isPrimaryFlag,
           sourceEngine: routeData.sourceEngine || 'OSRM Highway'
-        });
-      });
+        };
+      };
 
-      selectedRouteIndex = 0;
-      activeRoute = allRoutes[0];
+      const existingPool = preserveOtherOptions
+        ? (allRoutes.length > 1 ? allRoutes : baseRouteOptions).map(r => ({ ...r }))
+        : [];
+
+      if (preserveOtherOptions && existingPool.length > 1 && targetOptionIdx >= 0 && targetOptionIdx < existingPool.length) {
+        const updatedOption = buildRouteObj(primaryRoutes[0], targetOptionIdx, existingPool[targetOptionIdx].isPrimary);
+        existingPool[targetOptionIdx] = updatedOption;
+        refreshRouteTimeDiffs(existingPool);
+        allRoutes = existingPool;
+        selectedRouteIndex = targetOptionIdx;
+      } else {
+        allRoutes = primaryRoutes.slice(0, 3).map((rd, idx) => buildRouteObj(rd, idx, idx === 0));
+        refreshRouteTimeDiffs(allRoutes);
+        selectedRouteIndex = 0;
+        if (!preserveOtherOptions && intermediateWaypoints.every(w => !w.isAutoSuggested)) {
+          baseRouteOptions = allRoutes.map(r => ({ ...r, waypoints: (r.waypoints || []).map(w => ({ ...w })) }));
+        }
+      }
+
+      activeRoute = allRoutes[selectedRouteIndex];
       intermediateWaypoints = activeRoute.waypoints.map(w => ({ ...w }));
 
       findCorridorChargers(activeRoute.coordinates);
@@ -848,20 +904,21 @@ const RouteEngine = (function () {
     selectedRouteIndex = index;
     lastSnappedSegmentIndex = 0;
     activeRoute = allRoutes[index];
-    intermediateWaypoints = (activeRoute.waypoints || []).map(w => ({ ...w }));
+
+    const hasOwnAutoStops = Array.isArray(activeRoute.waypoints) && activeRoute.waypoints.some(w => w.isAutoSuggested);
+    if (!hasOwnAutoStops && baseRouteOptions[index]) {
+      const baseManual = (baseRouteOptions[index].waypoints || []).filter(w => !w.isAutoSuggested);
+      intermediateWaypoints = baseManual.map(w => ({ ...w }));
+    } else {
+      intermediateWaypoints = (activeRoute.waypoints || []).map(w => ({ ...w }));
+    }
+
     findCorridorChargers(activeRoute.coordinates);
     persistTripState();
     notify();
 
-    if (intermediateWaypoints.length === 0) {
-      const batState = window.BatteryEngine ? window.BatteryEngine.getState() : null;
-      if (batState) {
-        const evalMetrics = window.BatteryEngine.evaluateTrip(activeRoute.distanceKm);
-        if (evalMetrics && evalMetrics.status !== 'SAFE') {
-          await autoSuggestChargingStops(evalMetrics);
-        }
-      }
-    }
+    // Ensure the newly selected alternate route checks battery & picks a fast charger along ITS OWN corridor if needed
+    await reconcileStopsForBattery(null, true);
   }
 
   function matchesRouteFilters(c) {
@@ -1084,7 +1141,10 @@ const RouteEngine = (function () {
     if (newlySuggested.length > 0) {
       const merged = [...existingWaypoints, ...newlySuggested];
       intermediateWaypoints = sortWaypointsSequentially(merged, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
-      await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true);
+      await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true, {
+        preserveOtherOptions: allRoutes.length > 1 || baseRouteOptions.length > 1,
+        optionIndex: selectedRouteIndex
+      });
     }
 
     return newlySuggested;
@@ -1095,8 +1155,9 @@ const RouteEngine = (function () {
   /**
    * Dynamically updates auto-suggested charging stops on the map & active trip
    * whenever Current Battery %, Efficiency / Riding Mode, Reserve, or Fast Charge Limit changes.
+   * Preserves alternate route options across all battery levels.
    */
-  async function reconcileStopsForBattery(liveUserCoords = null) {
+  async function reconcileStopsForBattery(liveUserCoords = null, forceEvaluate = false) {
     if (!activeRoute || !navigator.onLine || isReconcilingBatteryStops) return false;
     isReconcilingBatteryStops = true;
 
@@ -1133,12 +1194,25 @@ const RouteEngine = (function () {
       );
       const hasAutoStops = intermediateWaypoints.some(w => w.isAutoSuggested);
 
-      if (!hasUnsafeNode && !hasAutoStops) {
+      if (!hasUnsafeNode && !hasAutoStops && !forceEvaluate) {
         return false;
       }
 
       let desired = [...manualStops];
       const directArrival = startBat - (remainingDistKm / eff);
+
+      // Zero-cost instant restore of uncharged base route option when battery/efficiency now covers the trip
+      if (!isDriving && manualStops.length === 0 && directArrival >= minReserve && hasAutoStops && baseRouteOptions[selectedRouteIndex]) {
+        const cleanBase = baseRouteOptions[selectedRouteIndex];
+        allRoutes[selectedRouteIndex] = { ...cleanBase, waypoints: [] };
+        refreshRouteTimeDiffs(allRoutes);
+        activeRoute = allRoutes[selectedRouteIndex];
+        intermediateWaypoints = [];
+        findCorridorChargers(activeRoute.coordinates);
+        persistTripState();
+        notify();
+        return true;
+      }
 
       if (manualStops.length > 0 || directArrival < minReserve) {
         const simRoute = isDriving
@@ -1181,7 +1255,10 @@ const RouteEngine = (function () {
         return false;
       }
 
-      await calculateRoute(routeOriginForReplan, activeRoute.destination, desired, true);
+      await calculateRoute(routeOriginForReplan, activeRoute.destination, desired, true, {
+        preserveOtherOptions: !isDriving && (allRoutes.length > 1 || baseRouteOptions.length > 1),
+        optionIndex: selectedRouteIndex
+      });
       return true;
     } catch (e) {
       return false;
@@ -1215,7 +1292,10 @@ const RouteEngine = (function () {
     if (activeRoute && activeRoute.coordinates) {
       intermediateWaypoints.push(stopObj);
       intermediateWaypoints = sortWaypointsSequentially(intermediateWaypoints, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
-      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
+      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, false, {
+        preserveOtherOptions: allRoutes.length > 1 || baseRouteOptions.length > 1,
+        optionIndex: selectedRouteIndex
+      });
     } else {
       intermediateWaypoints.push(stopObj);
       persistTripState();
@@ -1233,7 +1313,10 @@ const RouteEngine = (function () {
     intermediateWaypoints.forEach(w => { delete w.kmFromOrigin; });
 
     if (activeRoute) {
-      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints).catch(err => {
+      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, false, {
+        preserveOtherOptions: allRoutes.length > 1 || baseRouteOptions.length > 1,
+        optionIndex: selectedRouteIndex
+      }).catch(err => {
         console.warn('[VoltWay Router] Recalculate after remove waypoint note:', err);
       });
     } else {
@@ -1470,6 +1553,7 @@ const RouteEngine = (function () {
   function clearRoute() {
     activeRoute = null;
     allRoutes = [];
+    baseRouteOptions = [];
     selectedRouteIndex = 0;
     corridorChargers = [];
     intermediateWaypoints = [];

@@ -1129,20 +1129,26 @@ document.addEventListener('DOMContentLoaded', () => {
         routeSelectorContainer.style.display = 'block';
         if (routeSelectorCount) routeSelectorCount.textContent = `${allRoutes.length} Available`;
         routeSelectorPills.innerHTML = '';
+        const minPillDur = Math.min(...allRoutes.map(x => (typeof x.durationMins === 'number' ? x.durationMins : Infinity)));
         allRoutes.forEach((r, idx) => {
           const pill = document.createElement('button');
           pill.type = 'button';
           pill.className = `route-card-pill${idx === selectedIdx ? ' active' : ''}`;
-          const badgeClass = idx === 0 ? 'pill-badge-fastest' : 'pill-badge-diff';
-          const badgeTxt = idx === 0 ? 'FASTEST' : `+${Math.max(1, r.timeDiffMins || 1)}m`;
+          const diffMins = Number.isFinite(minPillDur) ? Math.max(0, (r.durationMins || 0) - minPillDur) : (r.timeDiffMins || 0);
+          const badgeClass = diffMins === 0 ? 'pill-badge-fastest' : 'pill-badge-diff';
+          const badgeTxt = diffMins === 0 ? 'FASTEST' : `+${diffMins}m`;
           const durTxt = window.Utilities ? window.Utilities.formatMinutes(r.durationMins) : `${r.durationMins} min`;
+          const stopCount = Array.isArray(r.waypoints) ? r.waypoints.filter(w => w.network || w.type).length : 0;
+          const roadDisplay = stopCount > 0
+            ? `${r.roadName || `Route ${idx + 1}`} • ⚡${stopCount} stop`
+            : (r.roadName || `Route ${idx + 1}`);
           pill.innerHTML = `
             <div class="pill-top-row">
               <span class="pill-badge ${badgeClass}">${esc(badgeTxt)}</span>
               <span class="pill-dist-txt">${r.distanceKm} km</span>
             </div>
             <div class="pill-duration-val">${esc(durTxt)}</div>
-            <div class="pill-road-txt">${esc(r.roadName || `Route ${idx + 1}`)}</div>
+            <div class="pill-road-txt">${esc(roadDisplay)}</div>
           `;
           pill.addEventListener('click', () => {
             if (window.RouteEngine) window.RouteEngine.selectRoute(idx);
