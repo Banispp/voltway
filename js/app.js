@@ -780,7 +780,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!intermediateStopsList) return;
     const row = document.createElement('div');
     row.className = 'input-group intermediate-stop-row';
-    row._stopData = initialStop ? { ...initialStop } : null;
+    const stopId = (initialStop && (initialStop.id || initialStop.originalId)) || `manual_stop_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    row._stopId = stopId;
+    row._stopData = initialStop ? { ...initialStop, id: stopId, originalId: stopId } : { id: stopId, originalId: stopId };
 
     const idx = intermediateStopsList.querySelectorAll('.intermediate-stop-row').length;
     const letter = String.fromCharCode(66 + idx);
@@ -806,9 +808,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     attachLocationAutocomplete(inputEl, dropdownEl, {
       includeChargers: true,
-      onClearSelection: () => { row._stopData = null; },
+      onClearSelection: () => {
+        row._stopData = null;
+      },
       onSelect: (item) => {
         row._stopData = {
+          id: row._stopId,
+          originalId: item.originalId || item.id || row._stopId,
           lat: item.lat,
           lng: item.lng,
           name: item.name,
@@ -819,8 +825,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnRemove) {
       btnRemove.addEventListener('click', () => {
+        const toRemove = row._stopData || row._stopId;
         row.remove();
         refreshStopBadges();
+        if (toRemove && window.RouteEngine) {
+          const active = window.RouteEngine.getActiveRoute();
+          if (active) {
+            window.RouteEngine.removeWaypoint(toRemove);
+          }
+        }
       });
     }
 
@@ -1000,7 +1013,10 @@ document.addEventListener('DOMContentLoaded', () => {
           : [];
         const resolvedManualStops = [];
         for (const row of manualRows) {
-          if (row._stopData) {
+          if (row._stopData && typeof row._stopData.lat === 'number') {
+            const sid = row._stopData.id || row._stopId || `manual_stop_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+            row._stopData.id = sid;
+            row._stopData.originalId = row._stopData.originalId || sid;
             resolvedManualStops.push({ ...row._stopData });
           } else {
             const inp = row.querySelector('.intermediate-stop-input');
@@ -1008,7 +1024,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (val && window.Utilities) {
               const r = await window.Utilities.resolveLocationInput(val);
               if (r) {
-                row._stopData = { lat: r.lat, lng: r.lng, name: r.name || val };
+                const sid = row._stopId || `manual_stop_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+                row._stopData = { id: sid, originalId: sid, lat: r.lat, lng: r.lng, name: r.name || val };
                 resolvedManualStops.push({ ...row._stopData });
               }
             }
@@ -1088,7 +1105,24 @@ document.addEventListener('DOMContentLoaded', () => {
       const rmBtn = item.querySelector('.btn-remove-waypoint');
       if (rmBtn) {
         rmBtn.addEventListener('click', () => {
-          if (window.RouteEngine) window.RouteEngine.removeWaypoint(wp.id || wp.originalId);
+          if (window.RouteEngine) {
+            window.RouteEngine.removeWaypoint(wp);
+          }
+          if (intermediateStopsList) {
+            const rows = Array.from(intermediateStopsList.querySelectorAll('.intermediate-stop-row'));
+            for (const r of rows) {
+              const rd = r._stopData;
+              if (rd && (
+                (rd.id && wp.id && String(rd.id) === String(wp.id)) ||
+                (typeof rd.lat === 'number' && typeof wp.lat === 'number' && Math.abs(rd.lat - wp.lat) < 1e-4 && Math.abs(rd.lng - wp.lng) < 1e-4) ||
+                (rd.name && wp.name && rd.name.trim() === wp.name.trim())
+              )) {
+                r.remove();
+                refreshStopBadges();
+                break;
+              }
+            }
+          }
         });
       }
 

@@ -614,13 +614,13 @@ const MapEngine = (function () {
       ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`
       : `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
 
-    const safeIdAttr = esc(charger.id);
+    const safeIdAttr = esc(charger.id || charger.originalId || '');
 
     let stopActionButtons = '';
     if (stopIndex !== null) {
       stopActionButtons = `
         <div class="popup-actions">
-          <button class="btn-popup-waypoint" style="background: rgba(255, 51, 102, 0.18); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="MapEngine.handleRemoveWaypoint('${safeIdAttr}')">
+          <button class="btn-popup-waypoint" style="background: rgba(255, 51, 102, 0.18); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="MapEngine.handleRemoveWaypoint('${safeIdAttr}', ${stopIndex})">
             ❌ Remove Stop #${stopIndex + 1}
           </button>
           <button class="btn-popup-nav" onclick="MapEngine.handleNavigateToCharger('${safeIdAttr}')">
@@ -753,9 +753,13 @@ const MapEngine = (function () {
     }
   }
 
-  function handleRemoveWaypoint(chargerId) {
+  function handleRemoveWaypoint(chargerId, stopIndex = null) {
     if (window.RouteEngine) {
-      window.RouteEngine.removeWaypoint(chargerId);
+      if (chargerId) {
+        window.RouteEngine.removeWaypoint(chargerId);
+      } else if (typeof stopIndex === 'number') {
+        window.RouteEngine.removeWaypoint(stopIndex);
+      }
       if (map) map.closePopup();
     }
   }

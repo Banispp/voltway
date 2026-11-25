@@ -915,9 +915,13 @@ const RouteEngine = (function () {
     lastSnappedSegmentIndex = 0;
 
     if (manualWaypoints !== null) {
+      const sanitized = manualWaypoints.map((w, i) => {
+        const wid = w.id || w.originalId || `stop_${Date.now()}_${i}`;
+        return { ...w, id: wid, originalId: w.originalId || wid };
+      });
       intermediateWaypoints = preserveManualOrder
-        ? [...manualWaypoints]
-        : sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
+        ? sanitized
+        : sortWaypointsSequentially(sanitized, origin, destination, activeRoute?.coordinates);
     }
 
     const points = [origin, ...intermediateWaypoints, destination];
@@ -1371,7 +1375,7 @@ const RouteEngine = (function () {
 
   function addWaypoint(charger) {
     if (!charger) return false;
-    const baseId = charger.originalId || charger.id;
+    const baseId = charger.originalId || charger.id || `stop_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const alreadyExists = intermediateWaypoints.some(w => String(w.originalId || w.id) === String(baseId));
 
     if (alreadyExists) {
@@ -1406,13 +1410,48 @@ const RouteEngine = (function () {
     return true;
   }
 
-  function removeWaypoint(chargerId) {
-    if (!chargerId) return;
+  function removeWaypoint(target) {
+    if (target === undefined || target === null || target === '') return;
 
-    intermediateWaypoints = intermediateWaypoints.filter(w =>
-      String(w.id) !== String(chargerId) && String(w.originalId || '') !== String(chargerId)
-    );
+    const matchFn = (w) => {
+      if (!w) return false;
+      if (typeof target === 'object') {
+        const tId = target.id || target.originalId;
+        if (tId && (String(w.id) === String(tId) || String(w.originalId || '') === String(tId))) {
+          return true;
+        }
+        if (typeof target.lat === 'number' && typeof target.lng === 'number' && typeof w.lat === 'number' && typeof w.lng === 'number') {
+          if (Math.abs(w.lat - target.lat) < 1e-4 && Math.abs(w.lng - target.lng) < 1e-4) {
+            return true;
+          }
+        }
+        if (target.name && w.name && target.name.trim() === w.name.trim()) {
+          return true;
+        }
+        return false;
+      }
+      const sTarget = String(target);
+      return String(w.id) === sTarget || String(w.originalId || '') === sTarget || String(w.name || '') === sTarget;
+    };
+
+    if (typeof target === 'number' && target >= 0 && target < intermediateWaypoints.length) {
+      intermediateWaypoints.splice(target, 1);
+    } else {
+      intermediateWaypoints = intermediateWaypoints.filter(w => !matchFn(w));
+    }
     intermediateWaypoints.forEach(w => { delete w.kmFromOrigin; });
+
+    if (Array.isArray(baseRouteOptions)) {
+      baseRouteOptions.forEach(opt => {
+        if (Array.isArray(opt.waypoints)) {
+          if (typeof target === 'number' && target >= 0 && target < opt.waypoints.length) {
+            opt.waypoints.splice(target, 1);
+          } else {
+            opt.waypoints = opt.waypoints.filter(w => !matchFn(w));
+          }
+        }
+      });
+    }
 
     if (activeRoute) {
       calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, false, {
