@@ -8,7 +8,7 @@ VoltWay 2W packages directly as an **offline-first Capacitor 6 Android APK** bun
 
 Pushing to `master` (or triggering **Actions → Build VoltWay Android APK → Run workflow**) builds `android/app/build/outputs/apk/debug/app-debug.apk` with:
 
-1. Node.js 22 & Java JDK 21 (`temurin`)
+1. Node.js 22 & Java JDK 17 (`temurin`, Capacitor 6 compatible)
 2. Local `www/` staging of `index.html`, `manifest.json`, `sw.js`, `chargers_db.json`, `css/`, `js/`, `icons/`
 3. Capacitor 6 packages: `@capacitor/core@^6`, `@capacitor/cli@^6`, `@capacitor/android@^6`, `@capacitor/geolocation@^6`, `@capacitor/app@^6`
 4. `python scripts/inject_permissions.py`, which configures:

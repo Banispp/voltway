@@ -6,11 +6,11 @@ Offline-first Progressive Web App (PWA) and Capacitor 6 Android application engi
 
 ## Core Capabilities (v5.50)
 
-- **Verified 9,286 2-Wheeler Charging Stations**:
-  - **3,572** Ather Grid Type 7 LECCS fast chargers (`ATHER_GRID`)
+- **Verified 9,373 2-Wheeler Charging Stations**:
+  - **3,587** Ather Grid Type 7 LECCS fast chargers (`ATHER_GRID`)
   - **611** Hero VIDA Type 7 LECCS fast chargers (`VIDA_GRID`)
-  - **5,103** Bolt.Earth 2W chargers (`550` 2W Fast [492 Type 6/7 combo, 44 Type 6-only LEVDC, 14 Type 7 LECCS] + `4,553` 15A portable AC sockets)
-  - **Strict 4W Exclusion**: 2,164 four-wheeler (`OCPP_LEVEL_2`, `OCPP_LEVEL_3`, `OCPI`) records are excluded from recommendations and preserved separately in `backups/non_2w_quarantined_bolt.json`.
+  - **5,175** Bolt.Earth 2W chargers (`557` 2W Fast [499 Type 6/7 combo, 44 Type 6-only LEVDC, 14 Type 7 LECCS] + `4,618` 15A portable AC sockets)
+  - **Strict 4W Exclusion**: 2,328 four-wheeler (`OCPP_LEVEL_2`, `OCPP_LEVEL_3`, `OCPI`) records are excluded from recommendations and preserved separately in `backups/non_2w_quarantined_bolt.json`.
   - **Zero Hallucinated Live Availability**: Static database reflects verified station metadata; OEM app deep-links allow checking live gun availability before arrival.
 - **2W Physics-Aware Battery & Charging Engine** (`js/battery.js`, `js/utilities.js`):
   - Per-scooter riding modes (`ECO`, `RIDE`, `SPORT`, `WARP`, `NORMAL`, `HYPER`, `POWER`, `SPORTS`) with `km / 1%` consumption, safety reserve buffer (`5%–35%`), conservative `-10%` range estimate, and connector compatibility checks (`TYPE7` vs `TYPE6` vs `AC_PORTABLE`).
@@ -32,7 +32,7 @@ Offline-first Progressive Web App (PWA) and Capacitor 6 Android application engi
 - `index.html`, `css/app.css`, `manifest.json`, `sw.js`, `capacitor.config.json`
 - `js/`: `battery.js`, `sync.js`, `navigator.js`, `voice.js`, `router.js`, `utilities.js`, `map.js`, `app.js`, `leaflet-rotate.js`
 - `scripts/`: `charger_validator.py`, `download_ather.py`, `download_vida.py`, `harvest_bolt_national.py`, `merge_and_update.py`, `sync_all_networks.py`, `inject_permissions.py`
-- `chargers_db.json`: Unified verified 2W station database (`9,286` stations)
+- `chargers_db.json`: Unified verified 2W station database (`9,373` stations)
 - `serve.py`: Local HTTP development server & Google Maps short-link resolver (`/api/resolve-maps-url`)
 
 ---

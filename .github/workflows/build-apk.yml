@@ -66,8 +66,8 @@ jobs:
         if: github.ref == 'refs/heads/master'
         with:
           tag_name: v5.50-release
-          name: "VoltWay 2W Android APK v5.50 (Verified 9,286 2W DB, Offline Voice, OLED HUD)"
-          body: "VoltWay 2W v5.50: Quarantined 2,164 4W/OCPI records keeping 9,286 verified 2W stations, unified 4.1MB offline-first JSON bundle, restored offline AndroidTTS + Web Speech turn-by-turn voice guidance, physics-accurate charging & range estimates, and OLED night-ride UI."
+          name: "VoltWay 2W Android APK v5.50 (Verified 9,373 2W DB, Valhalla Highway Routing, Persistent Trip)"
+          body: "VoltWay 2W v5.50: Quarantined 2,328 4W/OCPI records keeping 9,373 verified 2W stations, Valhalla main-road routing avoiding narrow alleys, persistent active trip across app close/reopen without background GPS, restored offline AndroidTTS + Web Speech voice guidance, physics-accurate charging & range estimates, and OLED night-ride UI."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:
