@@ -2,13 +2,13 @@
   "id": "voltway-2w-pwa",
   "name": "VoltWay 2W: EV Route Planner",
   "short_name": "VoltWay 2W",
-  "description": "Zero-server mobile EV Route Planner for 2-wheeler electric vehicles (Ather Grid, Hero VIDA & Bolt.Earth in South India)",
+  "description": "Offline-first 2-wheeler EV Route Planner & Navigation (Ather Grid, Hero VIDA & Bolt.Earth)",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#06090f",
+  "theme_color": "#06090f",
   "categories": ["navigation", "travel", "utilities"],
   "icons": [
     {
@@ -41,14 +41,14 @@
     {
       "name": "SOS Nearest Charger",
       "short_name": "SOS",
-      "description": "Find closest 2W charger immediately",
+      "description": "Find closest 2W charger offline",
       "url": "./index.html?action=sos",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Charging Calculator",
       "short_name": "Charge Time",
-      "description": "Calculate Ather & Bolt charging duration",
+      "description": "Calculate Ather, VIDA & Bolt charging duration",
       "url": "./index.html?tab=calculator",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     }

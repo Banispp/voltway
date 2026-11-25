@@ -1,13 +1,10 @@
 /**
  * VoltWay 2W - Essential Rider Utilities
- * SOS Nearest Charger, Charging Time Estimator, Geocoding & Sunlight Mode
+ * SOS Nearest Charger, Physics-Aware Charging Estimator, Geocoding & Verified Station Helpers
  */
 
 const Utilities = (function () {
 
-  /**
-   * Distance between two coordinates in km
-   */
   function haversine(lat1, lon1, lat2, lon2) {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -19,13 +16,21 @@ const Utilities = (function () {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
+  function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   /**
-   * SOS: Pinpoint nearest fast and slow chargers from current rider GPS position
-   * @param {Object} userCoords { lat, lng }
-   * @returns {Object} Nearest fast charger, nearest slow charger, and absolute closest
+   * SOS: Pinpoint nearest compatible fast and slow chargers from current rider GPS position
    */
   function findNearestChargers(userCoords) {
-    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
+    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : [];
     if (!userCoords || !allChargers || allChargers.length === 0) {
       return null;
     }
@@ -36,21 +41,26 @@ const Utilities = (function () {
     let nearestSlow = null;
     let minSlowDist = Infinity;
 
-    let nearestAther = null;
-    let minAtherDist = Infinity;
+    let nearestCompatibleFast = null;
+    let minCompFastDist = Infinity;
+
+    const hasCompatCheck = window.BatteryEngine && typeof window.BatteryEngine.isChargerCompatible === 'function';
 
     for (let i = 0; i < allChargers.length; i++) {
       const c = allChargers[i];
+      if (c.is_2w === false) continue;
+
       const dist = haversine(userCoords.lat, userCoords.lng, c.lat, c.lng);
+      const compat = hasCompatCheck ? window.BatteryEngine.isChargerCompatible(c) : { compatible: true, direct: true };
 
       if (c.type === 'FAST') {
+        if (compat.compatible && dist < minCompFastDist) {
+          minCompFastDist = dist;
+          nearestCompatibleFast = { ...c, distanceKm: Math.round(dist * 10) / 10 };
+        }
         if (dist < minFastDist) {
           minFastDist = dist;
           nearestFast = { ...c, distanceKm: Math.round(dist * 10) / 10 };
-        }
-        if (c.network === 'ATHER_GRID' && dist < minAtherDist) {
-          minAtherDist = dist;
-          nearestAther = { ...c, distanceKm: Math.round(dist * 10) / 10 };
         }
       } else if (c.type === 'SLOW') {
         if (dist < minSlowDist) {
@@ -60,68 +70,67 @@ const Utilities = (function () {
       }
     }
 
-    // Absolute closest charger
-    let absoluteClosest = null;
-    if (minFastDist <= minSlowDist) {
-      absoluteClosest = nearestFast;
-    } else {
-      absoluteClosest = nearestSlow;
-    }
+    const bestFast = nearestCompatibleFast || nearestFast;
+    const effectiveFastDist = nearestCompatibleFast ? minCompFastDist : minFastDist;
+    const absoluteClosest = (bestFast && effectiveFastDist <= minSlowDist) ? bestFast : (nearestSlow || bestFast);
 
     return {
-      nearestFast,
+      nearestFast: bestFast,
       nearestSlow,
-      nearestAther,
       absoluteClosest,
       userCoords
     };
   }
 
   /**
-   * Accurate physical charging duration for 2-wheeler lithium batteries
-   * Fast DC: 0-80% at 1.5% SoC/min (~1.5 km/min gain, Ather Grid & 3.3 kW DC Fast)
-   *          80-100% tapered CC-CV at 0.55% SoC/min
-   * Slow AC 15A Socket: ~0.33% SoC/min (~20% per hour, standard portable charger)
+   * Physics-aware charging duration estimator for 2-wheeler lithium batteries.
+   * Accounts for vehicle battery capacity (kWh), charger kW rating (converted at ~90% efficiency),
+   * and CC-CV taper above 80% SoC on DC Fast chargers.
    */
-  function computeChargingDuration(chargeNeededPct, startSoC = 20, isFast = true) {
-    if (chargeNeededPct <= 0) return 0;
+  function computeChargingDuration(chargeNeededPct, startSoC = 20, isFast = true, chargerPowerKw = null, vehicleDetails = null) {
+    if (!chargeNeededPct || chargeNeededPct <= 0) return 0;
+
+    const batState = vehicleDetails
+      ? { vehicleDetails }
+      : (window.BatteryEngine ? window.BatteryEngine.getState() : null);
+    const v = (batState && batState.vehicleDetails) || {
+      batteryCapacity: 3.7,
+      acChargerKw: 0.75,
+      dcFastMaxKw: 3.0
+    };
+
+    const capacityKWh = Math.max(1.5, Number(v.batteryCapacity) || 3.7);
+    const start = Math.max(0, Math.min(100, Number(startSoC) || 0));
+    const end = Math.min(100, start + chargeNeededPct);
+
     if (isFast) {
-      const start = Math.max(0, Math.min(100, Number(startSoC) || 0));
-      const end = Math.min(100, start + chargeNeededPct);
+      const stationKw = Number(chargerPowerKw) > 0 ? Number(chargerPowerKw) : 3.0;
+      const effectiveKw = Math.min(stationKw, v.dcFastMaxKw || 3.3) * 0.88;
+      // % gained per minute in Constant-Current region (0-80%)
+      const ccRatePctPerMin = Math.max(0.5, (effectiveKw / capacityKWh) * (100 / 60));
+      // Tapered CV region (80-100%) runs ~38% of CC rate
+      const cvRatePctPerMin = ccRatePctPerMin * 0.38;
+
       const upTo80 = Math.max(0, Math.min(80, end) - Math.min(80, start));
       const above80 = Math.max(0, end - Math.max(80, start));
-      return Math.round((upTo80 / 1.5) + (above80 / 0.55));
+      const rawMins = (upTo80 / ccRatePctPerMin) + (above80 / cvRatePctPerMin);
+      return Math.max(1, Math.round(rawMins));
     } else {
-      return Math.round(chargeNeededPct / 0.33);
+      const acKw = Math.max(0.35, Number(v.acChargerKw) || 0.75) * 0.88;
+      const acRatePctPerMin = Math.max(0.15, (acKw / capacityKWh) * (100 / 60));
+      return Math.max(1, Math.round(chargeNeededPct / acRatePctPerMin));
     }
   }
 
-  /**
-   * Charging Time Estimator
-   *
-   * Fast Charger:
-   * - Based on standard 2W DC fast charging curves (Ather Grid / Bolt Fast ~3.3 kW DC)
-   * - ~1.5 km range gained per minute (~40 mins for 20% to 80% SoC)
-   * - Tapers after 80% to protect lithium-ion cell chemistry
-   *
-   * Slow 15A Socket:
-   * - Based on standard 5A/15A portable charger (750W - 1.2 kW AC)
-   * - ~20% charge gain per hour (~5 hours for 0% to 100%)
-   *
-   * @param {number} currentPct Starting battery % (e.g. 20)
-   * @param {number} targetPct Target battery % (e.g. 80)
-   * @param {number} efficiency Vehicle efficiency (km/1%, default 0.85)
-   * @returns {Object} Estimated duration and range gained
-   */
-  function estimateChargingTime(currentPct, targetPct, efficiency = 0.85) {
+  function estimateChargingTime(currentPct, targetPct, efficiency = 0.85, vehicleDetails = null) {
     currentPct = Math.max(0, Math.min(100, Number(currentPct) || 0));
     targetPct = Math.max(currentPct, Math.min(100, Number(targetPct) || 80));
 
-    const gainPct = targetPct - currentPct;
+    const gainPct = Math.max(0, targetPct - currentPct);
     const rangeGainedKm = Math.round(gainPct * efficiency * 10) / 10;
 
-    const fastMinutes = computeChargingDuration(gainPct, currentPct, true);
-    const slowMinutes = computeChargingDuration(gainPct, currentPct, false);
+    const fastMinutes = computeChargingDuration(gainPct, currentPct, true, 3.0, vehicleDetails);
+    const slowMinutes = computeChargingDuration(gainPct, currentPct, false, 1.5, vehicleDetails);
 
     return {
       currentPct,
@@ -136,15 +145,15 @@ const Utilities = (function () {
   }
 
   function formatMinutes(mins) {
-    if (mins < 60) {
-      return `${mins} min${mins === 1 ? '' : 's'}`;
+    const safeMins = Math.max(0, Math.round(Number(mins) || 0));
+    if (safeMins < 60) {
+      return `${safeMins} min${safeMins === 1 ? '' : 's'}`;
     }
-    const hrs = Math.floor(mins / 60);
-    const remMins = mins % 60;
+    const hrs = Math.floor(safeMins / 60);
+    const remMins = safeMins % 60;
     return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs} hr${hrs === 1 ? '' : 's'}`;
   }
 
-  // Pre-indexed major Indian cities, towns & EV travel corridors for 0ms instant autocomplete
   const POPULAR_INDIAN_PLACES = [
     // Kerala
     { name: 'Kochi (Cochin)', fullName: 'Kochi, Ernakulam, Kerala, India', lat: 9.9312, lng: 76.2673 },
@@ -196,7 +205,6 @@ const Utilities = (function () {
     { name: 'Perumbavoor', fullName: 'Perumbavoor, Ernakulam, Kerala, India', lat: 10.1118, lng: 76.4754 },
     { name: 'Pala', fullName: 'Pala, Kottayam, Kerala, India', lat: 9.7118, lng: 76.6835 },
     { name: 'Changanassery', fullName: 'Changanassery, Kottayam, Kerala, India', lat: 9.4447, lng: 76.5383 },
-
     // Karnataka
     { name: 'Bengaluru (Bangalore)', fullName: 'Bengaluru, Karnataka, India', lat: 12.9716, lng: 77.5946 },
     { name: 'Indiranagar', fullName: 'Indiranagar, Bengaluru, Karnataka, India', lat: 12.9784, lng: 77.6408 },
@@ -215,7 +223,6 @@ const Utilities = (function () {
     { name: 'Belagavi (Belgaum)', fullName: 'Belagavi, Karnataka, India', lat: 15.8497, lng: 74.4977 },
     { name: 'Shivamogga (Shimoga)', fullName: 'Shivamogga, Karnataka, India', lat: 13.9299, lng: 75.5681 },
     { name: 'Tumakuru (Tumkur)', fullName: 'Tumakuru, Karnataka, India', lat: 13.3379, lng: 77.1010 },
-
     // Tamil Nadu
     { name: 'Chennai', fullName: 'Chennai, Tamil Nadu, India', lat: 13.0827, lng: 80.2707 },
     { name: 'Coimbatore', fullName: 'Coimbatore, Tamil Nadu, India', lat: 11.0168, lng: 76.9558 },
@@ -228,7 +235,6 @@ const Utilities = (function () {
     { name: 'Tiruppur', fullName: 'Tiruppur, Tamil Nadu, India', lat: 11.1085, lng: 77.3411 },
     { name: 'Erode', fullName: 'Erode, Tamil Nadu, India', lat: 11.3410, lng: 77.7172 },
     { name: 'Vellore', fullName: 'Vellore, Tamil Nadu, India', lat: 12.9165, lng: 79.1325 },
-
     // Other Major Metros
     { name: 'Hyderabad', fullName: 'Hyderabad, Telangana, India', lat: 17.3850, lng: 78.4867 },
     { name: 'Mumbai', fullName: 'Mumbai, Maharashtra, India', lat: 19.0760, lng: 72.8777 },
@@ -237,28 +243,25 @@ const Utilities = (function () {
     { name: 'Goa (Panaji)', fullName: 'Panaji, Goa, India', lat: 15.4909, lng: 73.8278 }
   ];
 
-  /**
-   * Geocode a place query via Local Database (Instant) + High-Speed Photon (Komoot) API + OSM Nominatim Fallback
-   * Photon handles any town, village, junction, or street in Kerala & India within 150ms with zero rate limits!
-   */
   async function searchPlace(query) {
     if (!query || query.trim().length < 2) return [];
     const qLower = query.trim().toLowerCase();
 
-    // 1. Instant local matching (0ms latency)
     const localMatches = POPULAR_INDIAN_PLACES.filter(p =>
       p.name.toLowerCase().includes(qLower) || p.fullName.toLowerCase().includes(qLower)
     );
 
-    // 2. High-Speed Photon (Komoot) Geocoding API with South India Proximity Bias (10.5 N, 76.2 E)
+    // Offline-first guard: skip network geocoders when device is offline
+    if (!navigator.onLine) {
+      return localMatches.slice(0, 8);
+    }
+
     let photonResults = [];
     try {
       const encoded = encodeURIComponent(query.trim());
       const url = `https://photon.komoot.io/api/?q=${encoded}&limit=7&lat=10.5&lon=76.2`;
-
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-
+      const timeoutId = setTimeout(() => controller.abort(), 2200);
       const resp = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
 
@@ -285,20 +288,15 @@ const Utilities = (function () {
           });
         }
       }
-    } catch (e) {
-      console.warn('[VoltWay] Photon geocoding fallback to Nominatim:', e);
-    }
+    } catch (e) {}
 
-    // 3. Fallback to OSM Nominatim if Photon yielded no results
     let osmResults = [];
     if (photonResults.length === 0) {
       try {
         const encoded = encodeURIComponent(query.trim() + ', India');
         const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&countrycodes=in&limit=5&addressdetails=1`;
-
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-
+        const timeoutId = setTimeout(() => controller.abort(), 2200);
         const resp = await fetch(url, {
           headers: { 'Accept': 'application/json' },
           signal: controller.signal
@@ -314,12 +312,9 @@ const Utilities = (function () {
             lng: parseFloat(item.lon)
           }));
         }
-      } catch (e) {
-        console.warn('[VoltWay] Nominatim geocode fallback:', e);
-      }
+      } catch (e) {}
     }
 
-    // Merge and deduplicate by proximity (3km threshold)
     const combined = [...localMatches];
     const incoming = photonResults.length > 0 ? photonResults : osmResults;
     incoming.forEach(item => {
@@ -335,31 +330,38 @@ const Utilities = (function () {
   }
 
   /**
-   * Expands short Google Maps URLs (maps.app.goo.gl or goo.gl/maps)
-   * Uses native CapacitorHttp on Android, or free CORS proxies on Web
+   * Resolves short Google Maps URLs using native CapacitorHttp (Android)
+   * or local serve.py endpoint when running locally. Avoids third-party data proxies.
    */
   async function unshortenUrl(shortUrl) {
-    if (!shortUrl) return null;
+    if (!shortUrl || !navigator.onLine) return null;
 
-    // 1. Native CapacitorHttp on Android (bypasses browser CORS & follows 302 redirects natively)
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
       try {
         const resp = await window.Capacitor.Plugins.CapacitorHttp.get({
           url: shortUrl,
           headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36' }
         });
-        if (resp && resp.url && resp.url !== shortUrl) {
-          return resp.url;
+        if (resp && resp.url && resp.url !== shortUrl) return resp.url;
+        if (resp && typeof resp.data === 'string' && resp.data.includes('google.com/maps')) {
+          return resp.data;
         }
-        if (resp && resp.data) {
-          return typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
-        }
-      } catch (err) {
-        console.warn('[VoltWay] CapacitorHttp unshorten notice:', err);
-      }
+      } catch (err) {}
     }
 
-    // 2. Direct fetch with follow redirect
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2500);
+        const resp = await fetch(`/api/resolve-maps-url?url=${encodeURIComponent(shortUrl)}`, { signal: controller.signal });
+        clearTimeout(timer);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.success && data.resolved_url) return data.resolved_url;
+        }
+      } catch (e) {}
+    }
+
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 2000);
@@ -370,29 +372,12 @@ const Utilities = (function () {
       }
     } catch (e) {}
 
-    // 3. Fallback unshortening endpoint
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500);
-      const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`, { signal: controller.signal });
-      clearTimeout(timer);
-      if (resp && resp.ok) {
-        const json = await resp.json();
-        if (json && json.contents) return json.contents;
-      }
-    } catch (e) {}
-
     return null;
   }
 
-  /**
-   * Parses Google Maps Multi-Stop Directions URLs
-   * Format: /maps/dir/Origin/Stop1/Stop2/Dest/@... or ?origin=...&destination=...&waypoints=...
-   */
   function parseGoogleMapsDirectionsUrl(url) {
     if (!url || typeof url !== 'string' || !url.includes('/maps/dir/')) return null;
     try {
-      // 1. Query parameters format
       const qMatch = url.match(/[?&]origin=([^&]+).*?[?&]destination=([^&]+)/i);
       if (qMatch) {
         const origin = decodeURIComponent(qMatch[1]).replace(/\+/g, ' ');
@@ -402,7 +387,6 @@ const Utilities = (function () {
         return { origin, destination, waypoints };
       }
 
-      // 2. Path segments format (/maps/dir/Origin/Stop1/Stop2/Dest/...)
       const pathMatch = url.match(/\/maps\/dir\/(.*?)(?:\/@|\?|$)/i);
       if (pathMatch) {
         const rawParts = pathMatch[1]
@@ -417,31 +401,16 @@ const Utilities = (function () {
           };
         }
       }
-    } catch (e) {
-      console.warn('[VoltWay] Directions URL parse note:', e);
-    }
+    } catch (e) {}
     return null;
   }
 
-  /**
-   * Universal Location Input & Link Resolver:
-   * Handles ALL mobile and desktop location inputs:
-   * 1. Direct Coordinates: "10.0246, 76.3079"
-   * 2. DMS Coordinates: 10°01'28.6"N 76°18'28.5"E
-   * 3. Google Maps URLs (@lat,lng, ?q=lat,lng, /place/Name, dir/)
-   * 4. Google Maps Mobile Shared Text (multiline "Dropped pin near Alappuzha https://...")
-   * 5. Short Google Maps URLs (maps.app.goo.gl/xyz, goo.gl/maps/xyz)
-   * 6. Plain Text Names: "Valanchery", "Ponnani", "MG Road Kochi" (Photon 150ms Geocoder)
-   *
-   * @param {string} rawInput 
-   * @returns {Promise<Object|null>} { lat, lng, name, fullName }
-   */
   async function resolveLocationInput(rawInput) {
     if (!rawInput || typeof rawInput !== 'string') return null;
-    let text = rawInput.trim();
+    const text = rawInput.trim();
     if (!text) return null;
 
-    // 1. Direct coordinate format (e.g. "10.0246, 76.3079" or "10.0246 76.3079")
+    // 1. Direct coordinates ("10.0246, 76.3079")
     const coordMatch = text.match(/^(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)$/);
     if (coordMatch) {
       const lat = parseFloat(coordMatch[1]);
@@ -456,7 +425,7 @@ const Utilities = (function () {
       }
     }
 
-    // 2. Degrees Minutes Seconds (DMS) format e.g. 10°01'28.6"N 76°18'28.5"E
+    // 2. Degrees Minutes Seconds (DMS)
     const dmsMatch = text.match(/(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([NS])\s*[, ]\s*(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([EW])/i);
     if (dmsMatch) {
       let lat = parseInt(dmsMatch[1], 10) + parseInt(dmsMatch[2], 10) / 60 + parseFloat(dmsMatch[3]) / 3600;
@@ -471,28 +440,20 @@ const Utilities = (function () {
       };
     }
 
-    // Helper to extract coordinates from Google Maps URLs
     const extractFromUrlString = (urlStr) => {
       const atMatch = urlStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-      if (atMatch) {
-        return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
-      }
+      if (atMatch) return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
       const qMatch = urlStr.match(/[?&](?:q|daddr|saddr|ll)=(?:loc:)?(-?\d+\.\d+),(-?\d+\.\d+)/i);
-      if (qMatch) {
-        return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
-      }
-      const protoMatch = urlStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || urlStr.match(/!2d(-?\d+\.\d+)!1d(-?\d+\.\d+)/);
-      if (protoMatch) {
-        return { lat: parseFloat(protoMatch[1]), lng: parseFloat(protoMatch[2]) };
-      }
+      if (qMatch) return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
+      const protoMatch = urlStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+      if (protoMatch) return { lat: parseFloat(protoMatch[1]), lng: parseFloat(protoMatch[2]) };
+      const protoLngLat = urlStr.match(/!2d(-?\d+\.\d+)!1d(-?\d+\.\d+)/);
+      if (protoLngLat) return { lat: parseFloat(protoLngLat[2]), lng: parseFloat(protoLngLat[1]) };
       const centerMatch = urlStr.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i) || urlStr.match(/center=(-?\d+\.\d+),(-?\d+\.\d+)/i);
-      if (centerMatch) {
-        return { lat: parseFloat(centerMatch[1]), lng: parseFloat(centerMatch[2]) };
-      }
+      if (centerMatch) return { lat: parseFloat(centerMatch[1]), lng: parseFloat(centerMatch[2]) };
       return null;
     };
 
-    // 3. Embedded coordinates in URL (@lat,lng or q=lat,lng or ll=lat,lng or !3d!4d)
     const directCoords = extractFromUrlString(text);
     if (directCoords) {
       return {
@@ -503,7 +464,6 @@ const Utilities = (function () {
       };
     }
 
-    // 4. Place name inside URL (e.g. /place/Edappally,+Kochi/ or /search/Kochi/)
     const placeInUrlMatch = text.match(/\/maps\/place\/([^/@?]+)/i) || text.match(/\/maps\/search\/([^/@?]+)/i);
     if (placeInUrlMatch) {
       const decodedPlace = decodeURIComponent(placeInUrlMatch[1]).replace(/\+/g, ' ').trim();
@@ -513,13 +473,8 @@ const Utilities = (function () {
       }
     }
 
-    // 5. Shared multiline message from Google Maps mobile app
-    // E.g. "Kozhikode Beach\nBeach Rd, Vellayil...\nhttps://maps.app.goo.gl/..."
-    // or "Dropped pin\nnear Alappuzha, Kerala\nhttps://maps.app.goo.gl/..."
     if (text.includes('http://') || text.includes('https://') || text.includes('goo.gl')) {
       const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
-      
-      // Try resolving by place text line first
       for (const line of lines) {
         if (/https?:\/\//i.test(line) || /goo\.gl/i.test(line)) continue;
         const cleaned = line.replace(/^(?:dropped pin|shared location|near:?|location:?)\s*/i, '').trim();
@@ -529,10 +484,8 @@ const Utilities = (function () {
         }
       }
 
-      // If text lines didn't resolve or were empty (pure short link), unshorten the URL
       const urlMatch = text.match(/https?:\/\/[^\s]+/i);
       const url = urlMatch ? urlMatch[0] : null;
-
       if (url) {
         const expanded = await unshortenUrl(url);
         if (expanded) {
@@ -555,7 +508,6 @@ const Utilities = (function () {
       }
     }
 
-    // 6. Standard text place query (e.g. "Valanchery", "Ponnani", "Cherthala")
     const searchResults = await searchPlace(text);
     if (searchResults && searchResults.length > 0) {
       return searchResults[0];
@@ -573,36 +525,31 @@ const Utilities = (function () {
   }
 
   /**
-   * Universal Rider Amenities Component (< 200m)
-   * Displays Tea / Cafe, Snacks, Washroom, Fuel & Air as on-site informational badges
-   * Non-navigating: stays firmly within app, shows brief toast on tap.
+   * Honest Address-Verified Venue Hints ONLY.
+   * Does NOT invent unverified washroom, cafe, or fuel claims.
    */
-  function renderAmenitiesHtml(lat, lng, name = '', address = '') {
-    // Check if place name or address explicitly mentions food / cafe / fuel
-    const textCorpus = ((name || '') + ' ' + (address || '')).toLowerCase();
-    const hasCafeOnSite = /cafe|coffee|tea|bakery|chai/.test(textCorpus);
-    const hasFoodOnSite = /restaurant|hotel|dhaba|food|bhojanalaya|kitchen|biryani|bhavan|inn/.test(textCorpus);
-    const hasFuelOnSite = /petrol|fuel|pump|hpcl|bpcl|ioc|indianoil|shell/.test(textCorpus);
+  function renderAmenitiesHtml(name = '', address = '') {
+    const textCorpus = `${name || ''} ${address || ''}`.toLowerCase();
+    const hints = [];
+    if (/\b(cafe|coffee|tea|bakery|chai)\b/.test(textCorpus)) hints.push('☕ Cafe / Tea Shop');
+    if (/\b(restaurant|hotel|dhaba|food|bhojanalaya|kitchen|biryani|inn|resort)\b/.test(textCorpus)) hints.push('🍽️ Restaurant / Hotel');
+    if (/\b(petrol|fuel|pump|hpcl|bpcl|ioc|indianoil|shell|nayara)\b/.test(textCorpus)) hints.push('⛽ Fuel Station');
+    if (/\b(mall|plaza|complex|arcade|supermarket|hub|showroom)\b/.test(textCorpus)) hints.push('🏬 Commercial Hub');
+
+    if (hints.length === 0) return '';
 
     return `
-      <div class="popup-amenities-section" style="margin: 8px 0 6px 0; padding: 7px 9px; background: rgba(30, 41, 59, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
-        <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
-          <span>☕ Rider Amenities (&lt; 200m)</span>
-          <span style="font-size: 0.65rem; color: #94a3b8; font-weight: normal;">Available on-site</span>
+      <div class="popup-amenities-section">
+        <div class="amenities-hdr">
+          <span>📍 Venue Hint (From Address)</span>
         </div>
-        <div style="display: flex; flex-wrap: wrap; gap: 5px;">
-          <span class="amenity-chip-pill ${hasCafeOnSite ? 'amenity-highlight' : ''}" onclick="event.stopPropagation(); if(window.SyncEngine&&window.SyncEngine.showAutoUpdateToast) window.SyncEngine.showAutoUpdateToast('☕ Tea / Cafe available on-site');" title="Tea / Cafe available within 200m" style="font-size: 0.70rem; font-weight: 600; background: ${hasCafeOnSite ? 'rgba(56, 189, 248, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasCafeOnSite ? '#38bdf8' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasCafeOnSite ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)'}; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">☕ Tea / Cafe${hasCafeOnSite ? ' ★' : ''}</span>
-          <span class="amenity-chip-pill ${hasFoodOnSite ? 'amenity-highlight' : ''}" onclick="event.stopPropagation(); if(window.SyncEngine&&window.SyncEngine.showAutoUpdateToast) window.SyncEngine.showAutoUpdateToast('🍽️ Snacks / Dine available on-site');" title="Snacks / Dine available within 200m" style="font-size: 0.70rem; font-weight: 600; background: ${hasFoodOnSite ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasFoodOnSite ? '#00e676' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasFoodOnSite ? '#00e676' : 'rgba(255, 255, 255, 0.1)'}; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">🍽️ Snacks / Dine${hasFoodOnSite ? ' ★' : ''}</span>
-          <span class="amenity-chip-pill" onclick="event.stopPropagation(); if(window.SyncEngine&&window.SyncEngine.showAutoUpdateToast) window.SyncEngine.showAutoUpdateToast('🚻 Washroom available on-site');" title="Washroom available within 200m" style="font-size: 0.70rem; font-weight: 600; background: rgba(255, 255, 255, 0.07); color: #f1f5f9; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1); display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">🚻 Washroom</span>
-          <span class="amenity-chip-pill ${hasFuelOnSite ? 'amenity-highlight' : ''}" onclick="event.stopPropagation(); if(window.SyncEngine&&window.SyncEngine.showAutoUpdateToast) window.SyncEngine.showAutoUpdateToast('⛽ Fuel & Tyre Air available 24x7');" title="Fuel & Air available within 200m" style="font-size: 0.70rem; font-weight: 600; background: ${hasFuelOnSite ? 'rgba(251, 191, 36, 0.22)' : 'rgba(255, 255, 255, 0.07)'}; color: ${hasFuelOnSite ? '#fbbf24' : '#f1f5f9'}; padding: 3px 7px; border-radius: 6px; border: 1px solid ${hasFuelOnSite ? '#fbbf24' : 'rgba(255, 255, 255, 0.1)'}; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; user-select: none;">⛽ Fuel / Air 24x7${hasFuelOnSite ? ' ★' : ''}</span>
+        <div class="amenities-row">
+          ${hints.map(h => `<span class="amenity-chip-pill amenity-verified">${escapeHtml(h)}</span>`).join('')}
         </div>
       </div>
     `;
   }
 
-  /**
-   * Universal Mobile & WebView Clipboard Copy Utility
-   */
   async function copyToClipboard(text, successToast = 'Copied to clipboard!') {
     if (!text) return false;
     let success = false;
@@ -611,9 +558,7 @@ const Utilities = (function () {
         await navigator.clipboard.writeText(text);
         success = true;
       }
-    } catch (err) {
-      console.warn('[VoltWay Utilities] navigator.clipboard fallback:', err);
-    }
+    } catch (err) {}
 
     if (!success) {
       try {
@@ -621,32 +566,24 @@ const Utilities = (function () {
         textarea.value = text;
         textarea.style.position = 'fixed';
         textarea.style.left = '-9999px';
-        textarea.style.top = '0';
         textarea.setAttribute('readonly', '');
         document.body.appendChild(textarea);
         textarea.select();
         textarea.setSelectionRange(0, 99999);
         success = document.execCommand('copy');
         document.body.removeChild(textarea);
-      } catch (e) {
-        console.warn('[VoltWay Utilities] execCommand fallback failed:', e);
-      }
+      } catch (e) {}
     }
 
-    if (success) {
-      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast(successToast);
-      } else {
-        alert(successToast);
-      }
-    } else {
-      prompt('Copy link:', text);
+    if (success && window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+      window.SyncEngine.showAutoUpdateToast(successToast);
     }
     return success;
   }
 
   return {
     haversine,
+    escapeHtml,
     findNearestChargers,
     computeChargingDuration,
     estimateChargingTime,
@@ -663,4 +600,3 @@ const Utilities = (function () {
 })();
 
 window.Utilities = Utilities;
-window.copyTextToClipboard = Utilities.copyToClipboard;

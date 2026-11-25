@@ -21,20 +21,20 @@ jobs:
         with:
           node-version: 22
 
-      - name: Setup Java JDK 21
+      - name: Setup Java JDK 17 (Capacitor 6 Compatible)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: 21
+          java-version: 17
 
       - name: Package Web Assets and Build APK with Capacitor
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
           mkdir -p www
-          cp -r index.html manifest.json sw.js chargers_db.js chargers_db.json css js icons www/
+          cp -r index.html manifest.json sw.js chargers_db.json css js icons www/
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/geolocation
+          npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/geolocation@^6 @capacitor/app@^6
           npx cap add android
           npx cap sync android
           python scripts/inject_permissions.py
@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.49-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.50-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.49-release
-          name: "VoltWay 2W Android APK v5.49 (Complete Removal of Round Trip & Return UI)"
-          body: "VoltWay 2W v5.49: 1) Completely removed 'Round Trip' (🔄 Round Trip) button and 'Plan Return Trip' (🔁 Plan Return Trip B ➔ A) banner from the user interface; 2) Clean point-to-point routing with user-specified intermediate stops; 3) Maintained strict single-addition constraint for charging stops and clean UI without swap controls."
+          tag_name: v5.50-release
+          name: "VoltWay 2W Android APK v5.50 (Verified 9,286 2W DB, Offline Voice, OLED HUD)"
+          body: "VoltWay 2W v5.50: Quarantined 2,164 4W/OCPI records keeping 9,286 verified 2W stations, unified 4.1MB offline-first JSON bundle, restored offline AndroidTTS + Web Speech turn-by-turn voice guidance, physics-accurate charging & range estimates, and OLED night-ride UI."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

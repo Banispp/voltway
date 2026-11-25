@@ -1,28 +1,32 @@
 /**
- * VoltWay 2W - Charger Database & Zero-Server Automatic Sync Engine
- * Handles local IndexedDB storage, bundled offline data, and automatic background
- * syncing with live Bolt.Earth API & Ather GitHub streams (100% zero manual effort)
+ * VoltWay 2W - Charger Database & Zero-Server Sync Engine
+ * Handles versioned IndexedDB migration, 0.2-deg spatial grid indexing,
+ * strict 4W/OCPI filtering, connector compatibility metadata, and GitHub OTA sync.
  */
 
 const SyncEngine = (function () {
   const DB_NAME = 'VoltWay2W_DB';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
+  const DB_SCHEMA_TAG = '5.50-clean-2w';
   const STORE_NAME = 'chargers';
 
   let db = null;
   let inMemoryChargers = [];
+  let chargerByIdMap = new Map();
   let isSyncing = false;
   const listeners = [];
 
-  // 2D Spatial Grid Index ($0.2^\circ \times 0.2^\circ$ spatial buckets ~ 22km x 22km)
+  // 2D Spatial Grid Index (0.2° x 0.2° buckets ~ 22km x 22km)
   const GRID_CELL_SIZE = 0.2;
   const spatialGrid = new Map();
 
-  function rebuildSpatialGrid() {
+  function rebuildIndexes() {
     spatialGrid.clear();
+    chargerByIdMap.clear();
     for (let i = 0; i < inMemoryChargers.length; i++) {
       const c = inMemoryChargers[i];
-      if (typeof c.lat !== 'number' || typeof c.lng !== 'number') continue;
+      if (!c || !c.id || typeof c.lat !== 'number' || typeof c.lng !== 'number') continue;
+      chargerByIdMap.set(String(c.id), c);
       const key = `${Math.floor(c.lat / GRID_CELL_SIZE)}_${Math.floor(c.lng / GRID_CELL_SIZE)}`;
       let cell = spatialGrid.get(key);
       if (!cell) {
@@ -31,7 +35,11 @@ const SyncEngine = (function () {
       }
       cell.push(c);
     }
-    console.log(`[VoltWay Grid] Indexed ${inMemoryChargers.length} chargers across ${spatialGrid.size} spatial cells`);
+  }
+
+  function getChargerById(id) {
+    if (!id) return null;
+    return chargerByIdMap.get(String(id)) || null;
   }
 
   function getChargersInBounds(bounds) {
@@ -73,7 +81,7 @@ const SyncEngine = (function () {
   }
 
   function initDB() {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onupgradeneeded = (e) => {
@@ -93,55 +101,103 @@ const SyncEngine = (function () {
       };
 
       request.onerror = (e) => {
-        console.warn('IndexedDB failed to open, using in-memory store:', e);
+        console.warn('[VoltWay DB] IndexedDB unavailable, using in-memory store:', e);
         resolve(null);
       };
     });
   }
 
+  /**
+   * Client-side 2W validator: guarantees 4W car stations (OCPP_LEVEL_2/3, OCPI, CCS2, GB/T)
+   * never enter memory even from older caches or live roaming endpoints.
+   */
+  function validateAndNormalizeCharger(item) {
+    if (!item || !item.id || typeof item.lat !== 'number' || typeof item.lng !== 'number') return null;
+    if (item.lat < 6 || item.lat > 38 || item.lng < 68 || item.lng > 98) return null;
+
+    const mid = String(item.model_id || '').toUpperCase();
+    const cidUp = String(item.id).toUpperCase();
+    const excludedTokens = ['LEVEL_2', 'LEVEL_3', 'OCPI', 'CCS', 'TYPE2', 'TYPE_2', 'GB/T', 'GBT', 'CHADEMO', 'CHAOJI', '7_4KW', '22KW', '30KW', '60KW'];
+    if (excludedTokens.some(t => mid.includes(t) || cidUp.includes(t))) return null;
+
+    const excludedPrefixes = ['L200', 'L300', 'L3DC', 'ST', 'TN00', 'MH00', 'MH04', 'TS00', 'HR00', 'HR01', 'GJ01', 'DL00', 'KL00', 'KA00', 'KA01', 'AP00', 'TC', 'SM'];
+    if (!mid.includes('2WFC') && excludedPrefixes.some(p => cidUp.startsWith(p))) return null;
+
+    if (item.is_2w === false) return null;
+
+    const normalized = { ...item };
+    if (!normalized.state) normalized.state = classifyState(normalized);
+
+    if (!normalized.connector_std) {
+      if (normalized.network === 'ATHER_GRID' || normalized.network === 'VIDA_GRID') {
+        normalized.connector_std = 'TYPE7_LECCS';
+        normalized.compatible_vehicles = ['ATHER', 'VIDA'];
+      } else if (normalized.type === 'SLOW') {
+        normalized.connector_std = 'AC_15A';
+        normalized.compatible_vehicles = ['ATHER', 'VIDA', 'OLA', 'TVS', 'BAJAJ', 'ALL_2W'];
+      } else if (mid.includes('TYPE6') && mid.includes('TYPE7')) {
+        normalized.connector_std = 'TYPE6_TYPE7';
+        normalized.compatible_vehicles = ['ATHER', 'VIDA', 'OLA'];
+      } else if (mid.includes('TYPE7')) {
+        normalized.connector_std = 'TYPE7_LECCS';
+        normalized.compatible_vehicles = ['ATHER', 'VIDA'];
+      } else if (mid.includes('TYPE6')) {
+        normalized.connector_std = 'TYPE6_LEVDC';
+        normalized.compatible_vehicles = ['OLA'];
+      } else {
+        normalized.connector_std = 'TYPE7_LECCS';
+        normalized.compatible_vehicles = ['ATHER', 'VIDA'];
+      }
+    }
+
+    if (normalized.verified === undefined) {
+      normalized.verified = true;
+    }
+
+    return normalized;
+  }
+
   async function loadInitialChargers() {
     await initDB();
 
-    // 1. Fast load from local IndexedDB or pre-bundled script
+    const storedSchema = localStorage.getItem('voltway_db_schema_version');
     let stored = [];
-    if (db) {
+    if (db && storedSchema === DB_SCHEMA_TAG) {
       stored = await getAllFromDB();
     }
 
-    if (stored && stored.length > 0 && stored[0].state) {
-      console.log(`[VoltWay] Loaded ${stored.length} chargers from IndexedDB`);
-      inMemoryChargers = stored;
-    } else if (window.BUNDLED_CHARGERS && window.BUNDLED_CHARGERS.length > 0) {
-      console.log(`[VoltWay] Loaded ${window.BUNDLED_CHARGERS.length} bundled chargers (with state tagging)`);
-      inMemoryChargers = window.BUNDLED_CHARGERS;
-      if (db) {
-        clearAndSaveAllToDB(inMemoryChargers).catch(err => console.warn('Could not cache to IndexedDB:', err));
-      }
+    if (stored && stored.length > 0 && storedSchema === DB_SCHEMA_TAG) {
+      inMemoryChargers = stored.map(validateAndNormalizeCharger).filter(Boolean);
+      console.log(`[VoltWay DB] Loaded ${inMemoryChargers.length} validated chargers from IndexedDB`);
     } else {
       try {
         const resp = await fetch('chargers_db.json');
         if (resp.ok) {
           const data = await resp.json();
-          inMemoryChargers = data;
-          if (db) clearAndSaveAllToDB(data);
+          if (Array.isArray(data)) {
+            inMemoryChargers = data.map(validateAndNormalizeCharger).filter(Boolean);
+            console.log(`[VoltWay DB] Migrated & loaded ${inMemoryChargers.length} verified 2W chargers from bundle`);
+            if (db) {
+              clearAndSaveAllToDB(inMemoryChargers).then(() => {
+                try { localStorage.setItem('voltway_db_schema_version', DB_SCHEMA_TAG); } catch (e) {}
+              });
+            }
+          }
         }
       } catch (err) {
-        console.warn('Fallback fetch chargers_db.json failed:', err);
+        console.warn('[VoltWay DB] Initial bundle fetch warning:', err);
       }
     }
 
-    rebuildSpatialGrid();
+    rebuildIndexes();
     notify();
 
-    // 2. AUTOMATIC BACKGROUND SYNC:
-    // Check for newly added chargers automatically whenever the app is opened online!
     setTimeout(() => {
       checkAndSyncRemoteUpdates();
-    }, 1500);
+    }, 2000);
 
-    // Auto-sync whenever internet connectivity is restored
     window.addEventListener('online', () => {
-      console.log('[VoltWay Sync] Network connected. Checking for new chargers automatically...');
+      console.log('[VoltWay Sync] Connection restored. Checking for OTA charger updates...');
       checkAndSyncRemoteUpdates();
     });
 
@@ -180,28 +236,17 @@ const SyncEngine = (function () {
     });
   }
 
-  /**
-   * AUTOMATIC BACKGROUND SYNC:
-   * Reconciles additions and deletions.
-   * If new chargers are opened, they are added.
-   * If existing chargers were decommissioned or removed from official map, they are removed.
-   */
-  async function checkAndSyncRemoteUpdates() {
+  async function checkAndSyncRemoteUpdates(force = false) {
     if (!navigator.onLine) return { added: 0, removed: 0 };
 
-    // 6-hour freshness gate: skip auto-sync if data was synced recently
     const lastSync = localStorage.getItem('voltway_last_sync');
     const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
-    if (lastSync && new Date(lastSync).getTime() > sixHoursAgo) {
-      console.log('[VoltWay Sync] Chargers are fresh (synced within 6h). Skipping auto-sync.');
+    if (!force && lastSync && new Date(lastSync).getTime() > sixHoursAgo) {
       return { added: 0, removed: 0 };
     }
 
     try {
-      console.log('[VoltWay Sync] Auto-reconciling Ather & Bolt chargers in background...');
       let remoteChargers = null;
-
-      // 1. In Android APK & PWA: Try fetching live OTA updates directly from remote GitHub repository
       const remoteRepoUrl = 'https://raw.githubusercontent.com/Banispp/voltway/master/chargers_db.json?v=' + Date.now();
       try {
         const controller = new AbortController();
@@ -210,33 +255,23 @@ const SyncEngine = (function () {
         clearTimeout(timeoutId);
         if (resp.ok) {
           remoteChargers = await resp.json();
-          console.log('[VoltWay Sync] Live OTA charger database loaded from GitHub repository!');
         }
-      } catch (errRemote) {
-        console.warn('[VoltWay Sync] Remote GitHub fetch timed out or offline, falling back to local database.');
+      } catch (errRemote) {}
+
+      if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) {
+        return { added: 0, removed: 0 };
       }
 
-      // 2. Fallback to bundled local chargers_db.json if remote was unavailable
-      if (!remoteChargers) {
-        const resp = await fetch('chargers_db.json?v=' + Date.now(), { cache: 'no-store' });
-        if (resp.ok) {
-          remoteChargers = await resp.json();
-        }
-      }
+      const validatedList = remoteChargers.map(validateAndNormalizeCharger).filter(Boolean);
+      if (validatedList.length === 0) return { added: 0, removed: 0 };
 
-      if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) return { added: 0, removed: 0 };
-
-      const stats = reconcileChargers(remoteChargers);
+      const stats = reconcileChargers(validatedList);
+      localStorage.setItem('voltway_last_sync', new Date().toISOString());
       if (stats.added > 0 || stats.removed > 0) {
-        console.log(`[VoltWay Sync] Reconciled: +${stats.added} new, -${stats.removed} decommissioned`);
-        showAutoUpdateToast(`⚡ Network Synced: +${stats.added} new, -${stats.removed} closed stations`);
-        localStorage.setItem('voltway_last_sync', new Date().toISOString());
-      } else {
-        console.log('[VoltWay Sync] All chargers up-to-date.');
+        showAutoUpdateToast(`⚡ Database Synced: +${stats.added} added, -${stats.removed} removed`);
       }
       return stats;
     } catch (e) {
-      console.warn('[VoltWay Sync] Background auto-sync skipped:', e);
       return { added: 0, removed: 0 };
     }
   }
@@ -245,33 +280,26 @@ const SyncEngine = (function () {
     if (!Array.isArray(authoritativeList) || authoritativeList.length === 0) return { added: 0, removed: 0 };
 
     const remoteMap = new Map();
-    authoritativeList.forEach(c => {
-      if (!c.state) c.state = classifyState(c);
-      remoteMap.set(c.id, c);
-    });
+    authoritativeList.forEach(c => remoteMap.set(c.id, c));
 
     const currentMap = new Map();
     inMemoryChargers.forEach(c => currentMap.set(c.id, c));
 
     let added = 0;
     let removed = 0;
-
-    authoritativeList.forEach(c => {
-      if (!currentMap.has(c.id)) added++;
-    });
-
-    inMemoryChargers.forEach(c => {
-      if (!remoteMap.has(c.id)) removed++;
-    });
+    authoritativeList.forEach(c => { if (!currentMap.has(c.id)) added++; });
+    inMemoryChargers.forEach(c => { if (!remoteMap.has(c.id)) removed++; });
 
     inMemoryChargers = authoritativeList;
-    rebuildSpatialGrid();
+    rebuildIndexes();
     if (db) {
-      clearAndSaveAllToDB(inMemoryChargers);
+      clearAndSaveAllToDB(inMemoryChargers).then(() => {
+        try { localStorage.setItem('voltway_db_schema_version', DB_SCHEMA_TAG); } catch (e) {}
+      });
     }
     notify();
-    if (window.MapEngine) {
-      window.MapEngine.renderChargers(inMemoryChargers);
+    if (window.MapEngine && (!window.MapEngine.isPopupOpen || !window.MapEngine.isPopupOpen())) {
+      window.MapEngine.renderChargers();
     }
     return { added, removed };
   }
@@ -283,7 +311,9 @@ const SyncEngine = (function () {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
         store.clear();
-        chargers.forEach(c => store.put(c));
+        for (let i = 0; i < chargers.length; i++) {
+          store.put(chargers[i]);
+        }
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
       } catch (e) {
@@ -293,59 +323,7 @@ const SyncEngine = (function () {
   }
 
   /**
-   * Regional Target Filter: Strictly Kerala, Tamil Nadu, Karnataka & Puducherry/Mahe
-   * Rejects out-of-region states (AP, Telangana, Maharashtra, Goa, North India)
-   */
-  function isTargetSouthRegion(name, address, lat, lng) {
-    if (lat < 8.05 || lat > 18.55 || lng < 74.00 || lng > 80.40) return false;
-    let text = `${name || ''} ${address || ''}`.toLowerCase();
-
-    // Contextual exception replacements
-    text = text.replace('anantapuram vari', 'restaurant')
-               .replace('pune bangalore', 'highway')
-               .replace('pune-bangalore', 'highway')
-               .replace('goa main road', 'road')
-               .replace('goa road', 'road')
-               .replace('chittoor rd', 'road')
-               .replace('chittoor road', 'road')
-               .replace('maharashtra bank', 'bank');
-
-    // 1. Excluded State checks (negative keywords)
-    const isTelangana = ['telangana', 'hyderabad', 'secunderabad', 'warangal'].some(k => text.includes(k));
-    const isAndhra = ['andhra', 'andhra pradesh', 'anantapur', 'chittoor', 'tirupati', 'vijayawada', 'visakhapatnam', 'vizag', 'guntur', 'nellore', 'kurnool'].some(k => text.includes(k));
-    const isMaharashtra = (text.includes('maharashtra') || text.includes('mumbai') || text.includes('pune') || text.includes('nagpur') || text.includes('nashik') || text.includes('sangli') || text.includes('kolhapur') || text.includes('solapur') || text.includes('satara')) && !text.includes('bank');
-    const isGoa = ['curchorem', 'canacona', 'margao', 'panaji', 'mapusa', 'quepem', 'zambaulim'].some(k => text.includes(k)) || (/\bgoa\b/.test(text) && !text.includes('road') && !text.includes('highway') && !text.includes('hwy'));
-    const isNorth = ['delhi', 'noida', 'gurgaon', 'gurugram', 'haryana', 'punjab', 'rajasthan', 'gujarat', 'uttar pradesh', 'bhopal', 'indore', 'bihar', 'bengal', 'aizawl', 'mizoram', 'assam'].some(k => new RegExp(`\\b${k}\\b`).test(text));
-
-    if (isTelangana || isAndhra || isMaharashtra || isGoa || isNorth) {
-      return false;
-    }
-
-    // 2. Positive State checks
-    const isKL = ['kerala', 'malappuram', 'kozhikode', 'ernakulam', 'kochi', 'thrissur', 'trivandrum', 'thiruvananthapuram', 'kollam', 'alappuzha', 'kottayam', 'palakkad', 'kannur', 'kasaragod', 'wayanad', 'idukki', 'pathanamthitta'].some(k => text.includes(k));
-    const isTN = ['tamil nadu', 'tamilnadu', 'chennai', 'coimbatore', 'madurai', 'trichy', 'tiruchirappalli', 'salem', 'tirunelveli', 'tiruppur', 'erode', 'vellore', 'hosur', 'kanyakumari', 'ooty', 'udhagamandalam', 'dharmapuri', 'krishnagiri'].some(k => text.includes(k));
-    const isKA = [
-      'karnataka', 'bengaluru', 'bangalore', 'mysuru', 'mysore', 'mangaluru', 'mangalore', 
-      'hubli', 'hubballi', 'dharwad', 'belagavi', 'belgaum', 'udupi', 'manipal', 'tumkur', 
-      'tumakuru', 'shimoga', 'shivamogga', 'davanagere', 'ballari', 'bellary', 'kolar', 
-      'hassan', 'mandya', 'chikkamagaluru', 'raichur', 'bidar', 'kalaburagi', 'gulbarga', 
-      'jewargi', 'badami', 'bagalkot', 'bagalkote', 'yadgir', 'yadgiri', 'vijayapura', 
-      'bijapur', 'ilkal', 'kerur', 'bagepalli', 'kudatini', 'sindhanur'
-    ].some(k => text.includes(k));
-    const isPY = ['puducherry', 'pondicherry', 'mahe', 'karaikal'].some(k => text.includes(k));
-
-    if (isKL || isTN || isKA || isPY) return true;
-
-    // Strict bounding fallback for concise addresses
-    if ((lat >= 8.15 && lat <= 12.85) && (lng >= 74.85 && lng <= 77.40)) return true; // Kerala
-    if ((lat >= 8.08 && lat <= 13.50) && (lng >= 76.25 && lng <= 80.35) && !(lat > 13.35 && lng > 79.75)) return true; // TN
-    if ((lat >= 11.55 && lat <= 18.45) && (lng >= 74.05 && lng <= 77.75)) return true; // KA interior
-
-    return false;
-  }
-
-  /**
-   * Classifies a charger into 'kerala' | 'karnataka' | 'tamil_nadu' | 'other'
+   * Pin-code + word-boundary city keywords before non-overlapping regional box fallbacks.
    */
   function classifyState(c) {
     if (c.state) return c.state;
@@ -353,31 +331,37 @@ const SyncEngine = (function () {
     const lat = c.lat;
     const lng = c.lng;
 
-    const klKeywords = ['kerala', 'malappuram', 'kozhikode', 'ernakulam', 'kochi', 'cochin', 'thrissur', 'trivandrum', 'thiruvananthapuram', 'kollam', 'alappuzha', 'alleppey', 'kottayam', 'palakkad', 'kannur', 'kasaragod', 'wayanad', 'idukki', 'pathanamthitta'];
-    if (klKeywords.some(k => text.includes(k))) return 'kerala';
+    if (/\b6[789]\d{4}\b/.test(text)) return 'kerala';
+    if (/\b6[0-4]\d{4}\b/.test(text)) return 'tamil_nadu';
+    if (/\b5[6-9]\d{4}\b/.test(text)) return 'karnataka';
 
-    const kaKeywords = ['karnataka', 'bengaluru', 'bangalore', 'mysuru', 'mysore', 'mangaluru', 'mangalore', 'hubli', 'hubballi', 'dharwad', 'belagavi', 'belgaum', 'udupi', 'manipal', 'tumkur', 'tumakuru', 'shimoga', 'shivamogga', 'davanagere', 'ballari', 'bellary', 'kolar', 'hassan', 'mandya', 'chikkamagaluru', 'raichur', 'bidar', 'kalaburagi', 'gulbarga'];
-    if (kaKeywords.some(k => text.includes(k))) return 'karnataka';
+    const klKw = ['kerala', 'malappuram', 'kozhikode', 'calicut', 'ernakulam', 'kochi', 'cochin', 'thrissur', 'trivandrum', 'thiruvananthapuram', 'kollam', 'alappuzha', 'kottayam', 'palakkad', 'kannur', 'kasaragod', 'wayanad', 'idukki', 'pathanamthitta', 'pala'];
+    if (klKw.some(k => new RegExp(`\\b${k}\\b`).test(text))) return 'kerala';
 
-    const tnKeywords = ['tamil nadu', 'tamilnadu', 'chennai', 'coimbatore', 'madurai', 'trichy', 'tiruchirappalli', 'salem', 'tirunelveli', 'tiruppur', 'erode', 'vellore', 'hosur', 'kanyakumari', 'ooty', 'udhagamandalam', 'dharmapuri', 'krishnagiri'];
-    if (tnKeywords.some(k => text.includes(k))) return 'tamil_nadu';
+    const tnKw = ['tamil nadu', 'tamilnadu', 'chennai', 'coimbatore', 'madurai', 'trichy', 'tiruchirappalli', 'salem', 'tirunelveli', 'tiruppur', 'erode', 'vellore', 'hosur', 'kanyakumari', 'ooty', 'udhagamandalam', 'dharmapuri', 'krishnagiri'];
+    if (tnKw.some(k => new RegExp(`\\b${k}\\b`).test(text))) return 'tamil_nadu';
 
-    if (lat >= 8.15 && lat <= 12.85 && lng >= 74.85 && lng <= 77.40) return 'kerala';
-    if (lat >= 11.55 && lat <= 18.45 && lng >= 74.05 && lng <= 77.75) return 'karnataka';
-    if (lat >= 8.08 && lat <= 13.50 && lng >= 76.25 && lng <= 80.35) return 'tamil_nadu';
+    const kaKw = ['karnataka', 'bengaluru', 'bangalore', 'mysuru', 'mysore', 'mangaluru', 'mangalore', 'hubli', 'hubballi', 'dharwad', 'belagavi', 'belgaum', 'udupi', 'manipal', 'tumkur', 'tumakuru', 'shimoga', 'shivamogga', 'davanagere', 'ballari', 'bellary', 'kolar', 'hassan', 'mandya', 'chikkamagaluru', 'raichur', 'bidar', 'kalaburagi'];
+    if (kaKw.some(k => new RegExp(`\\b${k}\\b`).test(text))) return 'karnataka';
+
+    if (lat >= 8.20 && lat <= 12.78 && lng >= 74.85 && lng <= 77.15) {
+      if (!(lat >= 10.72 && lat <= 11.22 && lng >= 76.82) && !(lat >= 11.22 && lat <= 11.65 && lng >= 76.60)) {
+        return 'kerala';
+      }
+    }
+    if (lat >= 11.75 && lat <= 18.45 && lng >= 74.05 && lng <= 77.78) return 'karnataka';
+    if (lat >= 8.08 && lat <= 13.50 && lng >= 76.65 && lng <= 80.35) return 'tamil_nadu';
 
     return 'other';
   }
 
   /**
-   * LIVE VIEWPORT QUERY FOR BOLT.EARTH:
-   * As the user navigates, pans, or zooms the map, this automatically fetches
-   * live chargers directly from Bolt.Earth's public discovery API!
+   * Live viewport discovery for Bolt.Earth 2W chargers across India.
+   * Strictly filters out 4W Level 2/3, OCPI, CCS2, and separates Type 6 vs Type 7 connectors.
    */
   async function fetchLiveBoltInBounds(bounds) {
     if (!bounds || !navigator.onLine) return [];
     const { south, west, north, east } = bounds;
-    // Query at zoom=16 to ensure 100% unclustered granular charger points
     const url = `https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom=${south}&lng_right=${east}&lat_top=${north}&lng_left=${west}&zoom=16`;
 
     try {
@@ -391,8 +375,9 @@ const SyncEngine = (function () {
       if (!resp.ok) return [];
       const res = await resp.json();
       const items = res.data || [];
-      const newItems = [];
+      if (!Array.isArray(items) || items.length === 0) return [];
 
+      const newItems = [];
       items.forEach((item) => {
         const cid = item.chargerId;
         if (!cid) return;
@@ -400,90 +385,77 @@ const SyncEngine = (function () {
         if (!coords || coords.length < 2) return;
         const lng = coords[0];
         const lat = coords[1];
+        if (lat < 6 || lat > 38 || lng < 68 || lng > 98) return;
 
         const modelId = (item.model?.modelId || '').toUpperCase();
         const cidUpper = String(cid).toUpperCase();
 
-        // 1. STRICT 4-WHEELER CAR EXCLUSION (4W CARS MUST NEVER BE ADDED)
-        const isCar = modelId.includes('LEVEL_2') ||
-                      modelId.includes('LEVEL_3') ||
-                      modelId.includes('OCPP_LEVEL_2') ||
-                      modelId.includes('OCPP_LEVEL_3') ||
-                      modelId.includes('OCPI') ||
-                      modelId.includes('CCS') ||
-                      modelId.includes('TYPE2') ||
-                      modelId.includes('GB/T') ||
-                      modelId.includes('CHADEMO') ||
-                      cidUpper.startsWith('L200') ||
-                      cidUpper.startsWith('L300') ||
-                      cidUpper.startsWith('ST') ||
-                      ['TN00', 'MH00', 'TS00', 'HR00', 'GJ01', 'DL00', 'HR01', 'KL00', 'KA01', 'MH04'].some(p => cidUpper.startsWith(p));
+        // Strict 4-Wheeler & OCPI Roaming Exclusion
+        const isCarOrOcpi = ['LEVEL_2', 'LEVEL_3', 'OCPP_LEVEL_2', 'OCPP_LEVEL_3', 'OCPI', 'CCS', 'TYPE2', 'GB/T', 'CHADEMO', 'CHAOJI'].some(k => modelId.includes(k)) ||
+          (!modelId.includes('2WFC') && ['L200', 'L300', 'L3DC', 'ST', 'TN00', 'MH00', 'TS00', 'HR00', 'GJ01', 'DL00', 'HR01', 'KL00', 'KA01', 'MH04', 'TC', 'SM'].some(p => cidUpper.startsWith(p)));
+        if (isCarOrOcpi) return;
 
-        if (isCar) {
-          return; // Strictly reject all 4-wheeler car chargers!
+        const addr = (item.station?.address || '').trim();
+        const stnName = (item.station?.name || '').trim();
+
+        const is2WFast = cidUpper.startsWith('L1DC') || modelId.includes('2WFC');
+        const is2WSlow = !is2WFast && (
+          ['BOLT_16A', 'BOLT_LITE', 'OCPP_LEVEL_1', 'LEVAC'].some(k => modelId.includes(k)) ||
+          ['L100', 'L1OC', 'BOLT_'].some(p => cidUpper.startsWith(p))
+        );
+        if (!is2WFast && !is2WSlow) return;
+
+        const hasT6 = modelId.includes('TYPE6');
+        const hasT7 = modelId.includes('TYPE7');
+        let connStd = 'AC_15A';
+        let compatVehicles = ['ATHER', 'VIDA', 'OLA', 'TVS', 'BAJAJ', 'ALL_2W'];
+        let connLabel = 'Standard 15A / 3-Pin AC Socket (Portable Charger)';
+
+        if (is2WFast) {
+          if (hasT6 && hasT7) {
+            connStd = 'TYPE6_TYPE7';
+            compatVehicles = ['ATHER', 'VIDA', 'OLA'];
+            connLabel = 'Dual 2W Fast DC (Type 7 LECCS + Type 6 LEVDC)';
+          } else if (hasT6 && !hasT7) {
+            connStd = 'TYPE6_LEVDC';
+            compatVehicles = ['OLA'];
+            connLabel = 'Type 6 LEVDC Fast DC (Ola / Type 6 — Adapter req. for Ather)';
+          } else {
+            connStd = 'TYPE7_LECCS';
+            compatVehicles = ['ATHER', 'VIDA'];
+            connLabel = 'Type 7 LECCS Fast DC (Ather / Hero VIDA)';
+          }
         }
 
-        const addr = item.station?.address || '';
-        const stnName = item.station?.name || '';
-
-        // Regional Target Check: Strictly Kerala, Tamil Nadu, Karnataka, Puducherry / Mahe
-        if (!isTargetSouthRegion(stnName, addr, lat, lng)) {
-          return; // Reject any station outside KL, TN, KA, PY
-        }
-
-        // 2. Verified 2-Wheeler Fast Charger (Ather Gun IS 17017 Type 7 LEV DC / Type 6)
-        const is2WFast = cidUpper.startsWith('L1DC') ||
-                         modelId.includes('2WFC') ||
-                         modelId.includes('TYPE7') ||
-                         modelId.includes('TYPE6');
-
-        // 3. Verified 2-Wheeler 15A/16A Universal Socket
-        const is2WSlow = modelId.includes('BOLT_16A') ||
-                         modelId.includes('BOLT_LITE') ||
-                         modelId.includes('OAKTER') ||
-                         modelId.includes('LEVAC') ||
-                         modelId.includes('OCPP_LEVEL_1') ||
-                         cidUpper.startsWith('L100') ||
-                         cidUpper.startsWith('L1OC') ||
-                         cidUpper.startsWith('BOLT_');
-
-        if (!is2WFast && !is2WSlow) {
-          return; // Unknown or non-2W device - drop!
-        }
-
-        const ctype = is2WFast ? 'FAST' : 'SLOW';
-        const connName = is2WFast ? 'Ather Gun (IS 17017 Type 7 LEV DC Fast) ⚡' : 'Standard 15A / 3-Pin AC Socket (Requires Ather Portable Charger) 🔌';
-        const compat = is2WFast ? '100% Direct Plug-in (Ather 450X/Rizta/Apex)' : 'Requires Portable Charger Cable';
-        const powerKw = is2WFast ? 3.3 : 1.5;
+        const powerMatch = modelId.match(/_1_(\d+)KW/);
+        const powerKw = is2WFast ? (powerMatch ? parseFloat(powerMatch[1]) : 3.0) : 1.5;
         const cleanAddr = addr.split(',')[0].trim();
-        const name = is2WFast ? `Bolt Fast (Ather Gun ⚡) - ${cleanAddr || cid}` : `Bolt.Earth 15A Socket - ${cleanAddr || cid}`;
-        const cState = classifyState({ name, address: addr, lat, lng });
+        const name = is2WFast
+          ? `Bolt.Earth Fast - ${cleanAddr || stnName || cid}`
+          : `Bolt.Earth 15A - ${cleanAddr || stnName || cid}`;
 
         newItems.push({
           id: cid,
           name,
           network: 'BOLT_EARTH',
-          type: ctype,
-          state: cState,
+          type: is2WFast ? 'FAST' : 'SLOW',
+          state: classifyState({ name, address: addr, lat, lng }),
           model_id: modelId,
-          connector: connName,
-          is_ather_gun: is2WFast,
-          ather_compatibility: compat,
+          connector_std: connStd,
+          compatible_vehicles: compatVehicles,
+          connector: connLabel,
           power_kw: powerKw,
           lat: Math.round(lat * 1000000) / 1000000,
           lng: Math.round(lng * 1000000) / 1000000,
-          address: addr.trim(),
+          address: addr,
           source: 'Bolt.Earth Live API',
-          is_2w: true,
-          status: 'OPERATIONAL'
+          verified: Boolean(modelId),
+          is_2w: true
         });
       });
 
       if (newItems.length > 0) {
-        const addedCount = mergeChargers(newItems);
-        if (addedCount > 0) {
-          console.log(`[VoltWay Live] Auto-discovered ${addedCount} new Bolt.Earth points in viewport!`);
-        }
+        mergeChargers(newItems);
       }
       return newItems;
     } catch (e) {
@@ -491,69 +463,51 @@ const SyncEngine = (function () {
     }
   }
 
-  /**
-   * Manual or scheduled full multi-corridor sync
-   */
   async function performFullSync(onProgress) {
     if (isSyncing) return;
     isSyncing = true;
     notify();
 
-    if (onProgress) onProgress({ status: 'Starting sync...', percent: 10 });
+    if (onProgress) onProgress({ status: 'Connecting to verified 2W directory...', percent: 15 });
 
     try {
-      // 1. Reconcile with remote stream (adds new stations & removes decommissioned stations)
-      if (onProgress) onProgress({ status: 'Connecting to Ather Grid & Bolt.Earth networks...', percent: 25 });
-      const reconcileStats = await checkAndSyncRemoteUpdates();
+      const reconcileStats = await checkAndSyncRemoteUpdates(true);
 
-      // 2. Fetch live Bolt chargers around current viewport/corridors
-      if (onProgress) onProgress({ status: 'Scanning live regional 2W fast corridors...', percent: 65 });
-      
-      const keyCorridors = [
-        { name: 'Kerala Central (Kochi)', lat_bottom: 9.8, lng_left: 76.2, lat_top: 10.2, lng_right: 76.5 },
-        { name: 'Kerala North (Kozhikode)', lat_bottom: 11.1, lng_left: 75.7, lat_top: 11.4, lng_right: 76.0 },
-        { name: 'Kerala South (Trivandrum)', lat_bottom: 8.4, lng_left: 76.8, lat_top: 8.7, lng_right: 77.1 },
-        { name: 'Bangalore & Hosur', lat_bottom: 12.7, lng_left: 77.4, lat_top: 13.2, lng_right: 77.8 },
-        { name: 'Coimbatore & Palakkad Corridor', lat_bottom: 10.7, lng_left: 76.6, lat_top: 11.2, lng_right: 77.1 }
-      ];
-
-      for (let i = 0; i < keyCorridors.length; i++) {
-        const c = keyCorridors[i];
-        await fetchLiveBoltInBounds({
-          south: c.lat_bottom,
-          west: c.lng_left,
-          north: c.lat_top,
-          east: c.lng_right
-        });
+      if (navigator.onLine) {
+        if (onProgress) onProgress({ status: 'Scanning live regional Bolt.Earth corridors...', percent: 60 });
+        const keyCorridors = [
+          { lat_bottom: 9.8, lng_left: 76.2, lat_top: 10.2, lng_right: 76.5 },
+          { lat_bottom: 11.1, lng_left: 75.7, lat_top: 11.4, lng_right: 76.0 },
+          { lat_bottom: 8.4, lng_left: 76.8, lat_top: 8.7, lng_right: 77.1 },
+          { lat_bottom: 12.7, lng_left: 77.4, lat_top: 13.2, lng_right: 77.8 },
+          { lat_bottom: 10.7, lng_left: 76.6, lat_top: 11.2, lng_right: 77.1 }
+        ];
+        for (let i = 0; i < keyCorridors.length; i++) {
+          const c = keyCorridors[i];
+          await fetchLiveBoltInBounds({ south: c.lat_bottom, west: c.lng_left, north: c.lat_top, east: c.lng_right });
+        }
       }
 
-      localStorage.setItem('voltway_last_sync', new Date().toISOString());
-
       const finalStats = getStats();
-      let completionMsg = `Sync complete! Active chargers: ${finalStats.total.toLocaleString()}`;
+      let completionMsg = navigator.onLine
+        ? `Sync complete! Verified 2W stations: ${finalStats.total.toLocaleString()}`
+        : `Offline mode: ${finalStats.total.toLocaleString()} cached 2W stations available`;
+
       if (reconcileStats && (reconcileStats.added > 0 || reconcileStats.removed > 0)) {
-        completionMsg = `Sync complete! +${reconcileStats.added} added, -${reconcileStats.removed} decommissioned stations removed.`;
+        completionMsg = `Synced! +${reconcileStats.added} added, -${reconcileStats.removed} removed (${finalStats.total.toLocaleString()} total)`;
       }
 
       if (onProgress) {
-        onProgress({
-          status: completionMsg,
-          percent: 100
-        });
+        onProgress({ status: completionMsg, percent: 100 });
       }
     } catch (err) {
-      console.error('Sync failed:', err);
-      if (onProgress) onProgress({ status: 'Sync error, continuing with local database.', percent: 100, error: true });
+      if (onProgress) onProgress({ status: 'Using offline validated database.', percent: 100, error: true });
     } finally {
       isSyncing = false;
       notify();
     }
   }
 
-  /**
-   * Merges an array of chargers into inMemoryChargers and IndexedDB
-   * Returns count of newly inserted chargers
-   */
   function mergeChargers(newChargers) {
     if (!newChargers || newChargers.length === 0) return 0;
     const existingMap = new Map();
@@ -562,10 +516,9 @@ const SyncEngine = (function () {
     let addedCount = 0;
     const toAdd = [];
 
-    newChargers.forEach(c => {
-      if (!existingMap.has(c.id)) {
-        if (!isTargetSouthRegion(c.name, c.address, c.lat, c.lng)) return;
-        if (!c.state) c.state = classifyState(c);
+    newChargers.forEach(raw => {
+      const c = validateAndNormalizeCharger(raw);
+      if (c && !existingMap.has(c.id)) {
         existingMap.set(c.id, c);
         toAdd.push(c);
         addedCount++;
@@ -574,38 +527,42 @@ const SyncEngine = (function () {
 
     if (addedCount > 0) {
       inMemoryChargers = Array.from(existingMap.values());
-      rebuildSpatialGrid();
+      rebuildIndexes();
       if (db) saveBatchToDB(toAdd);
       notify();
       if (window.MapEngine && (!window.MapEngine.isPopupOpen || !window.MapEngine.isPopupOpen())) {
-        window.MapEngine.renderChargers(inMemoryChargers);
+        window.MapEngine.renderChargers();
       }
     }
 
     return addedCount;
   }
 
-  /**
-   * Floating Toast Notification for Automatic Sync
-   */
   function showAutoUpdateToast(message) {
     let toast = document.getElementById('voltway-toast');
     if (!toast) {
       toast = document.createElement('div');
       toast.id = 'voltway-toast';
       toast.className = 'auto-sync-toast';
+      const iconSpan = document.createElement('span');
+      iconSpan.textContent = '⚡';
+      const textSpan = document.createElement('span');
+      textSpan.className = 'toast-msg-text';
+      toast.appendChild(iconSpan);
+      toast.appendChild(textSpan);
       document.body.appendChild(toast);
     }
-    toast.innerHTML = `<span>⚡</span> <span>${message}</span>`;
+    const textEl = toast.querySelector('.toast-msg-text');
+    if (textEl) {
+      textEl.textContent = String(message || '');
+    } else {
+      toast.textContent = String(message || '');
+    }
     toast.classList.add('visible');
     clearTimeout(toast._timer);
     toast._timer = setTimeout(() => {
       toast.classList.remove('visible');
-    }, 4500);
-  }
-
-  function getChargers() {
-    return inMemoryChargers;
+    }, 4000);
   }
 
   function getStats() {
@@ -616,11 +573,9 @@ const SyncEngine = (function () {
 
     for (let i = 0; i < inMemoryChargers.length; i++) {
       const c = inMemoryChargers[i];
-      if (c.network === 'ATHER_GRID') {
-        atherFast++;
-      } else if (c.network === 'VIDA_GRID') {
-        vidaFast++;
-      } else if (c.network === 'BOLT_EARTH') {
+      if (c.network === 'ATHER_GRID') atherFast++;
+      else if (c.network === 'VIDA_GRID') vidaFast++;
+      else if (c.network === 'BOLT_EARTH') {
         if (c.type === 'FAST') boltFast++;
         else boltSlow++;
       }
@@ -651,9 +606,9 @@ const SyncEngine = (function () {
 
   return {
     loadInitialChargers,
-    getChargers,
+    getChargers: () => inMemoryChargers,
+    getChargerById,
     getChargersInBounds,
-    rebuildSpatialGrid,
     getStats,
     fetchLiveBoltInBounds,
     performFullSync,

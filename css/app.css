@@ -272,6 +272,32 @@ html, body {
   pointer-events: none;
 }
 
+/* Offline Indicator Banner */
+.offline-status-banner {
+  pointer-events: auto;
+  background: rgba(120, 53, 15, 0.92);
+  border: 1.5px solid #f59e0b;
+  color: #fef3c7;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(10px);
+}
+
+.route-live-progress-banner {
+  background: rgba(8, 47, 73, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  color: #bae6fd;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  line-height: 1.35;
+}
+
 /* State Filter Chips Bar */
 .state-chips-bar {
   pointer-events: auto;
@@ -557,15 +583,15 @@ html, body {
 /* Floating Map Theme Switcher Button (Dark Mode / Normal Daylight Map) */
 .btn-toggle-map-theme {
   position: fixed;
-  top: 198px;
+  top: 204px;
   right: 14px;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.92);
+  background: rgba(11, 18, 32, 0.94);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
   color: #fbbf24;
   font-size: 1.15rem;
   display: flex;
@@ -573,7 +599,7 @@ html, body {
   justify-content: center;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  z-index: 1100 !important;
+  z-index: 1005 !important;
   pointer-events: auto !important;
   transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   touch-action: manipulation;
@@ -593,11 +619,11 @@ html, body {
 .btn-float-gps {
   position: fixed;
   right: 14px;
-  bottom: calc(112px + env(safe-area-inset-bottom, 0px));
-  width: 46px;
-  height: 46px;
+  bottom: calc(114px + env(safe-area-inset-bottom, 0px));
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.92);
+  background: rgba(11, 18, 32, 0.94);
   backdrop-filter: blur(10px);
   border: 1.5px solid var(--border-color);
   color: var(--color-ather);
@@ -614,6 +640,11 @@ html, body {
   pointer-events: auto !important;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.btn-float-gps.tracking-active {
+  border-color: #00e676;
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.45);
 }
 
 .btn-float-gps:hover {
@@ -636,15 +667,15 @@ html, body {
 /* Floating Fullscreen Map Button */
 .btn-toggle-fullscreen {
   position: fixed;
-  top: 251px;
+  top: 258px;
   right: 14px;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(11, 18, 32, 0.92);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
   color: #ffffff;
   font-size: 1.15rem;
   display: flex;
@@ -652,7 +683,7 @@ html, body {
   justify-content: center;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  z-index: 1010;
+  z-index: 1005;
   transition: all 0.15s ease;
   touch-action: manipulation;
 }
@@ -707,17 +738,18 @@ html, body {
   display: none !important;
 }
 
-/* Google Maps Style Floating Navigation Compass Button (Drive Mode) */
+/* OLED Floating Navigation Compass Button (Drive Mode) */
 .btn-nav-compass {
   position: fixed;
-  top: calc(140px + env(safe-area-inset-top, 0px));
+  top: calc(146px + env(safe-area-inset-top, 0px));
   right: 14px;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 1.5px solid rgba(0, 0, 0, 0.12);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  background: rgba(11, 18, 32, 0.94);
+  backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
   display: none;
   align-items: center;
   justify-content: center;
@@ -733,9 +765,9 @@ html, body {
 }
 
 .btn-nav-compass.compass-active {
-  border: 2px solid #0284c7;
-  box-shadow: 0 0 16px rgba(14, 165, 233, 0.45);
-  background: #f0f9ff;
+  border: 2px solid #38bdf8;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.45);
+  background: rgba(14, 34, 58, 0.96);
 }
 
 .nav-compass-dial {
@@ -1127,46 +1159,43 @@ body.nav-active .btn-nav-compass {
 }
 
 .popup-title {
-  font-size: 0.95rem;
+  font-size: 0.94rem;
   font-weight: 800;
   color: #f8fafc;
+  line-height: 1.25;
 }
 
-.popup-ather-compat {
+.popup-compat-banner {
   padding: 5px 8px;
-  border-radius: var(--radius-xs);
+  border-radius: 6px;
   font-size: 0.72rem;
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 5px;
   line-height: 1.3;
 }
 
-.popup-ather-compat.compat-direct {
+.popup-compat-banner.compat-ok {
   background: rgba(0, 230, 118, 0.12);
   border: 1px solid rgba(0, 230, 118, 0.35);
-  color: var(--color-ather);
+  color: #00e676;
 }
 
-.popup-ather-compat.compat-socket {
-  background: rgba(148, 163, 184, 0.12);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  color: #cbd5e1;
+.popup-compat-banner.compat-warn {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+}
+
+.popup-meta-box {
+  background: rgba(15, 23, 42, 0.85);
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .popup-address {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-secondary);
-}
-
-.popup-detail {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 6px;
+  line-height: 1.3;
 }
 
 .popup-actions {
@@ -1174,6 +1203,31 @@ body.nav-active .btn-nav-compass {
   flex-direction: column;
   gap: 6px;
   margin-top: 4px;
+}
+
+.amenities-hdr {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+.amenities-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.amenity-verified {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(56, 189, 248, 0.14);
+  color: #bae6fd;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
 }
 
 .btn-popup-nav {
@@ -1670,14 +1724,15 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   background: #17243b;
   border: 1px solid var(--border-color);
   color: #cbd5e1;
-  border-radius: 4px;
-  width: 26px;
-  height: 26px;
-  font-size: 0.72rem;
+  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  font-size: 0.85rem;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  touch-action: manipulation;
   transition: all 0.15s ease;
 }
 
@@ -1783,44 +1838,54 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 140px;
+  max-height: 180px;
   overflow-y: auto;
 }
 
-.trip-stop-item {
+.trip-waypoint-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   background: #080d17;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: #f8fafc;
 }
 
-.stop-tag {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #00c853;
-  color: #ffffff;
+.trip-waypoint-badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 230, 118, 0.16);
+  border: 1px solid rgba(0, 230, 118, 0.4);
+  color: var(--color-ather);
+  flex-shrink: 0;
+}
+
+.trip-waypoint-title {
+  flex: 1;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-remove-waypoint {
+  background: rgba(255, 51, 102, 0.14);
+  border: 1px solid rgba(255, 51, 102, 0.4);
+  color: var(--color-danger);
+  border-radius: 6px;
+  min-width: 34px;
+  min-height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
-  font-weight: 800;
-  margin-right: 6px;
-}
-
-.btn-remove-stop-mini {
-  background: transparent;
-  border: none;
-  color: var(--color-danger);
-  font-weight: 800;
   cursor: pointer;
-  padding: 2px 6px;
-  font-size: 0.9rem;
+  touch-action: manipulation;
 }
 
 /* --------------------------------------------------------------------------
@@ -2586,7 +2651,7 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 220px;
+  max-height: 340px;
   overflow-y: auto;
 }
 
@@ -2611,11 +2676,7 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   justify-content: space-between;
 }
 
-.corridor-dist {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  font-weight: 600;
-}
+/* Removed unused .corridor-dist */
 
 .corridor-card-title {
   font-size: 0.88rem;
@@ -2635,12 +2696,28 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 }
 
 .btn-sm {
-  padding: 6px 12px;
+  padding: 7px 14px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius-sm);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 800;
   cursor: pointer;
   border: none;
+  touch-action: manipulation;
+}
+
+.vehicle-connector-pill {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: #bae6fd;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .btn-nav {
@@ -2771,30 +2848,7 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   cursor: pointer;
 }
 
-.btn-target-preset {
-  background: #17243b;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  font-size: 0.74rem;
-  font-weight: 700;
-  padding: 5px 11px;
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: all 0.18s ease;
-  touch-action: manipulation;
-}
-
-.btn-target-preset:hover {
-  background: #1e3252;
-  color: var(--text-primary);
-}
-
-.btn-target-preset.active {
-  background: rgba(0, 230, 118, 0.18);
-  border-color: var(--color-ather);
-  color: var(--color-ather);
-  box-shadow: 0 0 10px rgba(0, 230, 118, 0.3);
-}
+/* Removed unused .btn-target-preset */
 
 /* --------------------------------------------------------------------------
    14. TAB 4: SOS NEAREST CHARGERS
@@ -2834,15 +2888,44 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   color: var(--text-primary);
 }
 
-.sos-name {
-  font-size: 0.95rem;
+.sos-title {
+  font-size: 0.94rem;
   font-weight: 800;
   color: var(--text-primary);
+  margin-bottom: 4px;
 }
 
-.sos-addr {
+.sos-details {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.sos-address {
   font-size: 0.75rem;
   color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.sos-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-sos-nav {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 230, 118, 0.35);
+  background: rgba(0, 230, 118, 0.14);
+  color: #86efac;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
 .empty-state {
@@ -3095,8 +3178,49 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 
 .hud-distance-row {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hud-battery-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  background: rgba(2, 6, 23, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.btn-hud-sound {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 50%;
+  background: rgba(2, 6, 23, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  font-size: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.btn-hud-sound:active {
+  transform: scale(0.94);
+}
+
+.btn-hud-sound.muted {
+  opacity: 0.65;
+  background: rgba(2, 6, 23, 0.55);
 }
 
 .hud-distance-val {
@@ -3178,17 +3302,17 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   transform: scale(0.92);
 }
 
-/* Google Maps Live Floating Speedometer (Bottom-Left) */
+/* OLED Floating Live Speedometer (Bottom-Left during Drive Mode) */
 .nav-speedometer {
   position: fixed;
-  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(102px + env(safe-area-inset-bottom, 0px));
   left: 14px;
-  width: 58px;
-  height: 58px;
+  width: 62px;
+  height: 62px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 2px solid #0f172a;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  background: rgba(11, 18, 32, 0.94);
+  border: 2px solid rgba(56, 189, 248, 0.45);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3198,9 +3322,9 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 }
 
 .nav-speed-val {
-  font-size: 1.35rem;
+  font-size: 1.4rem;
   font-weight: 900;
-  color: #0f172a;
+  color: #f8fafc;
   line-height: 1;
 }
 
@@ -3314,28 +3438,30 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   100% { transform: scale(2.8); opacity: 0; }
 }
 
-/* Google Maps Bottom Stats Bar */
+/* OLED Drive Mode Bottom Stats Bar */
 .nav-bottom-bar {
   position: fixed;
   bottom: 0px;
   left: 0px;
   right: 0px;
-  background: #ffffff;
+  background: rgba(11, 18, 32, 0.96);
+  border-top: 1px solid rgba(56, 189, 248, 0.28);
   border-top-left-radius: 22px;
   border-top-right-radius: 22px;
   padding: 8px 18px calc(14px + env(safe-area-inset-bottom, 0px)) 18px;
-  box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.75);
   z-index: 1080;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  backdrop-filter: blur(12px);
 }
 
 .nav-bottom-drag-pill {
-  width: 36px;
+  width: 38px;
   height: 4px;
-  background: #cbd5e1;
+  background: #334155;
   border-radius: 2px;
   margin-bottom: 4px;
 }
@@ -3348,19 +3474,50 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 }
 
 .btn-exit-drive {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  color: #475569;
-  font-size: 1.15rem;
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #fca5a5;
+  font-size: 1.2rem;
   font-weight: 900;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  touch-action: manipulation;
   transition: background 0.15s, transform 0.15s;
+}
+
+.nav-bottom-bar .nav-stat-time {
+  color: #00e676 !important;
+  font-weight: 900;
+}
+
+.nav-bottom-bar .nav-stat-dist,
+.nav-bottom-bar .nav-stat-eta,
+.nav-bottom-bar .nav-stat-dot {
+  color: #cbd5e1 !important;
+}
+
+.nav-bottom-bar .btn-nav-routes-toggle {
+  width: 48px;
+  height: 48px;
+  background: #17243b !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
+  color: #38bdf8 !important;
+  touch-action: manipulation;
+}
+
+.nav-speedometer .nav-speed-unit {
+  color: #94a3b8 !important;
+}
+
+@media (max-width: 768px) {
+  .leaflet-control-zoom {
+    display: none !important;
+  }
 }
 
 .btn-exit-drive:active {

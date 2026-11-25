@@ -1,7 +1,7 @@
 /**
  * VoltWay 2W - Interactive Leaflet Map Engine
- * Ultra-Smooth Viewport Marker Culling (60 FPS, Zero Lag)
- * Google Maps Style Alternative Routes Rendering & Click-to-Add Trip Planning
+ * High-performance spatial viewport culling, connector-aware popups,
+ * tilt-compensated 3D handlebar compass & lifecycle-aware GPS tracking.
  */
 
 const MapEngine = (function () {
@@ -13,26 +13,24 @@ const MapEngine = (function () {
   let markersLayer = null;
   let routeLayer = null;
   let waypointsLayer = null;
-  let safeRangeCircle = null;
-  let bufferRangeCircle = null;
   let userLocationMarker = null;
   let userAccuracyCircle = null;
   let activeMainLine = null;
   let activeGlowLine = null;
+  let traversedMainLine = null;
   let recenterTimer = null;
 
-  // Live GPS tracking state (Google Maps style moving puck & auto-follow)
+  // Live GPS & Orientation state
   let watchId = null;
   let userHeading = 0;
   let isAutoFollow = false;
   let isUserInteracting = false;
   let isUserRotating = false;
-  let isNavCompassMode = false; // false = Route-Locked (default, steady arrow), true = Free Compass (follows physical orientation)
+  let isNavCompassMode = false; // false = Route-Locked, true = Free Compass
+  let lastGpsFixTime = 0;
 
-  // Regional State filter ('all' default, 'kerala', 'karnataka', 'tamil_nadu')
   let activeStateFilter = localStorage.getItem('voltway_selected_state') || localStorage.getItem('voltway_state_filter') || 'all';
 
-  // Filter state: TWO-WHEELER FAST CHARGERS ONLY BY DEFAULT!
   const filters = {
     atherFast: true,
     vidaFast: true,
@@ -52,35 +50,47 @@ const MapEngine = (function () {
     }
   } catch (e) {}
 
-  // User position
   let userCoords = null; // { lat, lng, accuracy, heading, speed }
-
-  // High-performance Marker Pool: chargerId -> marker
   const markerMap = new Map();
   const waypointMarkersMap = new Map();
   let activePopupChargerId = null;
 
-  // Animation frame throttle & debounce
   let renderRafId = null;
   let moveDebounceTimer = null;
-
   let mapContainerId = 'map';
+
+  // Rotation Animation & Compass State
+  let compassEventType = null;
+  let compassHandlerRef = null;
+  let targetBearing = 0;
+  let currentRenderedBearing = 0;
+  let bearingRafId = null;
+  let lastPuckRotDeg = null;
+  let markerAnimRaf = null;
+  let markerCurrentLat = null;
+  let markerCurrentLng = null;
+
+  function esc(str) {
+    return window.Utilities && window.Utilities.escapeHtml
+      ? window.Utilities.escapeHtml(str)
+      : String(str || '').replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
+  }
 
   function initMap(containerId = 'map') {
     if (map) return map;
     mapContainerId = containerId || 'map';
 
-    let defaultCenter = [10.0246, 76.3079]; // Kerala (Kochi EV Hub) default
-    let defaultZoom = 10;
-    if (activeStateFilter === 'karnataka') {
+    let defaultCenter = [11.5, 77.0];
+    let defaultZoom = 8;
+    if (activeStateFilter === 'kerala') {
+      defaultCenter = [10.0246, 76.3079];
+      defaultZoom = 10;
+    } else if (activeStateFilter === 'karnataka') {
       defaultCenter = [12.9716, 77.5946];
       defaultZoom = 11;
     } else if (activeStateFilter === 'tamil_nadu') {
       defaultCenter = [11.0168, 76.9558];
       defaultZoom = 10;
-    } else if (activeStateFilter === 'all') {
-      defaultCenter = [11.5, 77.0];
-      defaultZoom = 8;
     }
 
     map = L.map(containerId, {
@@ -96,9 +106,8 @@ const MapEngine = (function () {
     });
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
-
     L.control.attribution({ position: 'bottomleft', prefix: false })
-      .addAttribution('&copy; <a href="https://openstreetmap.org" target="_blank">OSM</a> | VoltWay 2W')
+      .addAttribution('&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> | VoltWay 2W')
       .addTo(map);
 
     let initialTheme = 'dark';
@@ -115,9 +124,7 @@ const MapEngine = (function () {
     map.on('zoomend', onMapMoveEnd);
 
     function handleUserManualInteraction() {
-      // User is manually panning/zooming/rotating map: release camera auto-follow
       isAutoFollow = false;
-      isCompassMode = false;
       isUserInteracting = true;
       updateGpsButtonUi();
 
@@ -128,7 +135,6 @@ const MapEngine = (function () {
 
       if (recenterTimer) clearTimeout(recenterTimer);
       if (window.DriveEngine && window.DriveEngine.isActive()) {
-        // Auto recenter after 10 seconds of inactivity in Drive Mode (Google Maps standard)
         recenterTimer = setTimeout(() => {
           isUserInteracting = false;
           recenterCamera();
@@ -152,50 +158,60 @@ const MapEngine = (function () {
     map.on('rotate', () => {
       if (map && typeof map.getBearing === 'function') {
         currentRenderedBearing = map.getBearing();
-        targetBearing = currentRenderedBearing; // Keep target in sync with user rotation so it doesn't snap back!
+        targetBearing = currentRenderedBearing;
         updatePuckHeading(userHeading);
-
-        // Update needle on nav compass button if present
         const needle = document.getElementById('nav-compass-needle');
         if (needle) needle.style.transform = `rotate(${-currentRenderedBearing}deg)`;
       }
     });
 
     map.on('rotateend', () => {
-      setTimeout(() => {
-        isUserRotating = false;
-      }, 400);
+      setTimeout(() => { isUserRotating = false; }, 350);
     });
+
     map.on('click', () => {
       if (window.innerWidth <= 768 && typeof window.collapseBottomSheet === 'function') {
         window.collapseBottomSheet();
       }
     });
 
-    // Instant User Puck Recovery: Render last-known position immediately so puck is never missing
+    // Restore last known puck immediately for zero-delay visual launch
     try {
       const cached = localStorage.getItem('voltway_last_known_pos');
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && parsed.lat && parsed.lng) {
-          userCoords = { lat: parsed.lat, lng: parsed.lng, accuracy: 20, heading: 0, speed: 0 };
-          updateUserPuck(parsed.lat, parsed.lng, 20, 0);
+          userCoords = { lat: parsed.lat, lng: parsed.lng, accuracy: 25, heading: 0, speed: 0 };
+          updateUserPuck(parsed.lat, parsed.lng, 25, 0);
         }
       }
     } catch (e) {}
 
-    // Start compass sensor immediately on map initialization
     initCompass();
     locateUser(false);
+
+    // Pause GPS & compass completely in background; acquire fresh foreground GPS snapshot upon reopening
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        if (!window.DriveEngine || !window.DriveEngine.isActive()) {
+          stopLiveTracking();
+          stopCompass();
+        }
+      } else if (document.visibilityState === 'visible') {
+        initCompass();
+        locateUser(false, true);
+        if (map) {
+          setTimeout(() => map.invalidateSize(), 120);
+        }
+      }
+    });
 
     return map;
   }
 
   function setTileTheme(theme = 'dark') {
     currentTileTheme = theme;
-    try {
-      localStorage.setItem('voltway_map_theme', theme);
-    } catch (e) {}
+    try { localStorage.setItem('voltway_map_theme', theme); } catch (e) {}
 
     const mapEl = document.getElementById(mapContainerId) || document.getElementById('map');
     const themeBtnIcon = document.getElementById('theme-btn-icon');
@@ -205,19 +221,18 @@ const MapEngine = (function () {
       if (mapEl) mapEl.classList.add('map-dark-mode');
       if (themeBtnIcon) themeBtnIcon.textContent = '☀️';
       if (themeBtn) {
-        themeBtn.setAttribute('title', 'Switch to Normal Map');
+        themeBtn.setAttribute('title', 'Switch to Daylight Map');
         themeBtn.style.color = '#fbbf24';
       }
     } else {
       if (mapEl) mapEl.classList.remove('map-dark-mode');
       if (themeBtnIcon) themeBtnIcon.textContent = '🌙';
       if (themeBtn) {
-        themeBtn.setAttribute('title', 'Switch to Dark Google Map');
+        themeBtn.setAttribute('title', 'Switch to OLED Dark Map');
         themeBtn.style.color = '#38bdf8';
       }
     }
 
-    // High-performance OpenStreetMap raster tiles (100% Free, Zero API Key Required, 100% Uptime)
     if (!tileLayer && map) {
       tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
@@ -231,15 +246,11 @@ const MapEngine = (function () {
     const nextTheme = (currentTileTheme === 'dark') ? 'daylight' : 'dark';
     setTileTheme(nextTheme);
     if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 Dark Mode' : '☀️ Daylight Mode');
+      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 OLED Dark Map' : '☀️ Daylight Map');
     }
     return nextTheme;
   }
 
-  /**
-   * Custom HTML Pin Icons with Crisp Vector SVGs (Fixes broken question marks / corrupted symbols)
-   * Uses an icon cache so identical network+type icons are only created once.
-   */
   const _iconCache = {};
   function createPinIcon(charger) {
     const key = `${charger.network}_${charger.type}`;
@@ -249,18 +260,12 @@ const MapEngine = (function () {
     let iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
     let label = 'Ather Fast';
 
-    if (charger.network === 'ATHER_GRID') {
-      pinClass = 'pin-ather';
-      iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
-      label = 'Ather Fast';
-    } else if (charger.network === 'VIDA_GRID') {
+    if (charger.network === 'VIDA_GRID') {
       pinClass = 'pin-vida-fast';
-      iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
       label = 'Vida Fast';
     } else if (charger.network === 'BOLT_EARTH') {
       if (charger.type === 'FAST') {
         pinClass = 'pin-bolt-fast';
-        iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
         label = 'Bolt Fast';
       } else {
         pinClass = 'pin-bolt-slow';
@@ -270,18 +275,17 @@ const MapEngine = (function () {
     }
 
     const html = `
-      <div class="custom-pin ${pinClass}" data-id="${charger.id}">
+      <div class="custom-pin ${pinClass}">
         <div class="pin-badge">
           <span class="pin-icon">${iconSvg}</span>
         </div>
         <span class="pin-label">${label}</span>
-        <div class="pin-pulse"></div>
       </div>
     `;
 
     const icon = L.divIcon({
       className: 'custom-pin-container',
-      html: html,
+      html,
       iconSize: [52, 48],
       iconAnchor: [26, 38],
       popupAnchor: [0, -36]
@@ -290,20 +294,13 @@ const MapEngine = (function () {
     return icon;
   }
 
-  /**
-   * Prominently Highlighted Charging Stop Pin on the Active Route
-   */
   function createHighlightedStopPinIcon(wp, idx, customBadgeText = null) {
     const isFast = wp.type === 'FAST' || wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID';
     let brandColor = '#00E676';
     let brandGlow = 'rgba(0, 230, 118, 0.55)';
     let networkTag = 'Ather Fast';
 
-    if (wp.network === 'ATHER_GRID') {
-      brandColor = '#00E676';
-      brandGlow = 'rgba(0, 230, 118, 0.55)';
-      networkTag = 'Ather Fast';
-    } else if (wp.network === 'VIDA_GRID') {
+    if (wp.network === 'VIDA_GRID') {
       brandColor = '#FF5722';
       brandGlow = 'rgba(255, 87, 34, 0.55)';
       networkTag = 'Vida Fast';
@@ -319,41 +316,34 @@ const MapEngine = (function () {
       }
     }
 
-    let cleanName = (wp.name || `Stop ${idx + 1}`).replace(/^Vida Grid Fast\s*-\s*/i, '').replace(/^Ather Grid Fast\s*-\s*/i, '').replace(/^Bolt Fast\s*-\s*/i, '').replace(/^.*-\s*/, '').trim();
-    if (cleanName.length > 18) {
-      cleanName = cleanName.substring(0, 16) + '…';
-    }
+    let cleanName = (wp.name || `Stop ${idx + 1}`).replace(/^(?:Vida Grid Fast|Ather Grid Fast|Bolt\.Earth Fast|Bolt Fast)\s*-\s*/i, '').trim();
+    if (cleanName.length > 18) cleanName = cleanName.substring(0, 16) + '…';
 
     const badgeLabel = customBadgeText || `STOP ${idx + 1}`;
-
     const html = `
       <div class="highlight-stop-container" style="--brand-color: ${brandColor}; --brand-glow: ${brandGlow};">
         <div class="beacon-pulse-ring"></div>
-        <div class="beacon-pulse-ring delay"></div>
         <div class="highlight-stop-pin">
           <div class="stop-badge-icon">${isFast ? '⚡' : '🔌'}</div>
-          <span class="stop-badge-text">${badgeLabel}</span>
+          <span class="stop-badge-text">${esc(badgeLabel)}</span>
         </div>
         <div class="highlight-stop-label">
           <span class="label-net">${networkTag}</span>
-          <span class="label-name">${cleanName}</span>
+          <span class="label-name">${esc(cleanName)}</span>
         </div>
       </div>
     `;
 
     return L.divIcon({
       className: 'highlight-stop-div-icon',
-      html: html,
+      html,
       iconSize: [120, 64],
       iconAnchor: [60, 20],
       popupAnchor: [0, -28]
     });
   }
 
-  /**
-   * Route Endpoint Pins (Start Point & Destination Point)
-   */
-  function createEndpointPinIcon(type = 'START', name = '') {
+  function createEndpointPinIcon(type = 'START') {
     const isStart = type === 'START';
     const color = isStart ? '#0284c7' : '#10b981';
     const glow = isStart ? 'rgba(2, 132, 199, 0.55)' : 'rgba(16, 185, 129, 0.55)';
@@ -371,21 +361,15 @@ const MapEngine = (function () {
 
     return L.divIcon({
       className: 'route-endpoint-div-icon',
-      html: html,
+      html,
       iconSize: [84, 38],
       iconAnchor: [42, 19],
       popupAnchor: [0, -24]
     });
   }
 
-  /**
-   * ULTRA-FAST VIEWPORT MARKER CULLING
-   * Completely eliminates UI lag by only rendering chargers visible on screen (max 100-120 DOM nodes)
-   * Uses marker diffing so existing markers are kept without rebuilding the DOM.
-   */
   function renderChargers(chargers = null) {
     if (!map || !markersLayer) return;
-
     if (renderRafId) cancelAnimationFrame(renderRafId);
     renderRafId = requestAnimationFrame(() => {
       _executeFastRender(chargers);
@@ -394,12 +378,12 @@ const MapEngine = (function () {
 
   function _executeFastRender(chargers = null) {
     const zoom = map.getZoom();
-    const bounds = map.getBounds().pad(0.18); // 18% margin around screen
+    const bounds = map.getBounds().pad(0.18);
 
     if (!chargers) {
       chargers = (window.SyncEngine && window.SyncEngine.getChargersInBounds)
         ? window.SyncEngine.getChargersInBounds(bounds)
-        : (window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []));
+        : (window.SyncEngine ? window.SyncEngine.getChargers() : []);
     }
 
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
@@ -409,12 +393,12 @@ const MapEngine = (function () {
     let visibleChargers = [];
 
     if (isCorridorActive) {
-      // WHEN ROUTE IS ACTIVE: Only render chargers strictly within the route corridor buffer!
       const corridorChargers = (window.RouteEngine && window.RouteEngine.getCorridorChargers()) || [];
       const inBounds = corridorChargers.filter(c => bounds.contains([c.lat, c.lng]));
 
       for (let i = 0; i < inBounds.length; i++) {
         const c = inBounds[i];
+        if (c.is_2w === false) continue;
         if (c.network === 'ATHER_GRID' && !filters.atherFast) continue;
         if (c.network === 'VIDA_GRID' && !filters.vidaFast) continue;
         if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) continue;
@@ -422,11 +406,10 @@ const MapEngine = (function () {
         visibleChargers.push(c);
       }
     } else {
-      // WHEN NO ROUTE IS ACTIVE (OR 'ALL' SELECTED): High-Performance Viewport Marker Culling
-      // 1. Filter by active state and active filter chips first (Cuts candidate list by 85% for 60FPS)
       const activeCandidates = [];
       for (let i = 0; i < chargers.length; i++) {
         const c = chargers[i];
+        if (c.is_2w === false) continue;
         if (activeStateFilter !== 'all' && c.state && c.state !== activeStateFilter) continue;
         if (c.network === 'ATHER_GRID' && !filters.atherFast) continue;
         if (c.network === 'VIDA_GRID' && !filters.vidaFast) continue;
@@ -435,50 +418,39 @@ const MapEngine = (function () {
         activeCandidates.push(c);
       }
 
-      // 2. High-Performance Viewport Marker Culling (Capped to 100-120 markers on mobile to prevent freezing)
       const inBounds = activeCandidates.filter(c => bounds.contains([c.lat, c.lng]));
       const fastInBounds = inBounds.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID');
       const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID' && c.network !== 'VIDA_GRID');
 
       if (zoom < 8) {
-        // High zoom-out regional overview: sample evenly
-        const step = Math.max(1, Math.floor(fastInBounds.length / 80));
-        for (let i = 0; i < fastInBounds.length && visibleChargers.length < 80; i += step) {
+        const step = Math.max(1, Math.floor(fastInBounds.length / 75));
+        for (let i = 0; i < fastInBounds.length && visibleChargers.length < 75; i += step) {
           visibleChargers.push(fastInBounds[i]);
         }
       } else {
-        // Two-Wheeler Fast Chargers Only (Ather, VIDA & Bolt Fast): Show ALL in viewport without arbitrary 60-cap limit!
-        visibleChargers.push(...fastInBounds.slice(0, 300));
-
-        // If slow sockets explicitly enabled, fill remaining slots
+        visibleChargers.push(...fastInBounds.slice(0, 240));
         if (filters.boltSlow && slowInBounds.length > 0) {
-          const remainingSlots = Math.max(0, 350 - visibleChargers.length);
+          const remainingSlots = Math.max(0, 280 - visibleChargers.length);
           visibleChargers.push(...slowInBounds.slice(0, remainingSlots));
         }
       }
     }
 
-    // Always include chargers that are active waypoints in the trip planner
     const activeWaypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
     activeWaypoints.forEach(wp => {
-      if (!visibleChargers.some(c => c.id === wp.id)) {
-        visibleChargers.push(wp);
-      }
+      if (!visibleChargers.some(c => c.id === wp.id)) visibleChargers.push(wp);
     });
 
-    // Ensure currently open popup marker is NEVER dropped from visible chargers
     if (activePopupChargerId && !visibleChargers.some(c => c.id === activePopupChargerId)) {
-      const activeC = chargers.find(c => c.id === activePopupChargerId) || ((window.RouteEngine && window.RouteEngine.getCorridorChargers()) || []).find(c => c.id === activePopupChargerId);
+      const activeC = (window.SyncEngine && window.SyncEngine.getChargerById(activePopupChargerId)) ||
+                      chargers.find(c => c.id === activePopupChargerId);
       if (activeC) visibleChargers.push(activeC);
     }
 
-    // Filter out chargers that are actively highlighted in waypointsLayer to avoid duplicate markers
-    const activeRouteWaypoints = (window.RouteEngine && window.RouteEngine.getActiveRoute() && window.RouteEngine.getActiveRoute().waypoints) || [];
+    const activeRouteWaypoints = (activeRoute && activeRoute.waypoints) || [];
     const activeWpIds = new Set(activeRouteWaypoints.map(w => w.id));
-
     const newVisibleIds = new Set(visibleChargers.map(c => c.id));
 
-    // 3. Diffing: Remove markers that have moved outside bounds, whose filter is off, or outside active corridor
     for (const [id, marker] of markerMap.entries()) {
       const c = marker._chargerData;
       if (c) {
@@ -488,67 +460,40 @@ const MapEngine = (function () {
         if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
         if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
       }
-      if (id === activePopupChargerId) continue; // Never destroy active popup marker!
-      if (activeWpIds.has(id)) {
-        markersLayer.removeLayer(marker);
-        markerMap.delete(id);
-        continue;
-      }
-      if (isCorridorActive && !newVisibleIds.has(id)) {
-        markersLayer.removeLayer(marker);
-        markerMap.delete(id);
-        continue;
-      }
-      if (!bounds.contains(marker.getLatLng())) {
+      if (id === activePopupChargerId) continue;
+      if (activeWpIds.has(id) || (isCorridorActive && !newVisibleIds.has(id)) || !bounds.contains(marker.getLatLng())) {
         markersLayer.removeLayer(marker);
         markerMap.delete(id);
       }
     }
 
-    // 4. Add newly visible chargers
     visibleChargers.forEach((charger) => {
-      if (activeWpIds.has(charger.id)) return;
-      if (markerMap.has(charger.id)) {
-        return; // Already rendered in DOM, keep it!
-      }
+      if (activeWpIds.has(charger.id) || markerMap.has(charger.id)) return;
 
-      const pos = L.latLng(charger.lat, charger.lng);
-      const icon = createPinIcon(charger);
-      const marker = L.marker(pos, { icon: icon });
+      const marker = L.marker(L.latLng(charger.lat, charger.lng), { icon: createPinIcon(charger) });
       marker._chargerData = charger;
 
       marker.bindPopup(() => createChargerPopupHtml(charger), {
-        maxWidth: 260,
+        maxWidth: 270,
         className: 'charger-popup',
-        autoPan: false,   // prevents Leaflet moveend trigger on popup open (eliminates flicker)
+        autoPan: false
       });
 
-      marker.on('popupopen', () => {
-        activePopupChargerId = charger.id;
-      });
-      marker.on('popupclose', () => {
-        if (activePopupChargerId === charger.id) {
-          activePopupChargerId = null;
-        }
-      });
+      marker.on('popupopen', () => { activePopupChargerId = charger.id; });
+      marker.on('popupclose', () => { if (activePopupChargerId === charger.id) activePopupChargerId = null; });
 
       marker.addTo(markersLayer);
       markerMap.set(charger.id, marker);
     });
   }
 
-  /**
-   * Interactive Charger Popup with Trip Planner actions & Nearby Rider Amenities
-   * @param {Object} charger Charger data object
-   * @param {number|null} stopIndex If this charger is an active route stop (0, 1, ...), provides stop badge
-   */
-  function createChargerPopupHtml(charger, stopIndex = null, coLocated = null) {
+  function createChargerPopupHtml(charger, stopIndex = null) {
     const isAther = charger.network === 'ATHER_GRID';
     const isVida = charger.network === 'VIDA_GRID';
     const isFast = charger.type === 'FAST';
 
     let networkBadgeClass = 'badge-bolt-slow';
-    let networkName = 'Bolt.Earth';
+    let networkName = 'Bolt 15A';
     if (isAther) {
       networkBadgeClass = 'badge-ather';
       networkName = 'Ather Grid';
@@ -560,16 +505,22 @@ const MapEngine = (function () {
       networkName = 'Bolt Fast';
     }
 
-    const batteryState = window.BatteryEngine ? window.BatteryEngine.getState() : { efficiency: 0.85, currentBatteryPct: 85 };
-    const chargeTime = window.Utilities ? window.Utilities.estimateChargingTime(batteryState.currentBatteryPct, 80, batteryState.efficiency) : null;
-    const estTimeText = isFast ? (chargeTime ? chargeTime.fastTimeFormatted : '~35m') : (chargeTime ? chargeTime.slowTimeFormatted : '~3.5h');
+    const batteryState = window.BatteryEngine ? window.BatteryEngine.getState() : { efficiency: 0.85, currentBatteryPct: 85, targetChargePct: 80 };
+    const startPct = Math.min(batteryState.currentBatteryPct ?? 85, 80);
+    const gainPct = Math.max(10, (batteryState.targetChargePct ?? 80) - startPct);
+    const estMins = window.Utilities
+      ? window.Utilities.computeChargingDuration(gainPct, startPct, isFast, charger.power_kw, batteryState.vehicleDetails)
+      : (isFast ? 35 : 180);
+    const estTimeText = window.Utilities ? window.Utilities.formatMinutes(estMins) : `${estMins}m`;
+
+    const compat = window.BatteryEngine && typeof window.BatteryEngine.isChargerCompatible === 'function'
+      ? window.BatteryEngine.isChargerCompatible(charger)
+      : { compatible: true, direct: isFast, reason: charger.connector || '2W Compatible' };
 
     const waypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
     const baseId = charger.originalId || charger.id;
-    const matchingStops = waypoints.filter(w => (w.originalId || w.id) === baseId);
-    const stopCount = matchingStops.length;
+    const isInRoute = waypoints.some(w => String(w.originalId || w.id) === String(baseId));
 
-    // Distance to active route if route is planned
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     let routeDistanceHtml = '';
     if (activeRoute && window.RouteEngine.getDistanceToActiveRoute && stopIndex === null) {
@@ -577,116 +528,114 @@ const MapEngine = (function () {
       if (distFromRoute !== null) {
         const isHighway = distFromRoute <= 0.4;
         const distColor = isHighway ? '#00e676' : '#38bdf8';
-        const labelText = isHighway ? '⚡ On Route' : `⚡ ${distFromRoute} km Detour`;
-        routeDistanceHtml = `<div style="font-size: 0.70rem; font-weight: 700; color: ${distColor}; margin: 2px 0;">🛣️ ${labelText}</div>`;
+        const labelText = isHighway ? 'Direct on Route' : `${distFromRoute} km off route`;
+        routeDistanceHtml = `<div style="font-size: 0.72rem; font-weight: 700; color: ${distColor}; margin: 2px 0;">🛣️ ${labelText}</div>`;
       }
     }
 
-    const cleanTitle = (isVida ? charger.name.replace(/\s*\(Ather Gun[^)]*\)/gi, '') : charger.name).replace(/\s*\(Ather Gun.*$/i, '').trim();
+    const cleanTitle = esc((charger.name || '2W Charger').replace(/\s*\(Ather Gun[^)]*\)/gi, '').trim());
+    const safeAddr = esc(charger.address || '');
+    const safeConnector = esc(charger.connector || (isFast ? '2W Fast DC' : '15A AC Socket'));
+    const safeCompatReason = esc(compat.reason);
+    const powerBadge = charger.power_kw ? `${charger.power_kw} kW` : (isFast ? '3.0 kW' : '1.5 kW');
+    const verifiedBadge = charger.verified !== false
+      ? '<span style="color:#00e676;">✓ Verified 2W</span>'
+      : '<span style="color:#ffb703;">⚠ Metadata Unverified</span>';
 
-    let stopHeaderBadge = `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
+    const stopHeaderBadge = stopIndex !== null
+      ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`
+      : `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
 
-    if (stopIndex !== null) {
-      stopHeaderBadge = `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`;
-    }
+    const safeIdAttr = esc(charger.id);
 
     let stopActionButtons = '';
     if (stopIndex !== null) {
       stopActionButtons = `
-        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 5px;">
-          <button class="btn-popup-waypoint" style="width: 100%; padding: 6px 8px; font-size: 0.72rem; height: 32px; background: rgba(255, 61, 113, 0.2); border: 1px solid var(--color-danger); color: var(--color-danger); border-radius: 6px;" onclick="RouteEngine.removeWaypoint('${charger.id}')">
+        <div class="popup-actions">
+          <button class="btn-popup-waypoint" style="background: rgba(255, 51, 102, 0.18); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="MapEngine.handleRemoveWaypoint('${safeIdAttr}')">
             ❌ Remove Stop #${stopIndex + 1}
           </button>
-          <button class="btn-popup-nav" style="width: 100%; padding: 6px 8px; font-size: 0.72rem; height: 30px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; font-weight: 800;" onclick="if(window.NavigationEngine) window.NavigationEngine.navigateToNextCharger({lat: ${charger.lat}, lng: ${charger.lng}, name: '${cleanTitle.replace(/'/g, "\\'")}'})">
-            🗺️ Google Maps
+          <button class="btn-popup-nav" onclick="MapEngine.handleNavigateToCharger('${safeIdAttr}')">
+            🗺️ Open in Google Maps
           </button>
         </div>
       `;
     } else {
-      let waypointControlHtml = '';
-      if (stopCount === 0) {
-        waypointControlHtml = `
-          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem; font-weight: 800; background: var(--color-ather); color: #052e16;" onclick="MapEngine.handleAddWaypoint('${charger.id}')">
-            ➕ Add Stop
-          </button>
-        `;
-      } else {
-        waypointControlHtml = `
-          <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.68rem; background: rgba(255, 61, 113, 0.2); color: #ff3d71; border-color: #ff3d71;" onclick="MapEngine.handleRemoveWaypoint('${charger.id}')">
-            ❌ Remove Stop
-          </button>
-        `;
-      }
+      const waypointControlHtml = isInRoute
+        ? `<button class="btn-sm btn-remove-stop" style="flex:1; min-height:36px;" onclick="MapEngine.handleRemoveWaypoint('${safeIdAttr}')">❌ Remove Stop</button>`
+        : `<button class="btn-sm btn-add-stop" style="flex:1; min-height:36px;" onclick="MapEngine.handleAddWaypoint('${safeIdAttr}')">➕ Add Stop</button>`;
 
       stopActionButtons = `
-        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
-          <button class="btn-popup-nav btn-direct-inapp-route" style="width: 100%; height: 34px; padding: 6px 10px; font-size: 0.80rem; font-weight: 800; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #ffffff; border-radius: 8px;" onclick="MapEngine.handleRouteDirectToCharger('${charger.id}')">
+        <div class="popup-actions">
+          <button class="btn-popup-nav btn-direct-inapp-route" style="min-height: 38px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff;" onclick="MapEngine.handleRouteDirectToCharger('${safeIdAttr}')">
             ⚡ Route Here
           </button>
-          <div style="display: flex; gap: 4px;">
+          <div style="display: flex; gap: 6px;">
             ${waypointControlHtml}
-            <button class="btn-sm btn-nav" style="flex: 1; height: 30px; padding: 4px 6px; font-size: 0.72rem;" onclick="MapEngine.handleSetAsDest('${charger.id}')">
-              🏁 Destination
+            <button class="btn-sm btn-nav" style="flex: 1; min-height: 36px;" onclick="MapEngine.handleSetAsDest('${safeIdAttr}')">
+              🏁 Dest
             </button>
           </div>
+          <button class="btn-sm btn-nav" style="width:100%; min-height: 32px; font-size: 0.7rem;" onclick="MapEngine.handleOpenOfficialApp('${esc(charger.network)}', '${safeIdAttr}')">
+            📱 Check Live Status in ${networkName} App
+          </button>
         </div>
       `;
     }
 
+    const venueHints = (window.Utilities && window.Utilities.renderAmenitiesHtml)
+      ? window.Utilities.renderAmenitiesHtml(charger.name, charger.address)
+      : '';
+
     return `
-      <div class="popup-card" style="padding: 10px 12px; gap: 5px; max-width: 260px;">
-        <div class="popup-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+      <div class="popup-card">
+        <div class="popup-header">
           ${stopHeaderBadge}
-          <span style="font-size: 0.65rem; font-weight: 800; color: ${isFast ? '#00e676' : '#94a3b8'};">${isFast ? '⚡ Fast Gun' : '🔌 15A Socket'}</span>
+          <span style="font-size: 0.68rem; font-weight: 800; color: ${isFast ? '#00e676' : '#38bdf8'};">${isFast ? '⚡ Fast' : '🔌 15A'} • ${powerBadge}</span>
         </div>
 
-        <div class="popup-title" style="font-size: 0.86rem; font-weight: 800; color: #ffffff; line-height: 1.25; max-height: 2.5em; overflow: hidden; text-overflow: ellipsis;">${cleanTitle}</div>
-
+        <div class="popup-title">${cleanTitle}</div>
         ${routeDistanceHtml}
 
-        <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.70rem; color: #cbd5e1; background: rgba(15, 23, 42, 0.8); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08);">
-          <span style="color: ${isFast ? '#00E676' : '#38bdf8'}; font-weight: 700;">${charger.connector || (isFast ? 'Ather DC Fast' : '15A AC Socket')}</span>
-          <span style="font-weight: 700;">⏱️ ${estTimeText}</span>
+        <div class="popup-compat-banner ${compat.compatible ? 'compat-ok' : 'compat-warn'}">
+          ${compat.compatible ? '✅' : '⚠️'} ${safeCompatReason}
         </div>
 
-        ${charger.address ? `<div style="font-size: 0.68rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;"><i class="icon-pin">📍</i> ${charger.address}</div>` : ''}
+        <div class="popup-meta-box">
+          <div style="font-size: 0.7rem; color: #cbd5e1; font-weight: 600;">🔌 ${safeConnector}</div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.68rem; color: #94a3b8; margin-top: 3px;">
+            <span>${verifiedBadge}</span>
+            <span>⏱️ ~${estTimeText} (${startPct}→${batteryState.targetChargePct ?? 80}%)</span>
+          </div>
+        </div>
 
+        ${safeAddr ? `<div class="popup-address">📍 ${safeAddr}</div>` : ''}
+        ${venueHints}
         ${stopActionButtons}
       </div>
     `;
   }
 
   function handleOpenOfficialApp(network, chargerId) {
+    const isAndroid = /android/i.test(navigator.userAgent);
     if (network === 'ATHER_GRID') {
-      // Ather App deep link / intent
-      const isAndroid = /android/i.test(navigator.userAgent);
       if (isAndroid) {
         window.location.href = 'intent://atherenergy.com/#Intent;package=com.atherenergy.app;scheme=https;end';
-        setTimeout(() => {
-          window.open('https://play.google.com/store/apps/details?id=com.atherenergy.app', '_blank');
-        }, 1200);
+        setTimeout(() => window.open('https://play.google.com/store/apps/details?id=com.atherenergy.app', '_blank'), 1200);
       } else {
         window.open('https://play.google.com/store/apps/details?id=com.atherenergy.app', '_blank');
       }
     } else if (network === 'VIDA_GRID') {
-      // Hero VIDA App deep link / intent
-      const isAndroid = /android/i.test(navigator.userAgent);
       if (isAndroid) {
         window.location.href = 'intent://vidaworld.com/#Intent;package=com.vida.app;scheme=https;end';
-        setTimeout(() => {
-          window.open('https://play.google.com/store/apps/details?id=com.vida.app', '_blank');
-        }, 1200);
+        setTimeout(() => window.open('https://play.google.com/store/apps/details?id=com.vida.app', '_blank'), 1200);
       } else {
         window.open('https://play.google.com/store/apps/details?id=com.vida.app', '_blank');
       }
     } else {
-      // Bolt.Earth App deep link
-      const isAndroid = /android/i.test(navigator.userAgent);
       if (isAndroid) {
         window.location.href = `intent://bolt.earth/charger/${chargerId}#Intent;package=com.revos.bolt.android;scheme=https;end`;
-        setTimeout(() => {
-          window.open('https://play.google.com/store/apps/details?id=com.revos.bolt.android', '_blank');
-        }, 1200);
+        setTimeout(() => window.open('https://play.google.com/store/apps/details?id=com.revos.bolt.android', '_blank'), 1200);
       } else {
         window.open('https://play.google.com/store/apps/details?id=com.revos.bolt.android', '_blank');
       }
@@ -694,21 +643,17 @@ const MapEngine = (function () {
   }
 
   function handleNavigateToCharger(chargerId) {
-    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
-    const c = allChargers.find(item => item.id === chargerId);
+    const c = window.SyncEngine ? window.SyncEngine.getChargerById(chargerId) : null;
     if (c && window.NavigationEngine) {
       window.NavigationEngine.navigateToNextCharger(c, userCoords);
     }
   }
 
   function handleAddWaypoint(chargerId) {
-    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
-    const c = allChargers.find(item => item.id === chargerId);
+    const c = window.SyncEngine ? window.SyncEngine.getChargerById(chargerId) : null;
     if (c && window.RouteEngine) {
       const added = window.RouteEngine.addWaypoint(c);
       if (map) map.closePopup();
-
-      // Show sleek non-intrusive floating toast on map only if newly added
       if (added && window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
         window.SyncEngine.showAutoUpdateToast(`📍 Added Stop: ${c.name}`);
       }
@@ -722,42 +667,22 @@ const MapEngine = (function () {
     }
   }
 
-  function handleSetAsOrigin(chargerId) {
-    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
-    const c = allChargers.find(item => item.id === chargerId);
-    if (c) {
-      window.setPlannerOrigin(c);
-      if (map) map.closePopup();
-    }
-  }
-
   function handleSetAsDest(chargerId) {
-    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
-    const c = allChargers.find(item => item.id === chargerId);
-    if (c) {
+    const c = window.SyncEngine ? window.SyncEngine.getChargerById(chargerId) : null;
+    if (c && window.setPlannerDest) {
       window.setPlannerDest(c);
       if (map) map.closePopup();
     }
   }
 
   function setFilter(filterKey, value) {
-    if (filters.hasOwnProperty(filterKey)) {
+    if (Object.prototype.hasOwnProperty.call(filters, filterKey)) {
       filters[filterKey] = Boolean(value);
-      try {
-        localStorage.setItem('voltway_network_filters', JSON.stringify(filters));
-      } catch (e) {}
+      try { localStorage.setItem('voltway_network_filters', JSON.stringify(filters)); } catch (e) {}
       renderChargers();
     }
   }
 
-  function getFilters() {
-    return { ...filters };
-  }
-
-  /**
-   * Regional State Filter ('kerala', 'karnataka', 'tamil_nadu', 'all')
-   * Enables 0-lag 60fps rendering by restricting candidate pool to selected state.
-   */
   function setStateFilter(state) {
     activeStateFilter = state || 'all';
     try {
@@ -767,53 +692,14 @@ const MapEngine = (function () {
 
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     if (!activeRoute && map) {
-      if (activeStateFilter === 'kerala') {
-        map.flyTo([10.0246, 76.3079], 10, { animate: true, duration: 0.5 });
-      } else if (activeStateFilter === 'karnataka') {
-        map.flyTo([12.9716, 77.5946], 11, { animate: true, duration: 0.5 });
-      } else if (activeStateFilter === 'tamil_nadu') {
-        map.flyTo([11.0168, 76.9558], 10, { animate: true, duration: 0.5 });
-      } else if (activeStateFilter === 'all') {
-        map.flyTo([11.5, 77.0], 8, { animate: true, duration: 0.5 });
-      }
+      if (activeStateFilter === 'kerala') map.flyTo([10.0246, 76.3079], 10, { animate: true, duration: 0.45 });
+      else if (activeStateFilter === 'karnataka') map.flyTo([12.9716, 77.5946], 11, { animate: true, duration: 0.45 });
+      else if (activeStateFilter === 'tamil_nadu') map.flyTo([11.0168, 76.9558], 10, { animate: true, duration: 0.45 });
+      else if (activeStateFilter === 'all') map.flyTo([11.5, 77.0], 8, { animate: true, duration: 0.45 });
     }
-
     renderChargers();
   }
 
-  function getStateFilter() {
-    return activeStateFilter;
-  }
-
-  function updateSafeRangeOverlay(centerCoords = null) {
-    if (!map) return;
-    // Green and yellow range circles removed as requested to keep the map clean like Google Maps
-    if (safeRangeCircle) {
-      map.removeLayer(safeRangeCircle);
-      safeRangeCircle = null;
-    }
-    if (bufferRangeCircle) {
-      map.removeLayer(bufferRangeCircle);
-      bufferRangeCircle = null;
-    }
-  }
-
-  /**
-   * RENDER MULTIPLE ALTERNATIVE ROUTES (Google Maps Style)
-   * The selected route is rendered with glowing cyan/green;
-   * Alternative routes are rendered with clickable slate lines!
-   */
-  /**
-   * Render calculated routes on map
-   * Alternative routes are rendered with clickable slate lines!
-   * @param {Object} activeRoute Active selected route
-   * @param {Array} allRoutes All candidate alternative routes
-   * @param {number} selectedIndex Index of active route
-   * @param {boolean} shouldFitBounds Only fit bounds when explicitly planning a new route
-   */
-  /**
-   * Helper to create Google Maps Style floating duration badge on route polyline
-   */
   function createRouteBadgeMarker(route, idx, isSelected, primaryDuration) {
     if (!route.coordinates || route.coordinates.length < 4) return null;
     const midIdx = Math.floor(route.coordinates.length * 0.48);
@@ -826,13 +712,13 @@ const MapEngine = (function () {
     const icon = L.divIcon({
       className: 'route-duration-badge-wrapper',
       html: `
-        <div class="map-route-duration-pill ${isSelected ? 'pill-active' : 'pill-alt'}" title="${route.name}">
+        <div class="map-route-duration-pill ${isSelected ? 'pill-active' : 'pill-alt'}" title="${esc(route.name)}">
           <span class="pill-duration-txt">${badgeText}</span>
           <span class="pill-badge-tag">${badgeSub}</span>
         </div>
       `,
-      iconSize: [92, 32],
-      iconAnchor: [46, 16]
+      iconSize: [96, 32],
+      iconAnchor: [48, 16]
     });
 
     const marker = L.marker(midCoord, { icon, zIndexOffset: isSelected ? 2000 : 1200 });
@@ -843,14 +729,6 @@ const MapEngine = (function () {
     return marker;
   }
 
-  /**
-   * Render calculated routes on map (Google Maps Style Multi-Route Selector)
-   * Alternative routes are rendered with clickable slate lines and duration badges!
-   * @param {Object} activeRoute Active selected route
-   * @param {Array} allRoutes All candidate alternative routes
-   * @param {number} selectedIndex Index of active route
-   * @param {boolean} shouldFitBounds Only fit bounds when explicitly planning a new route
-   */
   function renderRoute(activeRoute, allRoutes = [], selectedIndex = 0, shouldFitBounds = false) {
     if (!map || !routeLayer || !waypointsLayer) return;
 
@@ -858,6 +736,7 @@ const MapEngine = (function () {
     waypointsLayer.clearLayers();
     activeMainLine = null;
     activeGlowLine = null;
+    traversedMainLine = null;
 
     if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
       return;
@@ -866,10 +745,8 @@ const MapEngine = (function () {
     const routesList = (allRoutes && allRoutes.length > 0) ? allRoutes : [activeRoute];
     const primaryDuration = (routesList[0] && routesList[0].durationMins) || activeRoute.durationMins;
 
-    // 1. Render Alternative Unselected Routes first (in the background, clickable!)
     routesList.forEach((r, idx) => {
-      if (idx === selectedIndex) return; // will draw active route on top
-
+      if (idx === selectedIndex) return;
       const altLine = L.polyline(r.coordinates, {
         color: '#64748B',
         weight: 6,
@@ -879,30 +756,20 @@ const MapEngine = (function () {
         className: 'clickable-route-line'
       }).addTo(routeLayer);
 
-      altLine.bindTooltip(`
-        <div style="font-weight: 700; color: #fff;">${r.name}</div>
-        <div style="font-size: 0.78rem; color: #cbd5e1;">${r.distanceKm} km • ${r.durationMins} mins</div>
-        <div style="font-size: 0.72rem; color: #00E676;">👆 Tap to select this route</div>
-      `, { sticky: true });
-
       altLine.on('click', () => {
-        if (window.RouteEngine) {
-          window.RouteEngine.selectRoute(idx);
-        }
+        if (window.RouteEngine) window.RouteEngine.selectRoute(idx);
       });
 
-      // Add floating route pill badge directly on the alternative route
       if (routesList.length > 1) {
         const altBadge = createRouteBadgeMarker(r, idx, false, primaryDuration);
         if (altBadge) altBadge.addTo(routeLayer);
       }
     });
 
-    // 2. Render Active Selected Route (Glowing Neon Blue/Green)
     activeGlowLine = L.polyline(activeRoute.coordinates, {
       color: '#00E676',
       weight: 10,
-      opacity: 0.45,
+      opacity: 0.42,
       lineCap: 'round',
       lineJoin: 'round'
     }).addTo(routeLayer);
@@ -912,11 +779,9 @@ const MapEngine = (function () {
       weight: 6,
       opacity: 0.98,
       lineCap: 'round',
-      lineJoin: 'round',
-      zIndexOffset: 1000
+      lineJoin: 'round'
     }).addTo(routeLayer);
 
-    // Add floating route pill badge on the active route
     if (routesList.length > 1) {
       const activeBadge = createRouteBadgeMarker(activeRoute, selectedIndex, true, primaryDuration);
       if (activeBadge) activeBadge.addTo(routeLayer);
@@ -924,80 +789,77 @@ const MapEngine = (function () {
 
     waypointMarkersMap.clear();
 
-    // 3. Render Origin Pin (Start Point)
     L.marker([activeRoute.origin.lat, activeRoute.origin.lng], {
-      icon: createEndpointPinIcon('START', activeRoute.origin.name),
+      icon: createEndpointPinIcon('START'),
       zIndexOffset: 15000
     }).bindPopup(`
       <div class="popup-card">
         <div class="popup-header"><span class="popup-badge badge-ather">🚩 Starting Point</span></div>
-        <div class="popup-title">${activeRoute.origin.name || 'Origin'}</div>
+        <div class="popup-title">${esc(activeRoute.origin.name || 'Origin')}</div>
       </div>
     `).addTo(waypointsLayer);
 
-    // 4. Render Intermediate Highlighted Charging Stops (STOP 1, STOP 2, ...)
     const intermediateStops = activeRoute.waypoints || [];
     intermediateStops.forEach((wp, idx) => {
       const stopMarker = L.marker([wp.lat, wp.lng], {
         icon: createHighlightedStopPinIcon(wp, idx, `STOP ${idx + 1}`),
         zIndexOffset: 20000 + idx
-      }).bindPopup(createChargerPopupHtml(wp, idx), { maxWidth: 280, className: 'charger-popup' }).addTo(waypointsLayer);
+      }).bindPopup(createChargerPopupHtml(wp, idx), { maxWidth: 270, className: 'charger-popup' }).addTo(waypointsLayer);
 
       waypointMarkersMap.set(wp.id, stopMarker);
     });
 
-    // 5. Render Final Destination Pin
     L.marker([activeRoute.destination.lat, activeRoute.destination.lng], {
-      icon: createEndpointPinIcon('DEST', activeRoute.destination.name),
+      icon: createEndpointPinIcon('DEST'),
       zIndexOffset: 15000
     }).bindPopup(`
       <div class="popup-card">
-        <div class="popup-header"><span class="popup-badge" style="background: #10b981; color: #fff;">🏁 Destination</span></div>
-        <div class="popup-title">${activeRoute.destination.name || 'Destination'}</div>
+        <div class="popup-header"><span class="popup-badge" style="background: #10b981; color: #052e16;">🏁 Destination</span></div>
+        <div class="popup-title">${esc(activeRoute.destination.name || 'Destination')}</div>
       </div>
     `).addTo(waypointsLayer);
 
-    // Fit bounds to show route ONLY when requested (preserves user map position when filtering!)
-    if (shouldFitBounds && activeMainLine) {
-      map.fitBounds(activeMainLine.getBounds(), { padding: [50, 50] });
+    if (userCoords && lastGpsFixTime > 0) {
+      updateProgressAlongRoute(userCoords);
     }
 
-    updateSafeRangeOverlay(activeRoute.origin);
+    if (shouldFitBounds && activeMainLine) {
+      map.fitBounds(activeMainLine.getBounds(), { padding: [55, 55] });
+    }
   }
 
-  /**
-   * Real-time dynamic route trimming (Google Maps behavior)
-   * Trims traversed road behind the rider, leaving only the active path ahead.
-   */
-  function updateProgressAlongRoute(userCoords) {
-    if (!userCoords || !activeMainLine) return null;
+  function updateProgressAlongRoute(coords, maxSnapKm = null) {
+    if (!coords || !activeMainLine) return null;
     if (!window.RouteEngine || typeof window.RouteEngine.sliceActiveRouteAtPosition !== 'function') return null;
 
-    const slice = window.RouteEngine.sliceActiveRouteAtPosition(userCoords.lat, userCoords.lng);
+    const slice = window.RouteEngine.sliceActiveRouteAtPosition(coords.lat, coords.lng);
     if (!slice) return null;
 
-    // If within 50m of route, dynamically update remaining road line
-    if (slice.distanceFromRouteKm <= 0.050 && slice.remainingCoords && slice.remainingCoords.length >= 2) {
-      activeMainLine.setLatLngs(slice.remainingCoords);
-      if (activeGlowLine) {
-        activeGlowLine.setLatLngs(slice.remainingCoords);
-      }
-      return slice.snappedPoint;
-    }
-    return null;
-  }
+    const snapLimitKm = maxSnapKm != null
+      ? maxSnapKm
+      : ((window.DriveEngine && window.DriveEngine.isActive()) ? 0.080 : 0.750);
 
-  /**
-   * Google Maps Style Live Navigation Puck & 360° Real-Time Map Rotation:
-   * Smooth animated dot with directional heading cone, pulsing accuracy halo,
-   * deadband hysteresis to eliminate stationary jitter, decoupled 60fps RAF bearing animation,
-   * and 3D gimbal-lock free compass compensation across all orientations (flat, upright, landscape).
-   */
-  let compassListenerAttached = false;
-  let isCompassMode = false; // Default North-Up when browsing / standing still (Map does NOT spin)
-  let targetBearing = 0;
-  let currentRenderedBearing = 0;
-  let bearingRafId = null;
+    if (slice.distanceFromRouteKm <= snapLimitKm && slice.remainingCoords && slice.remainingCoords.length >= 2) {
+      activeMainLine.setLatLngs(slice.remainingCoords);
+      if (activeGlowLine) activeGlowLine.setLatLngs(slice.remainingCoords);
+
+      if (slice.traversedCoords && slice.traversedCoords.length >= 2 && routeLayer) {
+        if (!traversedMainLine) {
+          traversedMainLine = L.polyline(slice.traversedCoords, {
+            color: '#64748b',
+            weight: 4,
+            opacity: 0.72,
+            dashArray: '6, 8',
+            lineCap: 'round',
+            interactive: false
+          }).addTo(routeLayer);
+        } else {
+          traversedMainLine.setLatLngs(slice.traversedCoords);
+        }
+      }
+    }
+    return slice;
+  }
 
   function scheduleBearingAnimation() {
     if (bearingRafId) return;
@@ -1005,12 +867,10 @@ const MapEngine = (function () {
       bearingRafId = null;
       if (!map || typeof map.setBearing !== 'function') return;
 
-      // Calculate shortest angular distance (-180 to +180)
       let bDiff = (targetBearing - currentRenderedBearing + 180) % 360 - 180;
       if (bDiff < -180) bDiff += 360;
 
-      // When difference is tiny (< 0.2°), snap exactly to target and stop animation to prevent jitter
-      if (Math.abs(bDiff) < 0.2) {
+      if (Math.abs(bDiff) < 0.25) {
         currentRenderedBearing = targetBearing;
         map.setBearing(currentRenderedBearing);
         updatePuckHeading(userHeading);
@@ -1025,32 +885,32 @@ const MapEngine = (function () {
   }
 
   function initCompass() {
-    if (compassListenerAttached) return;
-    compassListenerAttached = true;
+    if (compassHandlerRef) return;
 
     const onOrientation = (e) => {
-      // If moving at driving speed (>= 1.4 m/s or 5 km/h), GPS trajectory course takes priority over magnetic sensor
+      // Ignore relative gyro readings without magnetometer absolute reference unless webkitCompassHeading exists
+      if (e.webkitCompassHeading == null && e.absolute === false) {
+        return;
+      }
+
+      // While riding >= 5 km/h (1.4 m/s), prefer smoothed GPS course direction
       if (userCoords && userCoords.speed != null && userCoords.speed >= 1.4 && userCoords.heading != null) {
         return;
       }
 
       let heading = null;
-      if (e.webkitCompassHeading != null) {
-        // iOS Safari hardware calibrated compass heading
+      if (e.webkitCompassHeading != null && !isNaN(e.webkitCompassHeading)) {
         heading = e.webkitCompassHeading;
-      } else if (e.alpha != null) {
-        // Android DeviceOrientation (Euler: alpha around Z, beta around X, gamma around Y)
+      } else if (e.alpha != null && !isNaN(e.alpha)) {
         const degToRad = Math.PI / 180;
         const a = (e.alpha || 0) * degToRad;
         const b = (e.beta || 0) * degToRad;
-        const g = (e.gamma || 0) * degToRad;
+        // Damp extreme lateral roll angles on handlebar mounts
+        const clampedG = Math.max(-35, Math.min(35, e.gamma || 0)) * degToRad;
         const cA = Math.cos(a), sA = Math.sin(a);
         const cB = Math.cos(b), sB = Math.sin(b);
-        const cG = Math.cos(g), sG = Math.sin(g);
+        const cG = Math.cos(clampedG), sG = Math.sin(clampedG);
 
-        // Continuous 3D line-of-sight unit vector onto Earth horizontal plane [East, North]
-        // Constant unit length across all angles (flat 0° -> 45° -> vertical 90° -> 110° handlebar mount)
-        // Completely eliminates mathematical singularity, angle flipping, and vibration at 90°!
         const x2 = -sB * sG;
         const y2 = cB * cB + sB * sB * cG;
         const xE = x2 * cA - y2 * sA;
@@ -1059,55 +919,50 @@ const MapEngine = (function () {
         heading = (Math.atan2(xE, yN) * 180 / Math.PI + 360) % 360;
       }
 
-      // Account for screen orientation (e.g. landscape 90° or 270°)
       const screenAngle = (window.screen && window.screen.orientation && window.screen.orientation.angle) || window.orientation || 0;
       if (heading != null && !isNaN(heading)) {
         heading = (heading + screenAngle + 360) % 360;
 
-        // Calculate angular difference
         let diff = (heading - userHeading + 180) % 360 - 180;
         if (diff < -180) diff += 360;
 
-        // 1. DEADBAND: Ignore angular jitters smaller than 3.5° when holding or stationary
-        // Eliminates back-and-forth micro-trembling completely!
-        if (Math.abs(diff) < 3.5) {
-          return;
-        }
+        // Deadband against motorcycle idle vibration / magnetic micro-jitter
+        if (Math.abs(diff) < 4.0) return;
 
-        // 2. ADAPTIVE EXPONENTIAL MOVING AVERAGE (EMA):
-        // 0.14 for butter-smooth subtle movements; 0.35 for deliberate turns
-        const alpha = Math.abs(diff) > 40 ? 0.35 : (Math.abs(diff) > 15 ? 0.22 : 0.14);
+        const alpha = Math.abs(diff) > 45 ? 0.30 : (Math.abs(diff) > 15 ? 0.20 : 0.12);
         userHeading = (userHeading + diff * alpha + 360) % 360;
         updatePuckHeading(userHeading);
-
-        // 3. ZERO-VIBRATION MAP CANVAS STABILITY:
-        // In Google Maps standard automotive navigation, the phone's raw magnetometer
-        // NEVER spins the entire map canvas — this avoids violent jitter caused by motorcycle
-        // engine vibrations, handlebar shaking, and magnetic noise.
-        // The puck light cone and direction arrow rotate smoothly above, while the map canvas
-        // follows the road geometry and GPS trajectory.
       }
     };
 
+    compassHandlerRef = onOrientation;
+
     if ('ondeviceorientationabsolute' in window) {
-      window.addEventListener('deviceorientationabsolute', onOrientation, { passive: true });
+      compassEventType = 'deviceorientationabsolute';
+      window.addEventListener('deviceorientationabsolute', compassHandlerRef, { passive: true });
     } else if ('ondeviceorientation' in window) {
-      window.addEventListener('deviceorientation', onOrientation, { passive: true });
+      compassEventType = 'deviceorientation';
+      window.addEventListener('deviceorientation', compassHandlerRef, { passive: true });
     }
 
-    // iOS 13+ permission request if applicable
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
       window.addEventListener('click', () => {
         DeviceOrientationEvent.requestPermission().then(state => {
-          if (state === 'granted') {
-            window.addEventListener('deviceorientation', onOrientation, { passive: true });
+          if (state === 'granted' && compassHandlerRef) {
+            window.addEventListener('deviceorientation', compassHandlerRef, { passive: true });
           }
         }).catch(() => {});
       }, { once: true });
     }
   }
 
-  let lastPuckRotDeg = null;
+  function stopCompass() {
+    if (compassHandlerRef && compassEventType) {
+      window.removeEventListener(compassEventType, compassHandlerRef);
+      compassHandlerRef = null;
+      compassEventType = null;
+    }
+  }
 
   function updatePuckHeading(heading) {
     if (heading == null) return;
@@ -1116,24 +971,19 @@ const MapEngine = (function () {
 
     if (window.DriveEngine && window.DriveEngine.isActive()) {
       if (isNavCompassMode) {
-        // Free Compass Mode: Arrow & cone follow user's physical orientation relative to the road ahead
         const roadHeading = (360 - mapBearing + 360) % 360;
-        let diff = (heading - roadHeading + 180) % 360 - 180;
+        const diff = (heading - roadHeading + 180) % 360 - 180;
         rotDeg = Math.round((diff + 360) % 360);
       } else {
-        // Route-Locked Mode (Default): Arrow stays strictly locked straight ahead into route, zero wobble
         rotDeg = 0;
       }
     } else {
-      // In walking / browsing mode: map is North-Up (mapBearing 0), cone rotates freely with physical compass
       rotDeg = Math.round((heading - mapBearing + 360) % 360);
     }
 
-    // Keep nav compass needle synced with map bearing if present
     const navNeedle = document.getElementById('nav-compass-needle');
     if (navNeedle) navNeedle.style.transform = `rotate(${-mapBearing}deg)`;
 
-    // Suppress tiny tremors (< 2.5 deg) to eliminate micro-vibration
     if (lastPuckRotDeg !== null && Math.abs((rotDeg - lastPuckRotDeg + 180) % 360 - 180) < 2.5) {
       return;
     }
@@ -1144,10 +994,6 @@ const MapEngine = (function () {
     if (cone) cone.style.transform = `rotate(${rotDeg}deg)`;
     if (arrow) arrow.style.transform = `rotate(${rotDeg}deg)`;
   }
-
-  let markerAnimRaf = null;
-  let markerCurrentLat = null;
-  let markerCurrentLng = null;
 
   function animateMarkerTo(targetLat, targetLng) {
     if (markerCurrentLat == null || markerCurrentLng == null) {
@@ -1160,8 +1006,8 @@ const MapEngine = (function () {
 
     const dLat = targetLat - markerCurrentLat;
     const dLng = targetLng - markerCurrentLng;
-    // If movement is negligible or a massive jump (> 250m), snap directly
-    if (Math.hypot(dLat, dLng) > 0.0025 || Math.hypot(dLat, dLng) < 0.000005) {
+    const hypot = Math.hypot(dLat, dLng);
+    if (hypot > 0.0025 || hypot < 0.000005) {
       markerCurrentLat = targetLat;
       markerCurrentLng = targetLng;
       if (userLocationMarker) userLocationMarker.setLatLng([targetLat, targetLng]);
@@ -1172,14 +1018,12 @@ const MapEngine = (function () {
     const startLat = markerCurrentLat;
     const startLng = markerCurrentLng;
     const startTime = performance.now();
-    const duration = 700; // 700ms smooth interpolation between 1Hz GPS updates
+    const duration = 650;
 
     if (markerAnimRaf) cancelAnimationFrame(markerAnimRaf);
 
     function step(now) {
-      const elapsed = now - startTime;
-      const progress = Math.min(1, elapsed / duration);
-      // Cubic ease-out
+      const progress = Math.min(1, (now - startTime) / duration);
       const ease = 1 - Math.pow(1 - progress, 3);
       markerCurrentLat = startLat + dLat * ease;
       markerCurrentLng = startLng + dLng * ease;
@@ -1202,11 +1046,9 @@ const MapEngine = (function () {
     let renderLat = lat;
     let renderLng = lng;
 
-    // Road Snapping Logic (Map Matching / Snapping to Road)
-    // Snaps rider puck directly to centerline of road segment when in Drive Mode and within 40m
     if (window.DriveEngine && window.DriveEngine.isActive() && window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
       const slice = window.RouteEngine.sliceActiveRouteAtPosition(lat, lng);
-      if (slice && slice.distanceFromRouteKm <= 0.040 && slice.snappedPoint) {
+      if (slice && slice.distanceFromRouteKm <= 0.045 && slice.snappedPoint) {
         renderLat = slice.snappedPoint[0];
         renderLng = slice.snappedPoint[1];
       }
@@ -1229,15 +1071,12 @@ const MapEngine = (function () {
 
       const puckIcon = L.divIcon({
         className: 'user-nav-puck-container',
-        html: html,
+        html,
         iconSize: [44, 44],
         iconAnchor: [22, 22]
       });
 
-      userLocationMarker = L.marker([renderLat, renderLng], {
-        icon: puckIcon,
-        zIndexOffset: 30000
-      }).addTo(map);
+      userLocationMarker = L.marker([renderLat, renderLng], { icon: puckIcon, zIndexOffset: 30000 }).addTo(map);
       markerCurrentLat = renderLat;
       markerCurrentLng = renderLng;
       updatePuckHeading(heading);
@@ -1246,7 +1085,6 @@ const MapEngine = (function () {
       updatePuckHeading(heading);
     }
 
-    // Accuracy Circle
     const safeRadius = Math.max(8, Math.min(accuracy || 20, 150));
     if (!userAccuracyCircle) {
       userAccuracyCircle = L.circle([renderLat, renderLng], {
@@ -1260,36 +1098,26 @@ const MapEngine = (function () {
     } else {
       userAccuracyCircle.setRadius(safeRadius);
     }
-
-    updateSafeRangeOverlay({ lat: renderLat, lng: renderLng });
   }
 
   function updateGpsButtonUi() {
     const gpsBtn = document.getElementById('btn-float-gps');
     if (gpsBtn) {
-      gpsBtn.classList.remove('tracking-active');
-      gpsBtn.title = isAutoFollow ? 'GPS Tracking Active (Auto-Following)' : 'Center on My GPS Location';
+      gpsBtn.classList.toggle('tracking-active', isAutoFollow);
+      gpsBtn.title = isAutoFollow ? 'GPS Auto-Follow Active' : 'Center on My GPS Location';
     }
   }
 
-  /**
-   * Continuous Live GPS Tracking (Google Maps real-time movement)
-   */
   let lastZoomAdjustTime = 0;
   function updateSpeedAdaptiveZoom(speedMps) {
     if (!map || !window.DriveEngine || !window.DriveEngine.isActive() || !isAutoFollow || isUserInteracting) return;
     const now = Date.now();
-    if (now - lastZoomAdjustTime < 2500) return; // Throttle zoom adjustments to once every 2.5s
+    if (now - lastZoomAdjustTime < 2500) return;
 
     const speedKmh = (speedMps || 0) * 3.6;
     let targetZoom = 17.5;
-    if (speedKmh > 65) {
-      targetZoom = 15.5; // Highway high-speed lookahead
-    } else if (speedKmh > 35) {
-      targetZoom = 16.5; // City cruising
-    } else {
-      targetZoom = 17.5; // Slow driving / turns / intersections
-    }
+    if (speedKmh > 65) targetZoom = 15.5;
+    else if (speedKmh > 35) targetZoom = 16.5;
 
     if (Math.abs(map.getZoom() - targetZoom) >= 0.5) {
       lastZoomAdjustTime = now;
@@ -1298,34 +1126,34 @@ const MapEngine = (function () {
   }
 
   function startLiveTracking(autoCenter = false) {
-    initCompass(); // Activate real-time compass hardware tracking
-
-    if (watchId !== null) return;
-    if (!navigator.geolocation) {
-      console.warn('[VoltWay GPS] Geolocation not supported by browser/device');
-      return;
+    initCompass();
+    if (autoCenter) {
+      isAutoFollow = true;
+      updateGpsButtonUi();
     }
-
-    if (autoCenter) isAutoFollow = true;
+    if (watchId !== null || !navigator.geolocation) return;
 
     const onPos = (pos) => {
+      lastGpsFixTime = Date.now();
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
       const accuracy = pos.coords.accuracy || 15;
-      const speed = pos.coords.speed; // m/s
-      let heading = pos.coords.heading;
+      const speed = pos.coords.speed;
+      const heading = pos.coords.heading;
 
-      // ONLY update heading from GPS if actually moving at real speed (>= 1.4 m/s or 5 km/h)!
-      // When stationary or walking slowly, the smoothed hardware compass controls heading without interference from stationary GPS jitter!
+      // Reject coarse cell-tower jumps (> 120m inaccuracy) while riding if we have recent fix
+      if (window.DriveEngine && window.DriveEngine.isActive() && accuracy > 120 && userCoords) {
+        return;
+      }
+
       if (speed != null && speed >= 1.4) {
-        if (heading != null && !isNaN(heading) && heading > 0) {
+        if (heading != null && !isNaN(heading) && heading >= 0) {
           let gDiff = (heading - userHeading + 180) % 360 - 180;
           if (gDiff < -180) gDiff += 360;
-          userHeading = (userHeading + gDiff * 0.20 + 360) % 360;
+          userHeading = (userHeading + gDiff * 0.22 + 360) % 360;
         } else if (userCoords) {
           const distM = window.Utilities ? window.Utilities.haversine(userCoords.lat, userCoords.lng, lat, lng) * 1000 : 0;
           if (distM >= 5) {
-            const dLat = (lat - userCoords.lat) * Math.PI / 180;
             const dLng = (lng - userCoords.lng) * Math.PI / 180;
             const y = Math.sin(dLng) * Math.cos(lat * Math.PI / 180);
             const x = Math.cos(userCoords.lat * Math.PI / 180) * Math.sin(lat * Math.PI / 180) -
@@ -1333,27 +1161,22 @@ const MapEngine = (function () {
             const moveHeading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
             let mDiff = (moveHeading - userHeading + 180) % 360 - 180;
             if (mDiff < -180) mDiff += 360;
-            userHeading = (userHeading + mDiff * 0.20 + 360) % 360;
+            userHeading = (userHeading + mDiff * 0.22 + 360) % 360;
           }
         }
       }
 
       userCoords = { lat, lng, accuracy, heading: userHeading, speed };
-
-      try {
-        localStorage.setItem('voltway_last_known_pos', JSON.stringify({ lat, lng }));
-      } catch (e) {}
+      try { localStorage.setItem('voltway_last_known_pos', JSON.stringify({ lat, lng })); } catch (e) {}
 
       updateUserPuck(lat, lng, accuracy, userHeading);
 
-      // Speed-Adaptive Dynamic Zoom (Google Maps standard)
       if (window.DriveEngine && window.DriveEngine.isActive() && isAutoFollow && map) {
         updateSpeedAdaptiveZoom(speed);
       }
 
       if (isAutoFollow && map) {
         if (window.DriveEngine && window.DriveEngine.isActive()) {
-          // Driving Mode: Course-Up bearing & Forward-Biased Camera Lookahead
           let desiredHeading = userHeading;
           if (window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
             const slice = window.RouteEngine.sliceActiveRouteAtPosition(lat, lng);
@@ -1364,48 +1187,55 @@ const MapEngine = (function () {
 
           if (typeof map.setBearing === 'function' && desiredHeading != null) {
             const nextBearing = (360 - desiredHeading + 360) % 360;
-            let bDiff = (nextBearing - targetBearing + 180) % 360 - 180;
+            const bDiff = (nextBearing - targetBearing + 180) % 360 - 180;
             if (Math.abs(bDiff) >= 3.0) {
               targetBearing = nextBearing;
               scheduleBearingAnimation();
             }
           }
 
-          // Shift camera ~60m forward along road/heading so puck is in lower 30% of screen
-          const lookaheadKm = 0.06;
+          const lookaheadKm = 0.055;
           const rad = (desiredHeading || 0) * Math.PI / 180;
           const lookLat = lat + (lookaheadKm / 111.32) * Math.cos(rad);
           const lookLng = lng + (lookaheadKm / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(rad);
-
-          // Zero-Vibration Positioning: Direct setView avoids Leaflet panTo CSS transition conflicts with Leaflet-Rotate
           map.setView([lookLat, lookLng], map.getZoom(), { animate: false });
         } else {
-          // Stationary / Browsing Mode: Stable North-Up center (Map does NOT spin)
           if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
             targetBearing = 0;
             scheduleBearingAnimation();
           }
-          map.panTo([lat, lng], { animate: true, duration: 0.6 });
+          map.panTo([lat, lng], { animate: true, duration: 0.5 });
         }
       }
 
       updateGpsButtonUi();
 
-      // Notify in-app Turn-by-Turn DriveEngine if active
       if (window.DriveEngine && window.DriveEngine.isActive()) {
         window.DriveEngine.onLocationUpdate(userCoords);
+      } else if (typeof window.onForegroundGpsUpdate === 'function') {
+        window.onForegroundGpsUpdate(userCoords);
       }
     };
 
     const onErr = (err) => {
-      console.warn('[VoltWay GPS Watch] Warning:', err.message);
+      console.warn('[VoltWay GPS] Watch warning:', err.message);
+      if (window.DriveEngine && window.DriveEngine.isActive() && window.SyncEngine) {
+        window.SyncEngine.showAutoUpdateToast('📡 Weak GPS signal — searching for satellites');
+      }
     };
 
     watchId = navigator.geolocation.watchPosition(onPos, onErr, {
       enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 10000
+      maximumAge: 1000,
+      timeout: 12000
     });
+  }
+
+  function stopLiveTracking() {
+    if (watchId !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
   }
 
   function setAutoFollow(val) {
@@ -1424,15 +1254,14 @@ const MapEngine = (function () {
     isAutoFollow = true;
     isUserInteracting = false;
 
-    // Fast recovery if userCoords is null: recover from cached last-known position immediately
     if (!userCoords) {
       try {
         const cached = localStorage.getItem('voltway_last_known_pos');
         if (cached) {
           const parsed = JSON.parse(cached);
           if (parsed && parsed.lat && parsed.lng) {
-            userCoords = { lat: parsed.lat, lng: parsed.lng, accuracy: 20, heading: 0, speed: 0 };
-            updateUserPuck(parsed.lat, parsed.lng, 20, 0);
+            userCoords = { lat: parsed.lat, lng: parsed.lng, accuracy: 25, heading: 0, speed: 0 };
+            updateUserPuck(parsed.lat, parsed.lng, 25, 0);
           }
         }
       } catch (e) {}
@@ -1447,8 +1276,6 @@ const MapEngine = (function () {
             desiredHeading = slice.segmentBearing;
           }
         }
-        
-        // Exact user position centering (Zero offset - 100% exact alignment, no shift)
         const targetZoom = forcedZoom || (map.getZoom() < 16 ? 17.5 : map.getZoom());
         map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: false });
 
@@ -1458,7 +1285,6 @@ const MapEngine = (function () {
           map.setBearing(targetBearing);
         }
       } else {
-        // Fast, instant, 100% accurate centering in normal browsing mode
         const targetZoom = forcedZoom || Math.max(16, map.getZoom());
         map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: false });
         if (typeof map.setBearing === 'function') {
@@ -1470,78 +1296,28 @@ const MapEngine = (function () {
     } else {
       locateUser(true);
     }
+
     updateGpsButtonUi();
 
-    // Momentary tap pulse on GPS button (smoothly returns to normal after 450ms)
     const gpsBtn = document.getElementById('btn-float-gps');
     if (gpsBtn) {
       gpsBtn.classList.add('recenter-flash');
-      setTimeout(() => {
-        gpsBtn.classList.remove('recenter-flash');
-      }, 450);
+      setTimeout(() => gpsBtn.classList.remove('recenter-flash'), 450);
     }
 
-    // Reset Route Overview toggle if active
-    const btnRoutes = document.getElementById('btn-nav-routes-toggle');
-    if (btnRoutes) {
-      btnRoutes.classList.remove('active-overview');
-      btnRoutes.title = 'Route Overview & Alternatives';
-    }
-    if (window._voltwayResetOverviewMode) {
-      window._voltwayResetOverviewMode();
-    }
+    if (window._voltwayResetOverviewMode) window._voltwayResetOverviewMode();
   }
 
-  function isAutoFollowActive() {
-    return isAutoFollow;
-  }
-
-  async function locateUser(panTo = true) {
-    if (panTo) {
-      isAutoFollow = true;
-      isCompassMode = false; // Default North-Up when browsing / standing still
-    }
-
+  async function locateUser(panTo = true, forceFresh = false) {
+    if (panTo) isAutoFollow = true;
     startLiveTracking(panTo);
 
-    // If we already have live coordinates, pan quickly with 0.25s snappy response
-    if (userCoords && panTo && map) {
-      if (window.DriveEngine && window.DriveEngine.isActive()) {
-        let desiredHeading = userHeading;
-        if (window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
-          const slice = window.RouteEngine.sliceActiveRouteAtPosition(userCoords.lat, userCoords.lng);
-          if (slice && slice.segmentBearing != null && slice.distanceFromRouteKm <= 0.050) {
-            desiredHeading = slice.segmentBearing;
-          }
-        }
-        const lookaheadKm = 0.06;
-        const rad = (desiredHeading || 0) * Math.PI / 180;
-        const lookLat = userCoords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
-        const lookLng = userCoords.lng + (lookaheadKm / (111.32 * Math.cos(userCoords.lat * Math.PI / 180))) * Math.sin(rad);
-        map.panTo([lookLat, lookLng], { animate: true, duration: 0.20 });
-        if (typeof map.setBearing === 'function' && desiredHeading != null) {
-          targetBearing = (360 - desiredHeading + 360) % 360;
-          scheduleBearingAnimation();
-        }
-      } else {
-        const targetZoom = Math.max(15, map.getZoom());
-        if (map.getZoom() !== targetZoom) {
-          map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: true, duration: 0.25 });
-        } else {
-          map.panTo([userCoords.lat, userCoords.lng], { animate: true, duration: 0.25 });
-        }
-        if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
-          targetBearing = 0;
-          scheduleBearingAnimation();
-        }
-      }
-      updateGpsButtonUi();
+    if (userCoords && panTo && !forceFresh && map) {
+      recenterCamera();
       return userCoords;
     }
 
     let coords = null;
-
-    // 1. Native Capacitor Geolocation Plugin (triggers Android OS location permission dialog in APK)
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
       try {
         let permStatus = await window.Capacitor.Plugins.Geolocation.checkPermissions();
@@ -1549,129 +1325,67 @@ const MapEngine = (function () {
           permStatus = await window.Capacitor.Plugins.Geolocation.requestPermissions();
         }
         if (permStatus.location === 'granted') {
-          const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 10000
-          });
-          if (pos && pos.coords) {
-            coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          }
+          const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+          if (pos && pos.coords) coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         }
-      } catch (capErr) {
-        console.warn('[VoltWay Location] Capacitor native location request failed, falling back:', capErr);
-      }
+      } catch (capErr) {}
     }
 
-    // 2. Standard Browser navigator.geolocation fallback
     if (!coords && navigator.geolocation) {
       coords = await new Promise((resolve) => {
         navigator.geolocation.getCurrentPosition(
           (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          (err) => {
-            console.warn('[VoltWay Location] Browser geolocation error:', err.message);
-            resolve(null);
-          },
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: forceFresh ? 0 : 5000 }
         );
       });
     }
 
     if (coords) {
+      lastGpsFixTime = Date.now();
       userCoords = { ...coords, heading: userHeading };
-      try {
-        localStorage.setItem('voltway_last_known_pos', JSON.stringify({ lat: coords.lat, lng: coords.lng }));
-      } catch (e) {}
-
+      try { localStorage.setItem('voltway_last_known_pos', JSON.stringify({ lat: coords.lat, lng: coords.lng })); } catch (e) {}
       updateUserPuck(coords.lat, coords.lng, 15, userHeading);
-
-      if (panTo && map) {
-        if (window.DriveEngine && window.DriveEngine.isActive()) {
-          let desiredHeading = userHeading;
-          if (window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
-            const slice = window.RouteEngine.sliceActiveRouteAtPosition(coords.lat, coords.lng);
-            if (slice && slice.segmentBearing != null && slice.distanceFromRouteKm <= 0.050) {
-              desiredHeading = slice.segmentBearing;
-            }
-          }
-          const lookaheadKm = 0.06;
-          const rad = (desiredHeading || 0) * Math.PI / 180;
-          const lookLat = coords.lat + (lookaheadKm / 111.32) * Math.cos(rad);
-          const lookLng = coords.lng + (lookaheadKm / (111.32 * Math.cos(coords.lat * Math.PI / 180))) * Math.sin(rad);
-          map.panTo([lookLat, lookLng], { animate: true, duration: 0.20 });
-          if (typeof map.setBearing === 'function' && desiredHeading != null) {
-            targetBearing = (360 - desiredHeading + 360) % 360;
-            scheduleBearingAnimation();
-          }
-        } else {
-          const targetZoom = Math.max(15, map.getZoom());
-          if (map.getZoom() !== targetZoom) {
-            map.setView([coords.lat, coords.lng], targetZoom, { animate: true, duration: 0.25 });
-          } else {
-            map.panTo([coords.lat, coords.lng], { animate: true, duration: 0.25 });
-          }
-          if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
-            targetBearing = 0;
-            scheduleBearingAnimation();
-          }
-        }
+      if (panTo && map) recenterCamera();
+      if (typeof window.onForegroundGpsUpdate === 'function' && (!window.DriveEngine || !window.DriveEngine.isActive())) {
+        window.onForegroundGpsUpdate(userCoords);
       }
-
-      updateGpsButtonUi();
       return userCoords;
-    } else {
-      console.warn('[VoltWay Location] Could not determine user GPS location.');
-      if (panTo) {
-        alert('Could not determine GPS location. Please make sure Location (GPS) is turned ON in your phone settings and permission is allowed.');
-      }
-      return null;
+    } else if (panTo && window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+      window.SyncEngine.showAutoUpdateToast('⚠️ Enable device Location (GPS) & allow permission');
     }
+    return null;
   }
 
   function handleRouteDirectToCharger(chargerId) {
-    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
-    const c = allChargers.find(item => item.id === chargerId);
+    const c = window.SyncEngine ? window.SyncEngine.getChargerById(chargerId) : null;
     if (!c) return;
-
     if (map) map.closePopup();
 
-    // Set as destination
-    if (window.setPlannerDest) {
-      window.setPlannerDest(c);
-    }
+    if (window.setPlannerDest) window.setPlannerDest(c);
 
-    // If origin is not set, use user's GPS coords or map center
     const curOrigin = (typeof window.getPlannerOrigin === 'function') ? window.getPlannerOrigin() : null;
     if (!curOrigin || !curOrigin.lat) {
-      if (userCoords) {
-        if (window.setPlannerOrigin) {
-          window.setPlannerOrigin({ lat: userCoords.lat, lng: userCoords.lng, name: 'Current Location (GPS)' });
-        }
-      } else if (map) {
+      if (userCoords && window.setPlannerOrigin) {
+        window.setPlannerOrigin({ lat: userCoords.lat, lng: userCoords.lng, name: 'Current Location (GPS)' });
+      } else if (map && window.setPlannerOrigin) {
         const center = map.getCenter();
-        if (window.setPlannerOrigin) {
-          window.setPlannerOrigin({ lat: center.lat, lng: center.lng, name: 'Map Center' });
-        }
+        window.setPlannerOrigin({ lat: center.lat, lng: center.lng, name: 'Map Center' });
       }
     }
 
-    // Switch to Route tab and trigger calculation
-    if (window.activateTabSilently) {
-      window.activateTabSilently('route');
-    }
+    if (window.activateTabSilently) window.activateTabSilently('route');
     const btnPlan = document.getElementById('btn-plan-route');
-    if (btnPlan) {
-      setTimeout(() => btnPlan.click(), 250);
-    }
+    if (btnPlan) setTimeout(() => btnPlan.click(), 200);
   }
 
   function onMapMoveEnd() {
     clearTimeout(moveDebounceTimer);
     moveDebounceTimer = setTimeout(() => {
-      // Do not re-render chargers if user is actively rotating or gestures are running
       if (isUserRotating) return;
       renderChargers();
 
-      if (map && map.getZoom() >= 13 && window.SyncEngine) {
+      if (map && map.getZoom() >= 13 && navigator.onLine && window.SyncEngine) {
         const b = map.getBounds();
         window.SyncEngine.fetchLiveBoltInBounds({
           south: Math.round(b.getSouth() * 1000) / 1000,
@@ -1680,39 +1394,38 @@ const MapEngine = (function () {
           east: Math.round(b.getEast() * 1000) / 1000
         });
       }
-    }, 350);
+    }, 320);
   }
 
   function focusCharger(charger) {
     if (!map || !charger) return;
-    activePopupChargerId = charger.id;
+    const fullCharger = (window.SyncEngine && window.SyncEngine.getChargerById(charger.id)) || charger;
+    activePopupChargerId = fullCharger.id;
 
-    // Ensure marker exists immediately so popup won't fail
-    let marker = markerMap.get(charger.id) || waypointMarkersMap.get(charger.id);
-    if (!marker && !waypointMarkersMap.has(charger.id)) {
-      const pos = L.latLng(charger.lat, charger.lng);
-      const icon = createPinIcon(charger);
-      marker = L.marker(pos, { icon: icon });
-      marker._chargerData = charger;
-      marker.bindPopup(() => createChargerPopupHtml(charger), {
-        maxWidth: 260,
+    let marker = markerMap.get(fullCharger.id) || waypointMarkersMap.get(fullCharger.id);
+    if (!marker && !waypointMarkersMap.has(fullCharger.id)) {
+      const icon = createPinIcon(fullCharger);
+      marker = L.marker(L.latLng(fullCharger.lat, fullCharger.lng), { icon });
+      marker._chargerData = fullCharger;
+      marker.bindPopup(() => createChargerPopupHtml(fullCharger), {
+        maxWidth: 270,
         className: 'charger-popup',
-        autoPan: false,   // prevents Leaflet moveend trigger on popup open (eliminates flicker)
+        autoPan: false
       });
-      marker.on('popupopen', () => { activePopupChargerId = charger.id; });
-      marker.on('popupclose', () => { if (activePopupChargerId === charger.id) activePopupChargerId = null; });
+      marker.on('popupopen', () => { activePopupChargerId = fullCharger.id; });
+      marker.on('popupclose', () => { if (activePopupChargerId === fullCharger.id) activePopupChargerId = null; });
       marker.addTo(markersLayer);
-      markerMap.set(charger.id, marker);
+      markerMap.set(fullCharger.id, marker);
     }
 
-    map.flyTo([charger.lat, charger.lng], 16, { animate: true, duration: 0.4 });
+    map.flyTo([fullCharger.lat, fullCharger.lng], 16, { animate: true, duration: 0.4 });
     setTimeout(() => {
-      const wpMarker = waypointMarkersMap.get(charger.id);
+      const wpMarker = waypointMarkersMap.get(fullCharger.id);
       if (wpMarker) {
         wpMarker.openPopup();
-        return;
+      } else if (marker) {
+        marker.openPopup();
       }
-      if (marker) marker.openPopup();
     }, 450);
   }
 
@@ -1722,20 +1435,21 @@ const MapEngine = (function () {
     toggleTileTheme,
     renderChargers,
     setFilter,
-    getFilters,
+    getFilters: () => ({ ...filters }),
     setStateFilter,
-    getStateFilter,
-    updateSafeRangeOverlay,
+    getStateFilter: () => activeStateFilter,
     renderRoute,
     updateProgressAlongRoute,
     recenterCamera,
     locateUser,
     startLiveTracking,
+    stopLiveTracking,
     setAutoFollow,
-    isAutoFollowActive,
+    isAutoFollowActive: () => isAutoFollow,
     focusCharger,
     isPopupOpen: () => Boolean(activePopupChargerId),
     getUserCoords: () => userCoords,
+    getLastGpsFixAgeMs: () => (lastGpsFixTime ? Date.now() - lastGpsFixTime : Infinity),
     getMap: () => map,
     getBearing: () => (map && typeof map.getBearing === 'function' ? map.getBearing() : 0),
     setBearing: (deg) => {
@@ -1752,7 +1466,6 @@ const MapEngine = (function () {
     handleNavigateToCharger,
     handleAddWaypoint,
     handleRemoveWaypoint,
-    handleSetAsOrigin,
     handleSetAsDest,
     handleRouteDirectToCharger,
     handleOpenOfficialApp

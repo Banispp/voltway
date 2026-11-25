@@ -1,6 +1,6 @@
 """
 VoltWay 2W - Official Hero VIDA Grid Fast Chargers Sync Script
-Directly fetches live charging points from Hero VIDA official network:
+Fetches charging points from Hero VIDA official network:
 https://www.vidaworld.com/content/dam/vida/map/map.json.gzip
 """
 
@@ -8,6 +8,10 @@ import urllib.request
 import gzip
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from charger_validator import classify_state
 
 URL = 'https://www.vidaworld.com/content/dam/vida/map/map.json.gzip'
 FALLBACK_URL = 'https://www.vidaworld.com/content/dam/vida/map/map.json'
@@ -16,9 +20,6 @@ HEADERS = {
     'Accept-Encoding': 'gzip, deflate'
 }
 
-kl_kw = ['kerala', 'malappuram', 'kozhikode', 'ernakulam', 'kochi', 'cochin', 'thrissur', 'trivandrum', 'thiruvananthapuram', 'kollam', 'alappuzha', 'alleppey', 'kottayam', 'palakkad', 'kannur', 'kasaragod', 'wayanad', 'idukki', 'pathanamthitta']
-ka_kw = ['karnataka', 'bengaluru', 'bangalore', 'mysuru', 'mysore', 'mangaluru', 'mangalore', 'hubli', 'hubballi', 'dharwad', 'belagavi', 'belgaum', 'udupi', 'manipal', 'tumkur', 'tumakuru', 'shimoga', 'shivamogga', 'davanagere', 'ballari', 'bellary', 'kolar', 'hassan', 'mandya', 'chikkamagaluru']
-tn_kw = ['tamil nadu', 'tamilnadu', 'chennai', 'coimbatore', 'madurai', 'trichy', 'tiruchirappalli', 'salem', 'tirunelveli', 'tiruppur', 'erode', 'vellore', 'hosur', 'kanyakumari', 'ooty', 'udhagamandalam', 'dharmapuri', 'krishnagiri']
 
 def sync_vida():
     print("Connecting to Hero VIDA Official API...")
@@ -70,15 +71,7 @@ def sync_vida():
             addr = (ch.get('chargingStationAddress') or '').strip()
             clean_addr = addr.split(',')[0].strip()
             disp_name = f'Vida Grid Fast - {st_name or clean_addr or c_name}'
-
-            text = f'{disp_name} {addr} {c_name} {s_name}'.lower()
-            st = 'other'
-            if any(k in text for k in kl_kw) or (8.15 <= lat <= 12.85 and 74.85 <= lng <= 77.40):
-                st = 'kerala'
-            elif any(k in text for k in ka_kw) or (11.55 <= lat <= 18.45 and 74.05 <= lng <= 77.75):
-                st = 'karnataka'
-            elif any(k in text for k in tn_kw) or (8.08 <= lat <= 13.50 and 76.25 <= lng <= 80.35):
-                st = 'tamil_nadu'
+            st = classify_state(disp_name, f"{addr} {c_name} {s_name}", lat, lng)
 
             cleaned.append({
                 'id': item_id,
@@ -87,16 +80,16 @@ def sync_vida():
                 'type': 'FAST',
                 'state': st,
                 'model_id': 'HERO_VIDA_FAST_LEVDC',
-                'connector': 'Hero VIDA Official DC Fast Gun (IS 17017-2-7 / Type 7 LEV DC) ⚡',
-                'is_ather_gun': True,
-                'ather_compatibility': '100% Direct Plug-in (Official Hero VIDA Fast Gun)',
+                'connector_std': 'TYPE7_LECCS',
+                'compatible_vehicles': ['ATHER', 'VIDA'],
+                'connector': 'Type 7 LECCS DC Fast (Hero VIDA / Ather Compatible)',
                 'power_kw': 3.3,
                 'lat': round(lat, 6),
                 'lng': round(lng, 6),
                 'address': addr if addr else f'Location in {c_name}, {s_name}',
                 'source': 'Hero VIDA Official',
-                'is_2w': True,
-                'status': 'OPERATIONAL'
+                'verified': True,
+                'is_2w': True
             })
             seen_ids.add(item_id)
 
@@ -107,6 +100,7 @@ def sync_vida():
         print(f"Successfully saved {len(cleaned)} Hero VIDA fast chargers to {out_path}")
 
     return cleaned
+
 
 if __name__ == '__main__':
     sync_vida()

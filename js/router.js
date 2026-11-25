@@ -1,25 +1,29 @@
 /**
- * VoltWay 2W - OSRM Route Engine & Multi-Route Selection
- * 100% Free Open-Source Routing Machine with Google Maps Style Alternative Routes Selection
- * and Interactive Charger Waypoint Trip Planning
+ * VoltWay 2W - Highway-Aware Route Engine & Persistent Trip State
+ * Primary Router: Valhalla Main-Road Hierarchy Profile (avoids narrow lanes & backroads)
+ * Fallback Router: Highway-Scored OSRM Motor Profile (no artificial off-road detours)
+ * Includes Persistent Active Route Recovery Across App Kill Without Background GPS
  */
 
 const RouteEngine = (function () {
-  let allRoutes = []; // Array of { id, name, distanceKm, durationMins, coordinates, geometry, legs }
+  const SAVED_TRIP_KEY = 'voltway_saved_trip_v1';
+
+  let allRoutes = [];
   let selectedRouteIndex = 0;
   let activeRoute = null;
   let currentOrigin = null;
   let currentDestination = null;
   let corridorChargers = [];
-  let intermediateWaypoints = []; // [charger1, charger2, ...]
+  let intermediateWaypoints = [];
+  let lastSnappedSegmentIndex = 0;
+  let sentToGoogleMaps = false;
 
+  const VALHALLA_URL = 'https://valhalla1.openstreetmap.de/route';
   const ROUTING_SERVERS = [
     'https://routing.openstreetmap.de/routed-car/route/v1/driving',
-    'https://router.project-osrm.org/route/v1/driving',
-    'https://routing.openstreetmap.de/routed-bike/route/v1/driving'
+    'https://router.project-osrm.org/route/v1/driving'
   ];
 
-  // Route Planner Charger Filter State (Controls corridor search & auto charging stops)
   const routeFilters = {
     atherFast: true,
     vidaFast: true,
@@ -27,13 +31,8 @@ const RouteEngine = (function () {
     boltSlow: true
   };
 
-  // Route Corridor Buffer Distance in km (User configurable: 2, 5, 10, 15, 25, or 'all')
   let corridorBufferKm = 5;
-
-  // Timeline charging calculation mode: 'optimal' (Fast Travel) vs 'target' (Full Limit)
   let currentTimelineMode = 'optimal';
-
-  // Listeners
   const listeners = [];
 
   function subscribe(fn) {
@@ -45,25 +44,166 @@ const RouteEngine = (function () {
   }
 
   function notify() {
-    listeners.forEach(fn => fn({
+    const payload = {
       route: activeRoute,
       allRoutes,
       selectedRouteIndex,
       corridorChargers,
       waypoints: intermediateWaypoints,
       timelineMode: currentTimelineMode,
-      corridorBufferKm
+      corridorBufferKm,
+      sentToGoogleMaps
+    };
+    listeners.forEach(fn => fn(payload));
+  }
+
+  function compactSteps(legs) {
+    if (!Array.isArray(legs)) return [];
+    return legs.map(leg => ({
+      distance: leg.distance || 0,
+      duration: leg.duration || 0,
+      steps: Array.isArray(leg.steps)
+        ? leg.steps.map(st => ({
+            distance: st.distance || 0,
+            duration: st.duration || 0,
+            name: st.name || '',
+            instruction: st.instruction || '',
+            maneuver: st.maneuver
+              ? {
+                  type: st.maneuver.type || 'turn',
+                  modifier: st.maneuver.modifier || '',
+                  location: st.maneuver.location || null,
+                  exit: st.maneuver.exit
+                }
+              : null
+          }))
+        : []
     }));
+  }
+
+  function compactRouteForStorage(rt) {
+    if (!rt) return null;
+    return {
+      id: rt.id,
+      name: rt.name,
+      roadName: rt.roadName,
+      origin: rt.origin,
+      destination: rt.destination,
+      waypoints: rt.waypoints || [],
+      distanceKm: rt.distanceKm,
+      durationMins: rt.durationMins,
+      timeDiffMins: rt.timeDiffMins || 0,
+      coordinates: rt.coordinates || [],
+      legs: compactSteps(rt.legs || []),
+      isPrimary: Boolean(rt.isPrimary),
+      sourceEngine: rt.sourceEngine || 'Valhalla'
+    };
+  }
+
+  function persistTripState() {
+    try {
+      if (!activeRoute || !allRoutes || allRoutes.length === 0) {
+        localStorage.removeItem(SAVED_TRIP_KEY);
+        return;
+      }
+
+      const compactAll = allRoutes.map(compactRouteForStorage).filter(Boolean);
+      const snapshot = {
+        version: 1,
+        savedAt: Date.now(),
+        sentToGoogleMaps,
+        selectedRouteIndex,
+        origin: currentOrigin || activeRoute.origin,
+        destination: currentDestination || activeRoute.destination,
+        waypoints: intermediateWaypoints,
+        timelineMode: currentTimelineMode,
+        corridorBufferKm,
+        routeFilters,
+        allRoutes: compactAll
+      };
+
+      try {
+        localStorage.setItem(SAVED_TRIP_KEY, JSON.stringify(snapshot));
+      } catch (quotaErr) {
+        // Fallback: keep active route only if storage quota is tight
+        snapshot.allRoutes = [compactAll[selectedRouteIndex] || compactAll[0]];
+        snapshot.selectedRouteIndex = 0;
+        localStorage.setItem(SAVED_TRIP_KEY, JSON.stringify(snapshot));
+      }
+    } catch (e) {
+      console.warn('[VoltWay Router] Could not persist active route:', e);
+    }
+  }
+
+  function restoreSavedTrip() {
+    try {
+      const raw = localStorage.getItem(SAVED_TRIP_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.allRoutes) || parsed.allRoutes.length === 0) {
+        return null;
+      }
+
+      allRoutes = parsed.allRoutes.filter(r => r && Array.isArray(r.coordinates) && r.coordinates.length >= 2);
+      if (allRoutes.length === 0) return null;
+
+      selectedRouteIndex = Math.max(0, Math.min(allRoutes.length - 1, Number(parsed.selectedRouteIndex) || 0));
+      activeRoute = allRoutes[selectedRouteIndex];
+      currentOrigin = parsed.origin || activeRoute.origin || null;
+      currentDestination = parsed.destination || activeRoute.destination || null;
+      intermediateWaypoints = Array.isArray(parsed.waypoints)
+        ? parsed.waypoints.map(w => ({ ...w }))
+        : (activeRoute.waypoints || []).map(w => ({ ...w }));
+
+      if (parsed.timelineMode === 'optimal' || parsed.timelineMode === 'target') {
+        currentTimelineMode = parsed.timelineMode;
+      }
+      if (parsed.corridorBufferKm != null) {
+        corridorBufferKm = parsed.corridorBufferKm === 'all' ? 'all' : (Number(parsed.corridorBufferKm) || 5);
+      }
+      if (parsed.routeFilters && typeof parsed.routeFilters === 'object') {
+        Object.assign(routeFilters, parsed.routeFilters);
+      }
+      sentToGoogleMaps = Boolean(parsed.sentToGoogleMaps);
+      lastSnappedSegmentIndex = 0;
+
+      findCorridorChargers(activeRoute.coordinates, corridorBufferKm);
+      notify();
+      return {
+        route: activeRoute,
+        origin: currentOrigin,
+        destination: currentDestination,
+        waypoints: intermediateWaypoints,
+        sentToGoogleMaps,
+        savedAt: parsed.savedAt || Date.now()
+      };
+    } catch (e) {
+      console.warn('[VoltWay Router] Could not restore saved trip:', e);
+      return null;
+    }
+  }
+
+  function refreshCorridorForActiveRoute() {
+    if (!activeRoute || !activeRoute.coordinates) return [];
+    const list = findCorridorChargers(activeRoute.coordinates, corridorBufferKm);
+    notify();
+    return list;
+  }
+
+  function markSentToGoogleMaps() {
+    sentToGoogleMaps = true;
+    persistTripState();
   }
 
   function setCorridorBufferKm(km) {
     if (km === 'all' || km === 0 || km === null) {
       corridorBufferKm = 'all';
     } else {
-      corridorBufferKm = Number(km) || 5;
+      corridorBufferKm = Math.max(1, Math.min(100, Number(km) || 5));
     }
     if (activeRoute && activeRoute.coordinates) {
       findCorridorChargers(activeRoute.coordinates, corridorBufferKm);
+      persistTripState();
       notify();
       if (window.MapEngine && window.MapEngine.renderChargers) {
         window.MapEngine.renderChargers();
@@ -75,140 +215,17 @@ const RouteEngine = (function () {
     return corridorBufferKm;
   }
 
-  /**
-   * Calculates perpendicular distance from a given [lat, lng] to the active route polyline (in km).
-   */
-  function getDistanceToActiveRoute(lat, lng) {
-    if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) return null;
-
-    // Check if charger is already in precomputed corridorChargers
-    const existing = corridorChargers.find(c => Math.abs(c.lat - lat) < 0.0001 && Math.abs(c.lng - lng) < 0.0001);
-    if (existing && existing.corridorDistanceKm != null) {
-      return existing.corridorDistanceKm;
-    }
-
-    const coords = activeRoute.coordinates;
-    const p = [lat, lng];
-    let minDistance = Infinity;
-    for (let s = 0; s < coords.length - 1; s++) {
-      const res = distToSegment(p, coords[s], coords[s + 1]);
-      if (res.distance < minDistance) {
-        minDistance = res.distance;
-      }
-      if (minDistance <= 0.05) break;
-    }
-    return minDistance === Infinity ? null : Math.round(minDistance * 10) / 10;
-  }
-
-  let lastSnappedSegmentIndex = 0;
-
-  /**
-   * Slices active route at rider's current position for real-time traversed route trimming & road matching.
-   * Returns:
-   * - remainingCoords: array of [lat, lng] from snapped position forward to destination.
-   * - traversedCoords: array of [lat, lng] from start up to snapped position.
-   * - snappedPoint: [lat, lng] projected onto centerline of closest road segment.
-   * - distanceFromRouteKm: perpendicular distance to road segment (km).
-   * - segmentBearing: forward heading of current road segment (0-360 deg).
-   * - closestSegmentIndex: index of current segment.
-   */
-  function sliceActiveRouteAtPosition(lat, lng) {
-    if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
-      return null;
-    }
-    const coords = activeRoute.coordinates;
-    const p = [lat, lng];
-    let minDistance = Infinity;
-    let closestIndex = 0;
-    let closestT = 0;
-
-    // Search forward from near the last known segment index to prevent jumping back
-    const startIdx = Math.max(0, lastSnappedSegmentIndex - 2);
-    for (let s = startIdx; s < coords.length - 1; s++) {
-      const res = distToSegment(p, coords[s], coords[s + 1]);
-      if (res.distance < minDistance) {
-        minDistance = res.distance;
-        closestIndex = s;
-        closestT = res.t;
-      }
-    }
-
-    // Fallback if off-route (> 55m), search the earlier segments
-    if (minDistance > 0.055 && startIdx > 0) {
-      for (let s = 0; s < startIdx; s++) {
-        const res = distToSegment(p, coords[s], coords[s + 1]);
-        if (res.distance < minDistance) {
-          minDistance = res.distance;
-          closestIndex = s;
-          closestT = res.t;
-        }
-      }
-    }
-
-    lastSnappedSegmentIndex = closestIndex;
-
-    const v = coords[closestIndex];
-    const w = coords[closestIndex + 1];
-    const snappedLat = v[0] + closestT * (w[0] - v[0]);
-    const snappedLng = v[1] + closestT * (w[1] - v[1]);
-    const snappedPoint = [snappedLat, snappedLng];
-
-    // Calculate segment forward bearing (direction of travel along the street)
-    const dLat = (w[0] - v[0]) * Math.PI / 180;
-    const dLng = (w[1] - v[1]) * Math.PI / 180;
-    const lat1 = v[0] * Math.PI / 180;
-    const lat2 = w[0] * Math.PI / 180;
-    const y = Math.sin(dLng) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-    const segmentBearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-
-    // Remaining coordinates forward to destination (starting from snapped rider position)
-    const remainingCoords = [snappedPoint, ...coords.slice(closestIndex + 1)];
-
-    // Traversed coordinates behind rider (starting from origin up to snapped rider position)
-    const traversedCoords = [...coords.slice(0, closestIndex + 1), snappedPoint];
-
-    return {
-      remainingCoords,
-      traversedCoords,
-      snappedPoint,
-      distanceFromRouteKm: minDistance,
-      segmentBearing,
-      closestSegmentIndex: closestIndex
-    };
-  }
-
-  function setTimelineMode(mode) {
-    if (mode === 'optimal' || mode === 'target') {
-      currentTimelineMode = mode;
-      notify();
-    }
-  }
-
-  function getTimelineMode() {
-    return currentTimelineMode;
-  }
-
-  /**
-   * Distance between two lat/lng points using Haversine formula (km)
-   */
   function haversineDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Earth's radius in km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
       Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  /**
-   * Calculates perpendicular distance from a point to a line segment (km)
-   * with latitude-dependent longitude scaling for 100% metric geometric accuracy.
-   * Returns { distance, t } where t in [0, 1] is the projection fraction.
-   */
   function distToSegment(p, v, w) {
     const meanLatRad = ((v[0] + w[0] + p[0]) / 3) * (Math.PI / 180);
     const cosLat = Math.cos(meanLatRad);
@@ -230,9 +247,122 @@ const RouteEngine = (function () {
     return { distance: haversineDistance(p[0], p[1], projectionLat, projectionLng), t };
   }
 
+  function getDistanceToActiveRoute(lat, lng) {
+    if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) return null;
+
+    const existing = corridorChargers.find(c => Math.abs(c.lat - lat) < 0.0001 && Math.abs(c.lng - lng) < 0.0001);
+    if (existing && existing.corridorDistanceKm != null) {
+      return existing.corridorDistanceKm;
+    }
+
+    const coords = activeRoute.coordinates;
+    const p = [lat, lng];
+    let minDistance = Infinity;
+    for (let s = 0; s < coords.length - 1; s++) {
+      const res = distToSegment(p, coords[s], coords[s + 1]);
+      if (res.distance < minDistance) minDistance = res.distance;
+      if (minDistance <= 0.05) break;
+    }
+    return minDistance === Infinity ? null : Math.round(minDistance * 10) / 10;
+  }
+
   /**
-   * Helper to extract prominent highway or street name from OSRM steps
+   * Slices active route at rider's live GPS position and calculates remaining distance/duration metrics.
    */
+  function sliceActiveRouteAtPosition(lat, lng) {
+    if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
+      return null;
+    }
+    const coords = activeRoute.coordinates;
+    const p = [lat, lng];
+    let minDistance = Infinity;
+    let closestIndex = 0;
+    let closestT = 0;
+
+    const startIdx = Math.max(0, lastSnappedSegmentIndex - 2);
+    for (let s = startIdx; s < coords.length - 1; s++) {
+      const res = distToSegment(p, coords[s], coords[s + 1]);
+      if (res.distance < minDistance) {
+        minDistance = res.distance;
+        closestIndex = s;
+        closestT = res.t;
+      }
+    }
+
+    if (minDistance > 0.055 && startIdx > 0) {
+      for (let s = 0; s < startIdx; s++) {
+        const res = distToSegment(p, coords[s], coords[s + 1]);
+        if (res.distance < minDistance) {
+          minDistance = res.distance;
+          closestIndex = s;
+          closestT = res.t;
+        }
+      }
+    }
+
+    lastSnappedSegmentIndex = closestIndex;
+
+    const v = coords[closestIndex];
+    const w = coords[closestIndex + 1];
+    const snappedPoint = [
+      v[0] + closestT * (w[0] - v[0]),
+      v[1] + closestT * (w[1] - v[1])
+    ];
+
+    const dLng = (w[1] - v[1]) * Math.PI / 180;
+    const lat1 = v[0] * Math.PI / 180;
+    const lat2 = w[0] * Math.PI / 180;
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    const segmentBearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+    const remainingCoords = [snappedPoint, ...coords.slice(closestIndex + 1)];
+    const traversedCoords = [...coords.slice(0, closestIndex + 1), snappedPoint];
+
+    let remPolyKm = 0;
+    for (let i = 1; i < remainingCoords.length; i++) {
+      remPolyKm += haversineDistance(
+        remainingCoords[i - 1][0], remainingCoords[i - 1][1],
+        remainingCoords[i][0], remainingCoords[i][1]
+      );
+    }
+    let totalPolyKm = remPolyKm;
+    for (let i = 1; i < traversedCoords.length; i++) {
+      totalPolyKm += haversineDistance(
+        traversedCoords[i - 1][0], traversedCoords[i - 1][1],
+        traversedCoords[i][0], traversedCoords[i][1]
+      );
+    }
+
+    const fracRemaining = totalPolyKm > 0 ? Math.min(1, Math.max(0, remPolyKm / totalPolyKm)) : 1;
+    const remainingKm = Math.round(activeRoute.distanceKm * fracRemaining * 10) / 10;
+    const remainingMins = Math.max(1, Math.round(activeRoute.durationMins * fracRemaining));
+
+    return {
+      remainingCoords,
+      traversedCoords,
+      snappedPoint,
+      distanceFromRouteKm: minDistance,
+      segmentBearing,
+      closestSegmentIndex: closestIndex,
+      remainingKm,
+      remainingMins,
+      progressPct: Math.round((1 - fracRemaining) * 100)
+    };
+  }
+
+  function setTimelineMode(mode) {
+    if (mode === 'optimal' || mode === 'target') {
+      currentTimelineMode = mode;
+      persistTripState();
+      notify();
+    }
+  }
+
+  function getTimelineMode() {
+    return currentTimelineMode;
+  }
+
   function extractMainRoadName(legs) {
     if (!legs || legs.length === 0) return '';
     const roadLengths = {};
@@ -255,50 +385,232 @@ const RouteEngine = (function () {
     return bestRoad;
   }
 
-  /**
-   * Accurately calculate charging duration for a given percentage and station type
-   * Unified with Utilities physics model
-   */
-  function computeChargingDuration(chargeNeededPct, currentArrivalSoC, isFast) {
+  function computeChargingDuration(chargeNeededPct, currentArrivalSoC, isFast, chargerPowerKw = null, vehicleDetails = null) {
     if (window.Utilities && window.Utilities.computeChargingDuration) {
-      return window.Utilities.computeChargingDuration(chargeNeededPct, currentArrivalSoC, isFast);
+      return window.Utilities.computeChargingDuration(chargeNeededPct, currentArrivalSoC, isFast, chargerPowerKw, vehicleDetails);
     }
     if (chargeNeededPct <= 0) return 0;
-    if (isFast) {
-      const startSoC = Math.max(0, currentArrivalSoC);
-      const endSoC = Math.min(100, startSoC + chargeNeededPct);
-      const upTo80 = Math.max(0, Math.min(80, endSoC) - Math.min(80, startSoC));
-      const above80 = Math.max(0, endSoC - Math.max(80, startSoC));
-      return Math.round((upTo80 / 1.5) + (above80 / 0.55));
-    } else {
-      return Math.round(chargeNeededPct / 0.33);
+    return isFast ? Math.max(1, Math.round(chargeNeededPct / 1.3)) : Math.max(1, Math.round(chargeNeededPct / 0.30));
+  }
+
+  // Decodes Valhalla Polyline6 encoded shapes into [[lat, lng], ...]
+  function decodePolyline6(encoded) {
+    const inv = 1.0 / 1e6;
+    const coords = [];
+    let lat = 0;
+    let lng = 0;
+    let index = 0;
+    while (index < encoded.length) {
+      let b;
+      let shift = 0;
+      let result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+      coords.push([Math.round(lat * inv * 1e6) / 1e6, Math.round(lng * inv * 1e6) / 1e6]);
+    }
+    return coords;
+  }
+
+  function mapValhallaManeuver(vType) {
+    switch (Number(vType)) {
+      case 1:
+      case 2:
+      case 3:
+        return { type: 'depart', modifier: 'straight' };
+      case 4:
+      case 5:
+      case 6:
+        return { type: 'arrive', modifier: '' };
+      case 9:
+        return { type: 'turn', modifier: 'slight right' };
+      case 10:
+        return { type: 'turn', modifier: 'right' };
+      case 11:
+        return { type: 'turn', modifier: 'sharp right' };
+      case 12:
+      case 13:
+        return { type: 'turn', modifier: 'uturn' };
+      case 14:
+        return { type: 'turn', modifier: 'sharp left' };
+      case 15:
+        return { type: 'turn', modifier: 'left' };
+      case 16:
+        return { type: 'turn', modifier: 'slight left' };
+      case 26:
+      case 27:
+        return { type: 'roundabout', modifier: '' };
+      default:
+        return { type: 'continue', modifier: 'straight' };
+    }
+  }
+
+  function convertValhallaTrip(trip) {
+    if (!trip || !Array.isArray(trip.legs) || trip.legs.length === 0) return null;
+    const combinedLatLngs = [];
+    const osrmLegs = [];
+
+    for (const leg of trip.legs) {
+      if (!leg.shape) continue;
+      const legCoords = decodePolyline6(leg.shape);
+      legCoords.forEach((pt, i) => {
+        if (i === 0 && combinedLatLngs.length > 0) {
+          const prev = combinedLatLngs[combinedLatLngs.length - 1];
+          if (Math.abs(prev[0] - pt[0]) < 1e-6 && Math.abs(prev[1] - pt[1]) < 1e-6) return;
+        }
+        combinedLatLngs.push(pt);
+      });
+
+      const steps = (leg.maneuvers || []).map(m => {
+        const ptIdx = Math.min(Math.max(0, m.begin_shape_index || 0), Math.max(0, legCoords.length - 1));
+        const pt = legCoords[ptIdx] || legCoords[0];
+        const mapped = mapValhallaManeuver(m.type);
+        const street = (Array.isArray(m.street_names) && m.street_names.length > 0)
+          ? m.street_names.join(' / ')
+          : ((Array.isArray(m.begin_street_names) && m.begin_street_names[0]) || '');
+        return {
+          distance: Math.round((m.length || 0) * 1000),
+          duration: Math.round(m.time || 0),
+          name: street,
+          instruction: m.instruction || '',
+          maneuver: {
+            type: mapped.type,
+            modifier: mapped.modifier,
+            location: pt ? [pt[1], pt[0]] : [0, 0]
+          }
+        };
+      });
+
+      osrmLegs.push({
+        distance: Math.round(((leg.summary && leg.summary.length) || 0) * 1000),
+        duration: Math.round((leg.summary && leg.summary.time) || 0),
+        steps
+      });
+    }
+
+    if (combinedLatLngs.length < 2) return null;
+
+    return {
+      distance: Math.round(((trip.summary && trip.summary.length) || 0) * 1000),
+      duration: Math.round((trip.summary && trip.summary.time) || 0),
+      geometry: {
+        type: 'LineString',
+        coordinates: combinedLatLngs.map(pt => [pt[1], pt[0]])
+      },
+      legs: osrmLegs,
+      sourceEngine: 'Valhalla Main-Road'
+    };
+  }
+
+  /**
+   * Primary Main-Road Router using FOSSGIS Valhalla (strongly prefers NH/SH/Arterial roads,
+   * heavily penalizes residential/alley shortcuts and unpaved tracks).
+   */
+  async function fetchValhallaRoutes(cleanPoints) {
+    const body = {
+      locations: cleanPoints.map(p => ({ lat: p.lat, lon: p.lng })),
+      costing: 'auto',
+      costing_options: {
+        auto: {
+          use_highways: 0.96,
+          use_tracks: 0.0,
+          use_living_streets: 0.02,
+          alley_factor: 8.0,
+          service_penalty: 450,
+          maneuver_penalty: 25,
+          exclude_unpaved: true,
+          use_ferry: 0.05
+        }
+      },
+      alternates: cleanPoints.length === 2 ? 2 : 0,
+      units: 'km'
+    };
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 7500) : null;
+    try {
+      const resp = await fetch(VALHALLA_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller ? controller.signal : undefined
+      });
+      if (timeoutId) clearTimeout(timeoutId);
+      if (!resp.ok) throw new Error(`Valhalla HTTP ${resp.status}`);
+
+      const data = await resp.json();
+      if (!data || !data.trip) throw new Error('Valhalla empty trip');
+
+      const out = [];
+      const primary = convertValhallaTrip(data.trip);
+      if (primary) out.push(primary);
+
+      if (Array.isArray(data.alternates)) {
+        data.alternates.forEach(alt => {
+          const parsedAlt = convertValhallaTrip(alt.trip || alt);
+          if (parsedAlt) out.push(parsedAlt);
+        });
+      }
+
+      if (out.length === 0) throw new Error('Valhalla decoded 0 routes');
+      return out;
+    } catch (err) {
+      if (timeoutId) clearTimeout(timeoutId);
+      throw err;
     }
   }
 
   /**
-   * Helper to fetch a route from redundant multi-server cluster
-   * Uses Hedged Parallel Racing (staggered mirror queries) and 9-second mobile timeout
-   * Guarantees real road geometry with turns/curves and completely eliminates straight-line failures.
+   * Evaluates highway quality vs alley shortcuts so even OSRM alternates pick NH/SH arterial routes first.
    */
-  async function fetchOsrmRaw(points) {
-    if (!points || points.length < 2) {
-      throw new Error('At least 2 points are required for routing');
-    }
+  function scoreAndSortMainRoadRoutes(routes) {
+    if (!Array.isArray(routes) || routes.length <= 1) return routes || [];
+    const minDuration = Math.min(...routes.map(r => r.duration || Infinity));
 
-    // 1. Sanitize & parse coordinates into valid high-precision floats
-    const cleanPoints = points.map((p, idx) => {
-      const lat = parseFloat(p.lat);
-      const lng = parseFloat(p.lng);
-      if (isNaN(lat) || isNaN(lng)) {
-        throw new Error(`Invalid route coordinate at index ${idx}: lat=${p.lat}, lng=${p.lng}`);
-      }
-      return { lat, lng };
+    const scored = routes.map((r, origIdx) => {
+      const totalDist = Math.max(1, r.distance || 1);
+      const steps = (r.legs || []).flatMap(l => l.steps || []);
+      let arterialDist = 0;
+      let narrowLaneDist = 0;
+
+      steps.forEach(st => {
+        const d = st.distance || 0;
+        const n = (st.name || '').trim();
+        if (!n || /unnamed|\b(lane|cross|galli|by-?lane|alley)\b/i.test(n)) {
+          if (d < 450) narrowLaneDist += d;
+        } else if (/\b(NH|SH|AH)\s*\d+|highway|bypass|ring road|expressway|mc road|main road|state highway|national highway/i.test(n)) {
+          arterialDist += d;
+        }
+      });
+
+      const withinReasonableTime = (r.duration || 0) <= (minDuration * 1.15 + 180);
+      const highwayRatio = arterialDist / totalDist;
+      const laneRatio = narrowLaneDist / totalDist;
+      const qualityScore = (withinReasonableTime ? 500 : 0) + (highwayRatio * 120) - (laneRatio * 100) - (steps.length * 0.6) - origIdx * 2;
+      return { r, qualityScore };
     });
 
+    scored.sort((a, b) => b.qualityScore - a.qualityScore);
+    return scored.map(x => x.r);
+  }
+
+  async function fetchOsrmRaw(cleanPoints) {
     const coordsStr = cleanPoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
 
-    // Helper to query a single mirror server
-    async function queryMirror(serverUrl, allowAlternatives = true, timeoutMs = 9000) {
+    async function queryMirror(serverUrl, allowAlternatives = true, timeoutMs = 10000) {
       let controller = null;
       let timeoutId = null;
       try {
@@ -309,14 +621,12 @@ const RouteEngine = (function () {
 
         const altParam = allowAlternatives ? '&alternatives=true' : '';
         const url = `${serverUrl}/${coordsStr}?overview=full&geometries=geojson&steps=true${altParam}`;
-        const fetchOpts = controller ? { signal: controller.signal } : {};
-        const resp = await fetch(url, fetchOpts);
+        const resp = await fetch(url, controller ? { signal: controller.signal } : {});
         if (timeoutId) clearTimeout(timeoutId);
 
         if (!resp.ok) {
-          // If alternatives=true caused 400 (common on some servers with multiple waypoints), retry without alternatives
           if (allowAlternatives && resp.status >= 400 && resp.status < 500) {
-            return await queryMirror(serverUrl, false, 6000);
+            return await queryMirror(serverUrl, false, 7000);
           }
           throw new Error(`HTTP ${resp.status}`);
         }
@@ -325,9 +635,8 @@ const RouteEngine = (function () {
         if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
           return data.routes;
         }
-
         if (allowAlternatives) {
-          return await queryMirror(serverUrl, false, 6000);
+          return await queryMirror(serverUrl, false, 7000);
         }
         throw new Error(`OSRM code: ${data.code || 'NoRoute'}`);
       } catch (err) {
@@ -336,30 +645,26 @@ const RouteEngine = (function () {
       }
     }
 
-    // 2. Hedged Parallel Racing across mirrors:
-    // Launch server 0 immediately; if not resolved within 1200ms, launch server 1; then server 2.
-    // The first mirror to successfully return driving road geometry wins!
     return new Promise((resolve, reject) => {
       let resolved = false;
       let activeCount = 0;
-      let errors = [];
+      const errors = [];
 
       function tryServer(index) {
         if (resolved || index >= ROUTING_SERVERS.length) return;
         activeCount++;
         const sUrl = ROUTING_SERVERS[index];
 
-        queryMirror(sUrl, true, 9000)
+        queryMirror(sUrl, true, 10000)
           .then(routes => {
             if (!resolved && routes && routes.length > 0) {
               resolved = true;
-              resolve(routes);
+              resolve(scoreAndSortMainRoadRoutes(routes));
             }
           })
           .catch(err => {
             errors.push(`${sUrl}: ${err.message}`);
             activeCount--;
-            // If another mirror is waiting, trigger it immediately
             if (!resolved && index + 1 < ROUTING_SERVERS.length) {
               tryServer(index + 1);
             } else if (activeCount === 0 && !resolved) {
@@ -368,25 +673,92 @@ const RouteEngine = (function () {
           });
       }
 
-      // Start primary mirror immediately
       tryServer(0);
-
-      // If primary doesn't resolve within 1200ms, start second mirror in parallel
-      setTimeout(() => {
-        if (!resolved) tryServer(1);
-      }, 1200);
-
-      // If still not resolved within 2500ms, start third mirror in parallel
-      setTimeout(() => {
-        if (!resolved) tryServer(2);
-      }, 2500);
+      setTimeout(() => { if (!resolved) tryServer(1); }, 1500);
     });
   }
 
+  async function fetchBestMainRoadRoutes(points) {
+    if (!points || points.length < 2) {
+      throw new Error('At least 2 points are required for routing');
+    }
+    if (!navigator.onLine) {
+      throw new Error('Device is offline. Road routing requires an internet connection.');
+    }
+
+    const cleanPoints = points.map((p, idx) => {
+      const lat = parseFloat(p.lat);
+      const lng = parseFloat(p.lng);
+      if (isNaN(lat) || isNaN(lng)) {
+        throw new Error(`Invalid route coordinate at index ${idx}`);
+      }
+      return { lat, lng };
+    });
+
+    try {
+      const valhallaRoutes = await fetchValhallaRoutes(cleanPoints);
+      if (valhallaRoutes && valhallaRoutes.length > 0) {
+        return valhallaRoutes;
+      }
+    } catch (valErr) {
+      // Fall back transparently to Highway-Scored OSRM
+    }
+
+    return await fetchOsrmRaw(cleanPoints);
+  }
+
+  function calculateKmAlongRoute(lat, lng, routeCoords) {
+    if (!routeCoords || routeCoords.length < 2) return 0;
+    const cumDists = new Float64Array(routeCoords.length);
+    cumDists[0] = 0;
+    for (let i = 1; i < routeCoords.length; i++) {
+      cumDists[i] = cumDists[i - 1] + haversineDistance(
+        routeCoords[i - 1][0], routeCoords[i - 1][1],
+        routeCoords[i][0], routeCoords[i][1]
+      );
+    }
+    const p = [lat, lng];
+    let minDistance = Infinity;
+    let closestSegmentIndex = 0;
+    let closestT = 0;
+
+    for (let s = 0; s < routeCoords.length - 1; s++) {
+      const res = distToSegment(p, routeCoords[s], routeCoords[s + 1]);
+      if (res.distance < minDistance) {
+        minDistance = res.distance;
+        closestSegmentIndex = s;
+        closestT = res.t;
+      }
+      if (minDistance <= 0.05) break;
+    }
+
+    return cumDists[closestSegmentIndex] + closestT * (cumDists[closestSegmentIndex + 1] - cumDists[closestSegmentIndex]);
+  }
+
   /**
-   * Fetch driving route with Multiple Alternative Routes (Google Maps Style)
+   * Orders waypoints along the active road polyline if available (preserves curved roads),
+   * or by distance from origin when no baseline polyline exists yet.
    */
-  async function calculateRoute(origin, destination, manualWaypoints = null) {
+  function sortWaypointsSequentially(waypoints, origin, destination, routeCoords = null) {
+    if (!waypoints || waypoints.length <= 1) return waypoints || [];
+    if (!origin) return waypoints;
+
+    if (routeCoords && routeCoords.length >= 2) {
+      return [...waypoints].sort((a, b) => {
+        const kA = typeof a.kmFromOrigin === 'number' ? a.kmFromOrigin : calculateKmAlongRoute(a.lat, a.lng, routeCoords);
+        const kB = typeof b.kmFromOrigin === 'number' ? b.kmFromOrigin : calculateKmAlongRoute(b.lat, b.lng, routeCoords);
+        return kA - kB;
+      });
+    }
+
+    return [...waypoints].sort((a, b) => {
+      const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
+      const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
+      return dA - dB;
+    });
+  }
+
+  async function calculateRoute(origin, destination, manualWaypoints = null, preserveManualOrder = false) {
     if (!origin || !destination) {
       throw new Error('Origin and destination are required');
     }
@@ -396,169 +768,109 @@ const RouteEngine = (function () {
     lastSnappedSegmentIndex = 0;
 
     if (manualWaypoints !== null) {
-      intermediateWaypoints = sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
+      intermediateWaypoints = preserveManualOrder
+        ? [...manualWaypoints]
+        : sortWaypointsSequentially(manualWaypoints, origin, destination, activeRoute?.coordinates);
     }
 
-    let points = [origin, ...intermediateWaypoints, destination];
-
+    const points = [origin, ...intermediateWaypoints, destination];
     allRoutes = [];
     selectedRouteIndex = 0;
 
     try {
-      const primaryRoutes = await fetchOsrmRaw(points);
+      const primaryRoutes = await fetchBestMainRoadRoutes(points);
       if (!primaryRoutes || primaryRoutes.length === 0) {
         throw new Error('No driving route found');
       }
 
-      const cleanWaypoints = intermediateWaypoints;
-
-      // 1. Process routes returned by OSRM
-      primaryRoutes.forEach((routeData, idx) => {
+      const baseDurationMins = Math.round((primaryRoutes[0].duration || 0) / 60);
+      primaryRoutes.slice(0, 3).forEach((routeData, idx) => {
         const distKm = Math.round((routeData.distance / 1000) * 10) / 10;
         const durMins = Math.round(routeData.duration / 60);
         const prominentRoad = extractMainRoadName(routeData.legs);
-        const roadLabel = prominentRoad ? `via ${prominentRoad}` : (idx === 0 ? 'Main Highway' : `Route ${idx + 1}`);
-        const name = idx === 0 ? `${roadLabel} (Fastest)` : `${roadLabel} (${distKm} km)`;
+        const roadLabel = prominentRoad ? `via ${prominentRoad}` : (idx === 0 ? 'Main Highway' : `Alternate Route ${idx + 1}`);
+        const name = idx === 0 ? `${roadLabel} (Main Road)` : `${roadLabel} (${distKm} km)`;
 
-        // Calculate accurate road km distance for each intermediate waypoint from OSRM's actual driving legs
+        const clonedWaypoints = intermediateWaypoints.map(w => ({ ...w }));
         let cumKm = 0;
-        for (let i = 0; i < cleanWaypoints.length; i++) {
+        for (let i = 0; i < clonedWaypoints.length; i++) {
           if (routeData.legs && routeData.legs[i]) {
             cumKm += Math.round((routeData.legs[i].distance / 1000) * 10) / 10;
-            cleanWaypoints[i].kmFromOrigin = Math.round(cumKm * 10) / 10;
+            clonedWaypoints[i].kmFromOrigin = Math.round(cumKm * 10) / 10;
           }
         }
 
         allRoutes.push({
           id: `route-${idx}`,
           name,
-          roadName: prominentRoad || (idx === 0 ? 'Fastest Highway' : `Route ${idx + 1}`),
+          roadName: prominentRoad || (idx === 0 ? 'Main Highway' : `Route ${idx + 1}`),
           origin,
           destination,
-          waypoints: [...cleanWaypoints],
+          waypoints: clonedWaypoints,
           distanceKm: distKm,
           durationMins: durMins,
-          timeDiffMins: 0,
+          timeDiffMins: idx === 0 ? 0 : Math.max(0, durMins - baseDurationMins),
           geometry: routeData.geometry,
           coordinates: routeData.geometry.coordinates.map(c => [c[1], c[0]]),
           legs: routeData.legs || [],
-          isPrimary: idx === 0
+          isPrimary: idx === 0,
+          sourceEngine: routeData.sourceEngine || 'OSRM Highway'
         });
       });
 
-      // 2. Generate Google Maps Style Alternative Corridors for any trip >= 1.5 km
-      const directDist = haversineDistance(origin.lat, origin.lng, destination.lat, destination.lng);
-      if (allRoutes.length < 3 && directDist >= 1.5 && intermediateWaypoints.length === 0) {
-        try {
-          const midLat = (origin.lat + destination.lat) / 2;
-          const midLng = (origin.lng + destination.lng) / 2;
-          const dLat = destination.lat - origin.lat;
-          const dLng = destination.lng - origin.lng;
-          const degDist = Math.sqrt(dLat * dLat + dLng * dLng);
-
-          // Perpendicular offset vector
-          const perpLat = -dLng / degDist;
-          const perpLng = dLat / degDist;
-
-          // Adaptive offsets: for urban trips use 0.08, for longer highway trips use 0.11
-          const factorA = directDist > 25 ? 0.11 : 0.08;
-          const factorB = directDist > 25 ? -0.11 : -0.08;
-
-          const altMid1 = { lat: Math.round((midLat + perpLat * degDist * factorA) * 1000000) / 1000000, lng: Math.round((midLng + perpLng * degDist * factorA) * 1000000) / 1000000 };
-          const altMid2 = { lat: Math.round((midLat + perpLat * degDist * factorB) * 1000000) / 1000000, lng: Math.round((midLng + perpLng * degDist * factorB) * 1000000) / 1000000 };
-
-          const candidates = [altMid1, altMid2];
-          const results = await Promise.allSettled(candidates.map(m => fetchOsrmRaw([origin, m, destination])));
-
-          results.forEach((res, rIdx) => {
-            if (res.status === 'fulfilled' && res.value && res.value.length > 0) {
-              const rData = res.value[0];
-              const distKm = Math.round((rData.distance / 1000) * 10) / 10;
-              const durMins = Math.round(rData.duration / 60);
-
-              // Avoid duplicates (allow distinct routes with >= 0.2 km or >= 1 min difference)
-              const isDuplicate = allRoutes.some(existing => 
-                Math.abs(existing.distanceKm - distKm) < 0.25 && Math.abs(existing.durationMins - durMins) < 1
-              );
-
-              if (!isDuplicate && allRoutes.length < 3) {
-                const prominentRoad = extractMainRoadName(rData.legs);
-                const roadLabel = prominentRoad ? `via ${prominentRoad}` : (rIdx === 0 ? 'via Arterial Bypass' : 'via Alternate Highway');
-                const diffMins = durMins - allRoutes[0].durationMins;
-                const timeDiffStr = diffMins > 0 ? `+${diffMins} min` : `${durMins} min`;
-
-                allRoutes.push({
-                  id: `route-alt-${rIdx + 1}`,
-                  name: `${roadLabel} (${timeDiffStr})`,
-                  roadName: prominentRoad || (rIdx === 0 ? 'Arterial Bypass' : 'Alternate Highway'),
-                  origin,
-                  destination,
-                  waypoints: [...cleanWaypoints],
-                  distanceKm: distKm,
-                  durationMins: durMins,
-                  timeDiffMins: diffMins,
-                  geometry: rData.geometry,
-                  coordinates: rData.geometry.coordinates.map(c => [c[1], c[0]]),
-                  legs: rData.legs || [],
-                  isPrimary: false
-                });
-              }
-            }
-          });
-        } catch (altErr) {
-          console.warn('Could not generate synthetic alternative route:', altErr);
-        }
-      }
-
       selectedRouteIndex = 0;
       activeRoute = allRoutes[0];
+      intermediateWaypoints = activeRoute.waypoints.map(w => ({ ...w }));
 
-      // Discover chargers along the selected route corridor
       findCorridorChargers(activeRoute.coordinates);
-
-      // Precompute exact kmFromOrigin for all intermediate waypoints along the route polyline
-      if (intermediateWaypoints.length > 0 && activeRoute.coordinates) {
-        intermediateWaypoints = sortWaypointsSequentially(intermediateWaypoints, origin, destination, activeRoute.coordinates);
-      }
-
+      persistTripState();
       notify();
       return activeRoute;
     } catch (err) {
-      console.error('All routing cluster mirrors failed:', err);
+      console.error('[VoltWay Router] Route calculation failed:', err);
       if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast('⚠️ Network Error: Could not reach routing servers. Please check your data connection.');
+        window.SyncEngine.showAutoUpdateToast(
+          !navigator.onLine
+            ? '📡 Offline: Road routing requires an internet connection.'
+            : '⚠️ Network Error: Could not reach routing servers.'
+        );
       }
-      throw new Error('Could not calculate road route. Please verify your internet connection and try again.');
+      throw new Error(err.message || 'Could not calculate road route.');
     }
   }
 
-  /**
-   * User selects one of the alternative routes (Google Maps Style)
-   */
   async function selectRoute(index) {
     if (index < 0 || index >= allRoutes.length) return;
     selectedRouteIndex = index;
+    lastSnappedSegmentIndex = 0;
     activeRoute = allRoutes[index];
+    intermediateWaypoints = (activeRoute.waypoints || []).map(w => ({ ...w }));
     findCorridorChargers(activeRoute.coordinates);
+    persistTripState();
     notify();
 
-    // If selected route exceeds safe range and has no manual waypoints, auto-suggest charging stops along it
-    const batState = window.BatteryEngine ? window.BatteryEngine.getState() : null;
-    if (batState && intermediateWaypoints.length === 0) {
-      const evalMetrics = window.BatteryEngine.evaluateTrip(activeRoute.distanceKm);
-      if (evalMetrics && evalMetrics.status !== 'SAFE') {
-        await autoSuggestChargingStops(evalMetrics);
+    if (intermediateWaypoints.length === 0) {
+      const batState = window.BatteryEngine ? window.BatteryEngine.getState() : null;
+      if (batState) {
+        const evalMetrics = window.BatteryEngine.evaluateTrip(activeRoute.distanceKm);
+        if (evalMetrics && evalMetrics.status !== 'SAFE') {
+          await autoSuggestChargingStops(evalMetrics);
+        }
       }
     }
   }
 
-  /**
-   * Identifies all compatible 2W chargers within corridorDistanceKm of the route polyline.
-   * Uses adaptive corridor width: 4.5 km for intercity highway routes (>40 km) to capture
-   * chargers near bypasses/town entries, and 3.0 km for urban trips.
-   */
+  function matchesRouteFilters(c) {
+    if (c.is_2w === false) return false;
+    if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
+    if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
+    if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
+    if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
+    return true;
+  }
+
   function findCorridorChargers(routeCoords, maxCorridorKm = null) {
-    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : (window.BUNDLED_CHARGERS || []);
+    const allChargers = window.SyncEngine ? window.SyncEngine.getChargers() : [];
     const matching = [];
 
     if (!routeCoords || routeCoords.length < 2 || !allChargers || allChargers.length === 0) {
@@ -570,7 +882,6 @@ const RouteEngine = (function () {
     const isAll = requestedBuffer === 'all' || requestedBuffer === 0;
     const effectiveMaxCorridorKm = isAll ? 50.0 : Number(requestedBuffer || 5);
 
-    // Precompute cumulative Haversine distance along route coordinates
     const cumDists = new Float64Array(routeCoords.length);
     cumDists[0] = 0;
     for (let i = 1; i < routeCoords.length; i++) {
@@ -584,7 +895,6 @@ const RouteEngine = (function () {
     const routeDist = (activeRoute && activeRoute.distanceKm) ? activeRoute.distanceKm : totalPolyDist;
     const distScale = routeDist / totalPolyDist;
 
-    // Bounding box filter for quick rejection
     let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
     for (let i = 0; i < routeCoords.length; i++) {
       const lat = routeCoords[i][0];
@@ -595,7 +905,7 @@ const RouteEngine = (function () {
       if (lng > maxLng) maxLng = lng;
     }
 
-    const degBuffer = effectiveMaxCorridorKm > 15 ? 0.35 : (effectiveMaxCorridorKm > 8 ? 0.2 : (effectiveMaxCorridorKm > 3 ? 0.08 : 0.04));
+    const degBuffer = effectiveMaxCorridorKm / 111.0 + 0.05;
     minLat -= degBuffer;
     maxLat += degBuffer;
     minLng -= degBuffer;
@@ -603,12 +913,7 @@ const RouteEngine = (function () {
 
     const candidates = allChargers.filter(c => {
       if (c.lat < minLat || c.lat > maxLat || c.lng < minLng || c.lng > maxLng) return false;
-      // Filter according to Route Planner Preferences
-      if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
-      if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
-      if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
-      if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
-      return true;
+      return matchesRouteFilters(c);
     });
 
     for (let c = 0; c < candidates.length; c++) {
@@ -646,188 +951,136 @@ const RouteEngine = (function () {
   }
 
   /**
-   * Automatically suggests optimal charging stops along the route if distance > safe battery range.
-   * Handles multi-hundred-kilometer intercity journeys with intelligent gap recovery,
-   * adaptive corridor search, and forward-progress candidate ranking.
+   * Simulates leg-by-leg battery consumption with any existing user waypoints,
+   * then inserts ONLY needed vehicle-compatible charging stops without discarding manual stops!
    */
-  async function autoSuggestChargingStops(batteryEvaluation) {
-    if (!activeRoute || !batteryEvaluation) return [];
+  async function autoSuggestChargingStops(batteryEvaluation = null) {
+    if (!activeRoute) return [];
 
     const batState = window.BatteryEngine ? window.BatteryEngine.getState() : {};
-    const eff = batState.efficiency || 0.85;
-    const minReserve = batState.safetyReservePct || 15;
-    const startBat = batState.currentBatteryPct || 85;
-    const targetCharge = batState.targetChargePct || 80;
+    const eff = batState.efficiency ?? 0.85;
+    const minReserve = batState.safetyReservePct ?? 15;
+    const startBat = batState.currentBatteryPct ?? 85;
+    const targetCharge = batState.targetChargePct ?? 80;
 
-    // First leg safe range based on current starting battery SoC
-    const firstLegSafeRange = Math.max(15, Math.round((startBat - minReserve) * eff * 10) / 10);
-    // Intermediate legs safe range based on charging to target limit (e.g. 80%)
-    const intermediateSafeRange = Math.max(20, Math.round((targetCharge - minReserve) * eff * 10) / 10);
-
-    const totalDist = activeRoute.distanceKm;
-
-    if (totalDist <= firstLegSafeRange || corridorChargers.length === 0) {
-      return [];
+    const currentPlan = calculateTripTimeline(activeRoute, batState);
+    if (currentPlan && currentPlan.timeline) {
+      const hasUnsafeNode = currentPlan.timeline.some(s =>
+        (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'DESTINATION') &&
+        s.arrivalSoC < minReserve
+      );
+      if (!hasUnsafeNode) {
+        return [];
+      }
     }
 
-    // Preserve any existing custom stops added by user
-    const existingCustomStops = intermediateWaypoints.filter(w => !w.network && !w.type);
+    if (corridorChargers.length === 0) return [];
 
-    const suggestedWaypoints = [];
+    const firstLegSafeRange = Math.max(8, Math.round((startBat - minReserve) * eff * 10) / 10);
+    const intermediateSafeRange = Math.max(12, Math.round((targetCharge - minReserve) * eff * 10) / 10);
+    const totalDist = activeRoute.distanceKm;
+
+    const existingWaypoints = [...intermediateWaypoints];
+    const existingIds = new Set(existingWaypoints.map(w => String(w.originalId || w.id)));
+
+    const isCompat = (c) => {
+      if (window.BatteryEngine && typeof window.BatteryEngine.isChargerCompatible === 'function') {
+        return window.BatteryEngine.isChargerCompatible(c).compatible;
+      }
+      return c.is_2w !== false;
+    };
+
+    const newlySuggested = [];
     let currentCoveredKm = 0;
     let attempts = 0;
-    const maxAttempts = 35; // Supports up to 1,000+ km cross-state journeys
+    const maxAttempts = 25;
 
     while (currentCoveredKm + (attempts === 0 ? firstLegSafeRange : intermediateSafeRange) < totalDist && attempts < maxAttempts) {
       const safeRange = (attempts === 0) ? firstLegSafeRange : intermediateSafeRange;
       attempts++;
 
-      // Ideal target zone: between 45% and 95% of safe range ahead of current covered km
+      const nextManualStop = existingWaypoints.find(w =>
+        (w.network || w.type) &&
+        typeof w.kmFromOrigin === 'number' &&
+        w.kmFromOrigin > currentCoveredKm + 1 &&
+        w.kmFromOrigin <= currentCoveredKm + safeRange
+      );
+      if (nextManualStop) {
+        currentCoveredKm = nextManualStop.kmFromOrigin;
+        continue;
+      }
+
       const targetMinKm = currentCoveredKm + (safeRange * 0.45);
-      const targetMaxKm = currentCoveredKm + (safeRange * 0.95);
+      const targetMaxKm = currentCoveredKm + (safeRange * 0.92);
 
-      // 1. Ideal zone candidates (45% - 95% of safe range)
-      let candidates = corridorChargers.filter(c => {
-        if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
-        if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
-        if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
-        if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
-        return c.kmFromOrigin >= targetMinKm &&
-               c.kmFromOrigin <= targetMaxKm &&
-               !suggestedWaypoints.some(w => w.id === c.id);
-      });
+      const effectiveReachOk = (c) => {
+        const detourKm = (c.corridorDistanceKm || 0) * 2.0;
+        return (c.kmFromOrigin - currentCoveredKm + detourKm) <= safeRange;
+      };
 
-      // 2. Fallback zone: any charger between currentCoveredKm + 8km and currentCoveredKm + safeRange
+      let candidates = corridorChargers.filter(c =>
+        matchesRouteFilters(c) &&
+        isCompat(c) &&
+        !existingIds.has(String(c.id)) &&
+        !newlySuggested.some(w => w.id === c.id) &&
+        c.kmFromOrigin >= targetMinKm &&
+        c.kmFromOrigin <= targetMaxKm &&
+        effectiveReachOk(c)
+      );
+
       if (candidates.length === 0) {
-        candidates = corridorChargers.filter(c => {
-          if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
-          if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
-          if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
-          if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
-          return c.kmFromOrigin > currentCoveredKm + 8 &&
-                 c.kmFromOrigin <= currentCoveredKm + safeRange &&
-                 !suggestedWaypoints.some(w => w.id === c.id);
-        });
+        candidates = corridorChargers.filter(c =>
+          matchesRouteFilters(c) &&
+          isCompat(c) &&
+          !existingIds.has(String(c.id)) &&
+          !newlySuggested.some(w => w.id === c.id) &&
+          c.kmFromOrigin > currentCoveredKm + 4 &&
+          effectiveReachOk(c)
+        );
       }
 
-      // 3. Gap Recovery: If there is a charging desert / ghat stretch where no charger exists in ideal zone:
       if (candidates.length === 0) {
-        const forwardChargers = corridorChargers.filter(c => {
-          if (c.network === 'ATHER_GRID' && !routeFilters.atherFast) return false;
-          if (c.network === 'VIDA_GRID' && !routeFilters.vidaFast) return false;
-          if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !routeFilters.boltFast) return false;
-          if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !routeFilters.boltSlow) return false;
-          return c.kmFromOrigin > currentCoveredKm &&
-                 !suggestedWaypoints.some(w => w.id === c.id);
-        });
-
-        if (forwardChargers.length === 0) {
-          // No more chargers exist between here and the destination
-          break;
-        }
-
-        // Check if any charger exists within safe range (e.g. final top-up station before mountain pass)
-        const reachableForward = forwardChargers.filter(c => c.kmFromOrigin <= currentCoveredKm + safeRange);
-        if (reachableForward.length > 0) {
-          // Pick the furthest reachable charger to make maximum forward progress
-          reachableForward.sort((a, b) => b.kmFromOrigin - a.kmFromOrigin);
-          candidates = [reachableForward[0]];
-        } else {
-          // True gap: all forward chargers are beyond safeRange. Pick the first one just beyond the gap.
-          forwardChargers.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
-          candidates = [forwardChargers[0]];
-        }
+        const forward = corridorChargers.filter(c =>
+          matchesRouteFilters(c) &&
+          isCompat(c) &&
+          !existingIds.has(String(c.id)) &&
+          !newlySuggested.some(w => w.id === c.id) &&
+          c.kmFromOrigin > currentCoveredKm
+        );
+        if (forward.length === 0) break;
+        forward.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
+        candidates = [forward[0]];
       }
 
-      // Rank candidates: prioritize furthest forward progress along the route, balanced with network priority and low detour
       candidates.sort((a, b) => {
-        const getNetScore = (c) => {
-          if (c.network === 'ATHER_GRID') return 30;
-          if (c.network === 'VIDA_GRID') return 30;
+        const netBonus = (c) => {
+          if (c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID') return 28;
           if (c.network === 'BOLT_EARTH' && c.type === 'FAST') return 20;
-          return 0; // 15A socket
+          return 0;
         };
-
-        const scoreA = ((a.kmFromOrigin - currentCoveredKm) * 1.5) + getNetScore(a) - (a.corridorDistanceKm * 3.5);
-        const scoreB = ((b.kmFromOrigin - currentCoveredKm) * 1.5) + getNetScore(b) - (b.corridorDistanceKm * 3.5);
+        const scoreA = ((a.kmFromOrigin - currentCoveredKm) * 1.4) + netBonus(a) - (a.corridorDistanceKm * 4.5);
+        const scoreB = ((b.kmFromOrigin - currentCoveredKm) * 1.4) + netBonus(b) - (b.corridorDistanceKm * 4.5);
         return scoreB - scoreA;
       });
 
       const selected = candidates[0];
-      suggestedWaypoints.push(selected);
+      newlySuggested.push(selected);
       currentCoveredKm = selected.kmFromOrigin;
     }
 
-    if (suggestedWaypoints.length > 0) {
-      // Merge custom stops and suggested chargers in order along the route
-      const merged = [...existingCustomStops, ...suggestedWaypoints];
+    if (newlySuggested.length > 0) {
+      const merged = [...existingWaypoints, ...newlySuggested];
       intermediateWaypoints = sortWaypointsSequentially(merged, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
       await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
     }
 
-    return suggestedWaypoints;
+    return newlySuggested;
   }
 
-  /**
-   * Sorts intermediate waypoints in forward geometric sequence from origin to destination.
-   */
-  function sortWaypointsSequentially(waypoints, origin, destination, routeCoords = null) {
-    if (!waypoints || waypoints.length <= 1) return waypoints || [];
-    if (!origin) return waypoints;
-
-    return [...waypoints].sort((a, b) => {
-      const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
-      const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
-      return dA - dB;
-    });
-  }
-
-  /**
-   * Calculates the exact road kilometer distance along the active route polyline
-   */
-  function calculateKmAlongRoute(lat, lng, routeCoords, startSeg = 0, endSeg = null) {
-    if (!routeCoords || routeCoords.length < 2) return 0;
-    const cumDists = new Float64Array(routeCoords.length);
-    cumDists[0] = 0;
-    for (let i = 1; i < routeCoords.length; i++) {
-      cumDists[i] = cumDists[i - 1] + haversineDistance(
-        routeCoords[i - 1][0], routeCoords[i - 1][1],
-        routeCoords[i][0], routeCoords[i][1]
-      );
-    }
-    const totalPolyDist = cumDists[cumDists.length - 1] || 1;
-    const routeDist = (activeRoute && activeRoute.distanceKm) ? activeRoute.distanceKm : totalPolyDist;
-    const distScale = routeDist / totalPolyDist;
-
-    const p = [lat, lng];
-    let minDistance = Infinity;
-    const maxSeg = (endSeg !== null && endSeg < routeCoords.length - 1) ? endSeg : routeCoords.length - 1;
-    const minSeg = Math.max(0, Math.min(startSeg, maxSeg));
-    let closestSegmentIndex = minSeg;
-    let closestT = 0;
-
-    for (let s = minSeg; s < maxSeg; s++) {
-      const res = distToSegment(p, routeCoords[s], routeCoords[s + 1]);
-      if (res.distance < minDistance) {
-        minDistance = res.distance;
-        closestSegmentIndex = s;
-        closestT = res.t;
-      }
-      if (minDistance <= 0.05) break;
-    }
-
-    const segDist = cumDists[closestSegmentIndex] + closestT * (cumDists[closestSegmentIndex + 1] - cumDists[closestSegmentIndex]);
-    return Math.round(segDist * distScale * 10) / 10;
-  }
-
-  /**
-   * Add a charger or custom point to intermediate waypoints (Trip Planner)
-   * A charger can only be added once.
-   */
   function addWaypoint(charger) {
     if (!charger) return false;
     const baseId = charger.originalId || charger.id;
-    const alreadyExists = intermediateWaypoints.some(w => (w.originalId || w.id) === baseId);
+    const alreadyExists = intermediateWaypoints.some(w => String(w.originalId || w.id) === String(baseId));
 
     if (alreadyExists) {
       if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
@@ -836,12 +1089,15 @@ const RouteEngine = (function () {
       return false;
     }
 
-    const stopObj = {
-      ...charger,
-      originalId: baseId,
-      id: baseId
-    };
-    delete stopObj.kmFromOrigin; // ALWAYS calculate freshly!
+    if (window.BatteryEngine && typeof window.BatteryEngine.isChargerCompatible === 'function') {
+      const compat = window.BatteryEngine.isChargerCompatible(charger);
+      if (!compat.compatible && window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast(`⚠️ Note: ${compat.reason}`);
+      }
+    }
+
+    const stopObj = { ...charger, originalId: baseId, id: baseId };
+    delete stopObj.kmFromOrigin;
 
     if (activeRoute && activeRoute.coordinates) {
       intermediateWaypoints.push(stopObj);
@@ -849,33 +1105,26 @@ const RouteEngine = (function () {
       calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints);
     } else {
       intermediateWaypoints.push(stopObj);
+      persistTripState();
       notify();
     }
     return true;
   }
 
-  /**
-   * Remove a charger or stop from waypoints and cleanly recalculate full route
-   * Does NOT auto-suggest chargers on user removal so user can manually add their own stops.
-   */
   function removeWaypoint(chargerId) {
     if (!chargerId) return;
 
     intermediateWaypoints = intermediateWaypoints.filter(w =>
       String(w.id) !== String(chargerId) && String(w.originalId || '') !== String(chargerId)
     );
-
-    // Clear stale distance along route cache so waypoints re-sequence cleanly without cut-off
-    intermediateWaypoints.forEach(w => {
-      delete w.kmFromOrigin;
-    });
+    intermediateWaypoints.forEach(w => { delete w.kmFromOrigin; });
 
     if (activeRoute) {
       calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints).catch(err => {
         console.warn('[VoltWay Router] Recalculate after remove waypoint note:', err);
       });
-      // NOTE: Deliberately no autoSuggestChargingStops here to respect user's manual choice!
     } else {
+      persistTripState();
       notify();
     }
   }
@@ -884,6 +1133,7 @@ const RouteEngine = (function () {
     Object.assign(routeFilters, newFilters);
     if (activeRoute) {
       findCorridorChargers(activeRoute.coordinates);
+      persistTripState();
       notify();
     }
   }
@@ -892,10 +1142,6 @@ const RouteEngine = (function () {
     return { ...routeFilters };
   }
 
-  /**
-   * Calculates comprehensive stop-by-stop charging, arrival SoC, required charge %,
-   * and charging durations for every waypoint along the active route.
-   */
   function calculateTripTimeline(route, batteryState) {
     if (!route) return null;
     const batState = batteryState || (window.BatteryEngine ? window.BatteryEngine.getState() : {
@@ -905,40 +1151,36 @@ const RouteEngine = (function () {
       targetChargePct: 80
     });
 
-    const eff = batState.efficiency || 0.85;
-    const startBat = batState.currentBatteryPct || 85;
-    const targetCharge = batState.targetChargePct || 80;
-    const minReserve = batState.safetyReservePct || 15;
+    const eff = (batState.efficiency != null && batState.efficiency > 0) ? batState.efficiency : 0.85;
+    const startBat = (typeof batState.currentBatteryPct === 'number' && !isNaN(batState.currentBatteryPct)) ? batState.currentBatteryPct : 85;
+    const targetCharge = (typeof batState.targetChargePct === 'number' && !isNaN(batState.targetChargePct)) ? batState.targetChargePct : 80;
+    const minReserve = (typeof batState.safetyReservePct === 'number' && !isNaN(batState.safetyReservePct)) ? batState.safetyReservePct : 15;
 
     const waypoints = route.waypoints || [];
     const legs = route.legs || [];
+    const timeline = [];
 
     let currentSoC = startBat;
-    const timeline = [];
     let totalChargingTimeMins = 0;
     let totalEnergyChargedPct = 0;
 
-    // Node 0: Starting Origin
     timeline.push({
       type: 'ORIGIN',
-      name: route.origin?.name || 'Starting Point',
+      name: route.origin?.name || 'Origin',
       lat: route.origin?.lat,
       lng: route.origin?.lng,
-      departureSoC: currentSoC
+      batteryPct: currentSoC
     });
 
-    // If no waypoints, single direct leg to destination
     if (waypoints.length === 0) {
-      const distKm = route.distanceKm;
-      const batUsed = Math.round((distKm / eff) * 10) / 10;
-      const arrivalSoC = Math.round((currentSoC - batUsed) * 10) / 10;
-      const isSafe = arrivalSoC >= minReserve;
+      const usedPct = Math.round((route.distanceKm / eff) * 10) / 10;
+      const arrivalSoC = Math.round((currentSoC - usedPct) * 10) / 10;
 
       timeline.push({
         type: 'LEG',
-        distanceKm: distKm,
+        distanceKm: route.distanceKm,
         durationMins: route.durationMins,
-        batteryUsedPct: batUsed
+        batteryUsedPct: usedPct
       });
 
       timeline.push({
@@ -946,8 +1188,8 @@ const RouteEngine = (function () {
         name: route.destination?.name || 'Destination',
         lat: route.destination?.lat,
         lng: route.destination?.lng,
-        arrivalSoC: arrivalSoC,
-        isSafe: isSafe,
+        arrivalSoC,
+        isSafe: arrivalSoC >= minReserve,
         isCritical: arrivalSoC < 0
       });
 
@@ -963,7 +1205,6 @@ const RouteEngine = (function () {
       };
     }
 
-    // Process each intermediate stop
     for (let i = 0; i < waypoints.length; i++) {
       const wp = waypoints[i];
       const legDist = (legs[i] && legs[i].distance) ? Math.round((legs[i].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
@@ -973,7 +1214,6 @@ const RouteEngine = (function () {
       const isSafeArrival = arrivalSoC >= minReserve;
       const isCriticalArrival = arrivalSoC < 0;
 
-      // Distance and consumption of NEXT leg (either next waypoint or final destination)
       let nextLegDist = 0;
       let nextStopName = 'Destination';
       if (i + 1 < waypoints.length) {
@@ -998,61 +1238,40 @@ const RouteEngine = (function () {
       const isCharger = !!(wp.network || wp.type);
 
       if (isCharger) {
-        const isFast = wp.network === 'ATHER_GRID' || wp.type === 'FAST';
-        // DC Fast Chargers cut off at targetCharge (typically 80%) to protect lithium cells
-        // Slow 15A AC sockets can charge up to 100%
+        const isFast = wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID' || wp.type === 'FAST';
         const maxChargerCeiling = isFast ? targetCharge : 100;
+        const effectiveArrival = Math.max(0, arrivalSoC);
 
-        // 1. Optimal Fast Travel Recommendation (Charge only what is needed to reach next stop with buffer)
-        // Strictly capped at maxChargerCeiling (e.g. 80% for Fast Chargers)
-        const optimalTargetSoC = Math.min(maxChargerCeiling, Math.max(Math.ceil(arrivalSoC), minDepartureNeeded));
-        const optimalChargeNeededPct = Math.max(0, Math.round((optimalTargetSoC - Math.max(0, arrivalSoC)) * 10) / 10);
-        const optimalChargeTimeMins = computeChargingDuration(optimalChargeNeededPct, arrivalSoC, isFast);
+        const optimalTargetSoC = Math.min(maxChargerCeiling, Math.max(Math.ceil(effectiveArrival), minDepartureNeeded));
+        const optimalChargeNeededPct = Math.max(0, Math.round((optimalTargetSoC - effectiveArrival) * 10) / 10);
+        const optimalChargeTimeMins = computeChargingDuration(optimalChargeNeededPct, effectiveArrival, isFast, wp.power_kw, batState.vehicleDetails);
 
-        // 2. Full Target Limit Charge (Configured target, e.g. 80%)
-        // Strictly capped at maxChargerCeiling (e.g. 80% for Fast Chargers)
         const fullTargetSoC = Math.min(maxChargerCeiling, Math.max(targetCharge, optimalTargetSoC));
-        const fullChargeNeededPct = Math.max(0, Math.round((fullTargetSoC - Math.max(0, arrivalSoC)) * 10) / 10);
-        const fullChargeTimeMins = computeChargingDuration(fullChargeNeededPct, arrivalSoC, isFast);
+        const fullChargeNeededPct = Math.max(0, Math.round((fullTargetSoC - effectiveArrival) * 10) / 10);
+        const fullChargeTimeMins = computeChargingDuration(fullChargeNeededPct, effectiveArrival, isFast, wp.power_kw, batState.vehicleDetails);
 
         const timeSavedMins = Math.max(0, fullChargeTimeMins - optimalChargeTimeMins);
 
-        // 3. Units (kWh) and Estimated Cost
         const batCap = (batState.vehicleDetails && batState.vehicleDetails.batteryCapacity) || 3.7;
-        const unitsOptimalKWh = Math.round(((optimalChargeNeededPct / 100) * batCap) * 10) / 10;
-        const unitsTargetKWh = Math.round(((fullChargeNeededPct / 100) * batCap) * 10) / 10;
+        const activeTargetSoC = currentTimelineMode === 'optimal' ? optimalTargetSoC : fullTargetSoC;
+        const activeChargeNeeded = currentTimelineMode === 'optimal' ? optimalChargeNeededPct : fullChargeNeededPct;
+        const activeChargeTime = currentTimelineMode === 'optimal' ? optimalChargeTimeMins : fullChargeTimeMins;
+        const unitsActiveKWh = Math.round(((activeChargeNeeded / 100) * batCap) * 100) / 100;
 
-        let estCost = 0;
-        if (wp.network === 'ATHER_GRID') {
-          estCost = 0; // Ather Grid Free Fast Charging
-        } else if (wp.network === 'VIDA_GRID') {
-          estCost = Math.round(unitsOptimalKWh * 15);
-        } else if (wp.network === 'BOLT_EARTH' && wp.type === 'FAST') {
-          estCost = Math.round(unitsOptimalKWh * 16);
-        } else {
-          estCost = Math.round(unitsOptimalKWh * 14);
-        }
-
-        // 4. Smart Recommendation Advice Text
         let smartAdvice = '';
         if (isFast && minDepartureNeeded > maxChargerCeiling) {
           const estArrival = Math.round((maxChargerCeiling - nextLegBatUsed) * 10) / 10;
           if (estArrival >= 0) {
-            smartAdvice = `Fast charger cuts off at ${maxChargerCeiling}%. Next stretch is ${nextLegDist} km to ${nextStopName}. Reaches next stop with ~${estArrival}% battery reserve.`;
+            smartAdvice = `Target ceiling ${maxChargerCeiling}%. Next leg is ${nextLegDist} km to ${nextStopName}, arriving with est. ~${estArrival}% SoC.`;
           } else {
             const shortKm = Math.round(Math.abs(estArrival) * eff * 10) / 10;
-            smartAdvice = `⚠️ Range Gap: Next stretch is ${nextLegDist} km to ${nextStopName}. Fast charger cuts off at ${maxChargerCeiling}%, which is short by ~${shortKm} km. Consider a 15A socket or ride in ECO mode.`;
+            smartAdvice = `⚠️ Range Gap: Next leg is ${nextLegDist} km to ${nextStopName}. Even at ${maxChargerCeiling}%, est. short by ~${shortKm} km — raise charge target to 95–100% or switch to ECO mode.`;
           }
         } else if (optimalTargetSoC < fullTargetSoC) {
-          smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charging to ${optimalTargetSoC}% gets you there safely with ${minReserve}% buffer — saving ${timeSavedMins} mins! Or charge to ${fullTargetSoC}% for max cushion.`;
+          smartAdvice = `Next leg is ${nextLegDist} km to ${nextStopName}. Fast-hop charge to ${optimalTargetSoC}% saves ~${timeSavedMins} min (keeps ${minReserve}% reserve).`;
         } else {
-          smartAdvice = `Next stretch is ${nextLegDist} km to ${nextStopName}. Charge to ${optimalTargetSoC}% to guarantee safe arrival with ${minReserve}% safety buffer.`;
+          smartAdvice = `Next leg is ${nextLegDist} km to ${nextStopName}. Charge to ${optimalTargetSoC}% for safe arrival.`;
         }
-
-        // Active values depending on current timeline mode ('optimal' vs 'target')
-        const activeDepartureSoC = currentTimelineMode === 'optimal' ? optimalTargetSoC : fullTargetSoC;
-        const activeChargeNeeded = currentTimelineMode === 'optimal' ? optimalChargeNeededPct : fullChargeNeededPct;
-        const activeChargeTime = currentTimelineMode === 'optimal' ? optimalChargeTimeMins : fullChargeTimeMins;
 
         totalChargingTimeMins += activeChargeTime;
         totalEnergyChargedPct += activeChargeNeeded;
@@ -1074,18 +1293,16 @@ const RouteEngine = (function () {
           fullChargeNeededPct,
           fullChargeTimeMins,
           timeSavedMins,
-          unitsKWh: unitsOptimalKWh,
-          estCost,
+          unitsKWh: unitsActiveKWh,
           smartAdvice,
           targetChargeSoC: targetCharge,
           chargeNeededPct: activeChargeNeeded,
           chargeTimeMins: activeChargeTime,
-          departureSoC: activeDepartureSoC
+          departureSoC: activeTargetSoC
         });
 
-        currentSoC = activeDepartureSoC;
+        currentSoC = activeTargetSoC;
       } else {
-        // Intermediate Custom Waypoint / City / Stop
         timeline.push({
           type: 'CUSTOM_STOP',
           index: i + 1,
@@ -1098,12 +1315,10 @@ const RouteEngine = (function () {
           nextStopName,
           departureSoC: arrivalSoC
         });
-
         currentSoC = arrivalSoC;
       }
     }
 
-    // Final Leg to Destination
     const lastLegIdx = waypoints.length;
     const finalLegDist = (legs[lastLegIdx] && legs[lastLegIdx].distance) ? Math.round((legs[lastLegIdx].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
     const finalLegDur = (legs[lastLegIdx] && legs[lastLegIdx].duration) ? Math.round(legs[lastLegIdx].duration / 60) : Math.round(finalLegDist * 1.8);
@@ -1146,6 +1361,8 @@ const RouteEngine = (function () {
     corridorChargers = [];
     intermediateWaypoints = [];
     lastSnappedSegmentIndex = 0;
+    sentToGoogleMaps = false;
+    try { localStorage.removeItem(SAVED_TRIP_KEY); } catch (e) {}
     notify();
   }
 
@@ -1166,6 +1383,10 @@ const RouteEngine = (function () {
     getCorridorBufferKm,
     getDistanceToActiveRoute,
     sliceActiveRouteAtPosition,
+    restoreSavedTrip,
+    refreshCorridorForActiveRoute,
+    markSentToGoogleMaps,
+    isSentToGoogleMaps: () => sentToGoogleMaps,
     subscribe,
     getActiveRoute: () => activeRoute,
     getAllRoutes: () => allRoutes,

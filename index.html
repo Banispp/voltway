@@ -3,28 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#06090f">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="VoltWay 2W">
-  <meta name="description" content="Production-ready, zero-server-cost EV Route Planner for 2-wheeler electric vehicles (Ather Grid, Hero VIDA & Bolt.Earth)">
+  <meta name="description" content="Zero-server offline-first EV Route Planner & Navigation for Indian 2-wheeler EVs (Ather Grid, Hero VIDA & Bolt.Earth)">
 
-  <title>VoltWay 2W - EV Route Planner (Ather, VIDA & Bolt)</title>
+  <title>VoltWay 2W - EV Route Planner & Navigation</title>
 
-  <!-- PWA Manifest & Icons -->
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/favicon.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
-  <!-- Free Leaflet OpenStreetMap Engine -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <!-- Leaflet 360 Full Map Rotation & Touch Gestures Plugin -->
-  <script src="js/leaflet-rotate.js?v=5.25"></script>
+  <script src="js/leaflet-rotate.js?v=5.50"></script>
 
-  <!-- App Stylesheet with Cache-Buster -->
-  <link rel="stylesheet" href="css/app.css?v=5.25">
-
+  <link rel="stylesheet" href="css/app.css?v=5.50">
 </head>
 <body>
   <div id="app-container">
@@ -39,62 +34,64 @@
         </div>
       </div>
       <div class="header-actions">
-        <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="⚡ Sync Latest EV Chargers (Ather, VIDA & Bolt)">
-          <span class="live-status-dot"></span> <span class="sync-text-prefix">🔄 Sync (</span><span id="header-station-count">11,450</span><span class="sync-text-suffix">)</span>
+        <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="Sync Verified 2W EV Chargers">
+          <span class="live-status-dot"></span> <span class="sync-text-prefix">🔄 Sync (</span><span id="header-station-count">9,286</span><span class="sync-text-suffix">)</span>
         </button>
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
         </button>
-        <button id="btn-force-refresh" class="btn-header-action btn-version-pill" title="Clear Cache & Force Refresh">
-          v5.36
+        <button id="btn-force-refresh" class="btn-header-action btn-version-pill" title="Check Updates & Refresh Assets (Keeps Settings)">
+          v5.50
         </button>
         <button id="btn-install-app" class="btn-header-action btn-install" style="display: none;" title="Install on Android Phone">
-          📲 Install App
+          📲 Install
         </button>
       </div>
     </header>
 
-    <!-- Sticky Top Filter Chips Bar -->
+    <!-- Sticky Top Filter Chips & Offline Banner -->
     <div class="map-top-bar">
-      <!-- State Regional Filter Bar (Ultra-Fast 60FPS Optimization) -->
+      <div id="offline-status-banner" class="offline-status-banner" style="display: none;">
+        📡 Offline: Cached 2W chargers, SOS &amp; battery tools work • Live map tiles &amp; road routing require internet
+      </div>
+
       <div class="state-chips-bar" id="state-chips-bar">
-        <span class="state-filter-pill-label">📍 State:</span>
-        <button type="button" class="state-chip active" data-state="all" title="Show All EV Chargers">🌐 All</button>
+        <span class="state-filter-pill-label">📍 Region:</span>
+        <button type="button" class="state-chip active" data-state="all" title="Show All Verified 2W Chargers">🌐 All India</button>
         <button type="button" class="state-chip" data-state="kerala" title="Show Kerala EV Chargers">🌴 Kerala</button>
-        <button type="button" class="state-chip" data-state="karnataka" title="Show Karnataka & Bangalore EV Chargers">🌲 Karnataka</button>
+        <button type="button" class="state-chip" data-state="karnataka" title="Show Karnataka & Bengaluru EV Chargers">🌲 Karnataka</button>
         <button type="button" class="state-chip" data-state="tamil_nadu" title="Show Tamil Nadu EV Chargers">🛕 Tamil Nadu</button>
       </div>
 
-      <!-- Filter Chips Bar (Sticky) - Default: TWO-WHEELER FAST CHARGERS ONLY -->
       <div class="filter-chips-bar">
-        <button type="button" id="chip-fast-only" class="filter-chip chip-fast-only active" title="Show Only High-Speed 2W DC Fast Chargers (Ather, VIDA & Bolt Fast)">
+        <button type="button" id="chip-fast-only" class="filter-chip chip-fast-only active" title="Show High-Speed 2W Fast Chargers Only">
           <span>⚡ Fast Only</span>
           <span id="count-fast-only" class="chip-badge">4,733</span>
         </button>
-        <button type="button" id="chip-ather-fast" class="filter-chip chip-ather active" title="Toggle Ather Grid DC Fast Chargers">
+        <button type="button" id="chip-ather-fast" class="filter-chip chip-ather active" title="Toggle Ather Grid Type 7 Fast Chargers">
           <span>⚡ Ather Grid</span>
           <span id="count-ather-fast" class="chip-badge">3,572</span>
         </button>
-        <button type="button" id="chip-vida-fast" class="filter-chip chip-vida-fast active" title="Toggle Hero VIDA Fast Chargers">
+        <button type="button" id="chip-vida-fast" class="filter-chip chip-vida-fast active" title="Toggle Hero VIDA Type 7 Fast Chargers">
           <span>⚡ VIDA Grid</span>
           <span id="count-vida-fast" class="chip-badge">611</span>
         </button>
-        <button type="button" id="chip-bolt-fast" class="filter-chip chip-bolt-fast active" title="Toggle Bolt.Earth Fast Chargers">
+        <button type="button" id="chip-bolt-fast" class="filter-chip chip-bolt-fast active" title="Toggle Bolt.Earth 2W Fast Chargers">
           <span>⚡ Bolt Fast</span>
           <span id="count-bolt-fast" class="chip-badge">550</span>
         </button>
-        <button type="button" id="chip-bolt-slow" class="filter-chip chip-bolt-slow" title="Toggle Bolt.Earth 15A Sockets">
+        <button type="button" id="chip-bolt-slow" class="filter-chip chip-bolt-slow" title="Toggle Bolt.Earth 15A AC Sockets">
           <span>🔌 Bolt 15A</span>
-          <span id="count-bolt-slow" class="chip-badge">6,717</span>
+          <span id="count-bolt-slow" class="chip-badge">4,553</span>
         </button>
       </div>
 
-      <!-- Floating Route Corridor Buffer Manual Number Input Pill on Map (Visible when Route is Active) -->
+      <!-- Floating Route Corridor Buffer Input (Visible when Route Active) -->
       <div id="map-route-corridor-pill" class="map-route-corridor-pill" style="display: none;">
         <span class="pill-corridor-icon">🛣️</span>
         <span class="pill-corridor-text">Corridor:</span>
         <div class="corridor-manual-input-box map-pill-corridor-box">
-          <input type="number" id="input-map-corridor" class="corridor-number-input pill-corridor-input" min="1" max="100" value="5" placeholder="5" title="Type corridor buffer distance in km">
+          <input type="number" id="input-map-corridor" class="corridor-number-input pill-corridor-input" min="1" max="100" value="5" placeholder="5" title="Route search buffer distance in km">
           <span class="corridor-unit-tag">km</span>
         </div>
       </div>
@@ -103,74 +100,75 @@
     <!-- Central Interactive Leaflet Map -->
     <div id="map"></div>
 
-    <!-- Floating Current GPS Location Button -->
+    <!-- Floating Map Quick Controls -->
     <button type="button" id="btn-float-gps" class="btn-float-gps" title="Center on My GPS Location">
       🎯
     </button>
 
-    <!-- Floating Fullscreen Map Toggle Button -->
-    <button id="btn-toggle-fullscreen" class="btn-toggle-fullscreen" title="Toggle Fullscreen Map">
+    <button type="button" id="btn-toggle-fullscreen" class="btn-toggle-fullscreen" title="Toggle Fullscreen Map">
       ⛶
     </button>
 
-    <!-- Floating Map Theme Switcher Button (Dark Google Map / Normal Standard Map) -->
     <button type="button" id="btn-toggle-map-theme" class="btn-toggle-map-theme" title="Switch Map Theme">
       <span id="theme-btn-icon">☀️</span>
     </button>
 
-    <!-- Floating Navigation Mode Compass Button (Google Maps Style: Toggles Free Orientation / Route-Locked Mode) -->
+    <!-- Navigation Compass Mode Button (Drive Mode) -->
     <button type="button" id="btn-nav-compass" class="btn-nav-compass" style="display: none;" title="Toggle Compass Orientation Mode">
       <div class="nav-compass-dial">
         <div id="nav-compass-needle" class="nav-compass-needle"></div>
       </div>
     </button>
 
-    <!-- Floating Google Maps Style Start Navigation Button -->
-    <button id="btn-floating-start-nav" class="btn-floating-start-nav" style="display: none;" title="Start In-App Navigation">
+    <!-- Floating Start Navigation Button -->
+    <button type="button" id="btn-floating-start-nav" class="btn-floating-start-nav" style="display: none;" title="Start In-App Navigation">
       <span class="start-icon">▶</span>
-      <span class="start-label">Start</span>
+      <span class="start-label">Start Ride</span>
     </button>
 
-    <!-- In-App Turn-by-Turn Driving Mode HUD Wrapper (Google Maps Style) -->
+    <!-- In-App Turn-by-Turn Driving Mode HUD Wrapper -->
     <div id="nav-driving-hud-wrapper" class="nav-driving-hud-wrapper" style="display: none;">
       <div id="nav-driving-hud" class="nav-driving-hud">
         <div class="hud-maneuver-icon-box">
-          <span id="hud-turn-icon" class="hud-turn-icon">↑</span>
+          <span id="hud-turn-icon" class="hud-turn-icon">⬆</span>
         </div>
         <div class="hud-instruction-content">
           <div class="hud-distance-row">
-            <span id="hud-distance-val" class="hud-distance-val">In 350 m</span>
+            <span id="hud-distance-val" class="hud-distance-val">In 200 m</span>
+            <span id="hud-battery-pill" class="hud-battery-pill">🔋 --%</span>
           </div>
-          <div id="hud-street-name" class="hud-street-name">towards Main Road</div>
+          <div id="hud-street-name" class="hud-street-name">Continue on route</div>
           <div id="hud-next-charger-badge" class="hud-next-charger-badge" style="display: none;">
-            ⚡ Next Stop: <span id="hud-next-charger-name">Ather Grid Fast</span> (<span id="hud-next-charger-dist">12 km</span>)
+            ⚡ Stop: <span id="hud-next-charger-name">Charging Station</span> (<span id="hud-next-charger-dist">-- km</span>)
           </div>
         </div>
+        <button type="button" id="btn-hud-sound" class="btn-hud-sound" title="Toggle Turn-by-Turn Voice Guidance">
+          🔊
+        </button>
       </div>
 
-      <!-- Google Maps Subsequent Turn Step ("Then ↱") -->
       <div id="hud-subsequent-step" class="hud-subsequent-step" style="display: none;">
         <span class="then-badge-label">Then</span>
         <span id="hud-sub-turn-icon" class="hud-sub-turn-icon">↱</span>
       </div>
     </div>
 
-    <!-- Google Maps Live Floating Speedometer (Bottom-Left) -->
+    <!-- OLED Live Speedometer (Bottom-Left during Drive Mode) -->
     <div id="nav-speedometer" class="nav-speedometer" style="display: none;">
       <span id="nav-speed-val" class="nav-speed-val">0</span>
       <span class="nav-speed-unit">km/h</span>
     </div>
 
-    <!-- Google Maps Road Name Callout Pill on Map -->
+    <!-- Active Street Callout Pill -->
     <div id="nav-road-pill" class="nav-road-pill" style="display: none;">
       <span id="nav-road-pill-text">Main Road</span>
     </div>
 
-    <!-- In-App Driving Mode Bottom Stats Bar (Google Maps Style) -->
+    <!-- In-App Driving Mode OLED Bottom Stats Bar -->
     <div id="nav-bottom-bar" class="nav-bottom-bar" style="display: none;">
       <div class="nav-bottom-drag-pill"></div>
       <div class="nav-bottom-content-row">
-        <button type="button" id="btn-exit-drive-mode" class="btn-exit-drive" title="Exit Navigation">
+        <button type="button" id="btn-exit-drive-mode" class="btn-exit-drive" title="Exit Navigation" aria-label="Exit Navigation">
           ✕
         </button>
         <div class="nav-bottom-main-stats">
@@ -183,7 +181,7 @@
             <span id="nav-stat-eta" class="nav-stat-eta">--:--</span>
           </div>
         </div>
-        <button type="button" id="btn-nav-routes-toggle" class="btn-nav-routes-toggle" title="Route Overview & Rider Follow">
+        <button type="button" id="btn-nav-routes-toggle" class="btn-nav-routes-toggle" title="Route Overview & Follow" aria-label="Route Overview">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="19" x2="12" y2="11"></line>
             <path d="M12 11L7 6"></path>
@@ -199,13 +197,11 @@
 
     <!-- Slide-Up Bottom Sheet Drawer -->
     <div id="bottom-sheet" class="bottom-sheet">
-      <!-- Handle Bar (Touch Swipeable & Tap to Toggle) -->
       <div id="sheet-handle-bar" class="sheet-handle-bar" title="Swipe up/down or tap to toggle drawer">
         <div class="sheet-pill"></div>
         <button id="btn-toggle-drawer" class="btn-drawer-toggle">▼ Minimize</button>
       </div>
 
-      <!-- Navigation Tabs -->
       <nav class="tabs-nav">
         <button class="tab-btn active" data-tab="route">
           <span class="tab-icon">🗺️</span>
@@ -214,7 +210,7 @@
         </button>
         <button class="tab-btn" data-tab="battery">
           <span class="tab-icon">🔋</span>
-          <span class="tab-label-full">Range & Vehicle</span>
+          <span class="tab-label-full">Range &amp; Vehicle</span>
           <span class="tab-label-short">Range</span>
         </button>
         <button class="tab-btn" data-tab="calculator">
@@ -229,24 +225,20 @@
         </button>
       </nav>
 
-      <!-- Sheet Panes -->
       <div class="sheet-content">
 
         <!-- ==================== TAB 1: ROUTE PLANNER ==================== -->
         <div id="pane-route" class="tab-pane active">
-          <!-- Search Area: Find Town or EV Charger (No floating map box) -->
           <div class="input-group search-area-group">
-            <span class="input-label">🔍 Search Area / Place / Charger</span>
+            <span class="input-label">🔍 Search Area / Charger / Maps Link</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="search-places-input" class="input-text" placeholder="Search city, town, or EV charger..." autocomplete="off">
+                <input type="text" id="search-places-input" class="input-text" placeholder="Search city, charger, or paste Maps link..." autocomplete="off">
               </div>
               <div id="search-dropdown" class="autocomplete-dropdown"></div>
             </div>
           </div>
 
-
-          <!-- Origin & Destination Inputs with Autocomplete -->
           <div class="input-group">
             <span class="input-label">Starting Point (A)</span>
             <div class="autocomplete-wrapper">
@@ -258,10 +250,8 @@
             </div>
           </div>
 
-          <!-- Dynamic Intermediate Custom Stops Container -->
           <div id="intermediate-stops-list" class="intermediate-stops-list"></div>
 
-          <!-- Route Stops Action Bar: Add Stop -->
           <div class="route-stops-action-bar">
             <button type="button" id="btn-add-intermediate-stop" class="btn-action-pill btn-pill-add-stop" title="Add intermediate stop / city between start and destination">
               ➕ Add Stop
@@ -272,66 +262,58 @@
             <span class="input-label">Final Destination (D)</span>
             <div class="autocomplete-wrapper">
               <div class="input-row">
-                <input type="text" id="input-destination" class="input-text" placeholder="Destination town, city, or address..." autocomplete="off">
+                <input type="text" id="input-destination" class="input-text" placeholder="Destination town, coordinates, or Maps link..." autocomplete="off">
               </div>
               <div id="dest-suggestions" class="autocomplete-dropdown"></div>
             </div>
           </div>
 
-          <!-- Route Charger Network & Speed Preferences Filter (Controls auto-stop suggestions) -->
           <div class="input-group">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span class="input-label">⚡ Route Charger Preferences</span>
               <span style="font-size: 0.7rem; color: var(--text-muted);">Auto-stop filter</span>
             </div>
             <div class="route-filter-pills" id="route-charger-filters">
-              <button type="button" class="route-filter-btn active" data-filter="atherFast" title="Include Ather Grid DC Fast Chargers">
-                <span class="filter-dot dot-ather"></span> Ather Fast ⚡
+              <button type="button" class="route-filter-btn active" data-filter="atherFast" title="Include Ather Grid Fast Chargers">
+                <span class="filter-dot dot-ather"></span> Ather ⚡
               </button>
-              <button type="button" class="route-filter-btn active" data-filter="vidaFast" title="Include Hero VIDA DC Fast Chargers">
-                <span class="filter-dot dot-vida-fast"></span> VIDA Fast ⚡
+              <button type="button" class="route-filter-btn active" data-filter="vidaFast" title="Include Hero VIDA Fast Chargers">
+                <span class="filter-dot dot-vida-fast"></span> VIDA ⚡
               </button>
-              <button type="button" class="route-filter-btn active" data-filter="boltFast" title="Include Bolt.Earth DC/AC Fast Chargers">
-                <span class="filter-dot dot-bolt-fast"></span> Bolt Fast ⚡
+              <button type="button" class="route-filter-btn active" data-filter="boltFast" title="Include Bolt.Earth Fast Chargers">
+                <span class="filter-dot dot-bolt-fast"></span> Bolt ⚡
               </button>
-              <button type="button" class="route-filter-btn active" data-filter="boltSlow" title="Include Bolt.Earth Standard 15A Sockets">
-                <span class="filter-dot dot-bolt-slow"></span> Bolt 15A 🔌
+              <button type="button" class="route-filter-btn active" data-filter="boltSlow" title="Include Bolt.Earth 15A Sockets">
+                <span class="filter-dot dot-bolt-slow"></span> 15A 🔌
               </button>
             </div>
           </div>
 
-          <!-- Trip Planner Added Waypoints (Stops) -->
           <div id="trip-waypoints-section" class="waypoints-summary-section" style="display: none;">
             <div class="section-title">
               <span>📍 Route Stops (<span id="trip-waypoints-count">0</span>)</span>
-              <span style="font-size: 0.72rem; color: var(--color-ather);">Click charger on map to add</span>
+              <span style="font-size: 0.72rem; color: var(--color-ather);">Tap map charger to add</span>
             </div>
             <div id="trip-waypoints-container" class="trip-waypoints-container"></div>
           </div>
-
-
 
           <div class="input-row">
             <button id="btn-plan-route" class="btn-primary-action">
               ⚡ Plan 2W Route
             </button>
-            <button id="btn-clear-route" class="btn-secondary-action" style="max-width: 90px;">
+            <button id="btn-clear-route" class="btn-secondary-action" style="max-width: 96px;">
               Reset
             </button>
           </div>
 
-          <!-- Route Alternative Options (Google Maps Style Selection) -->
           <div id="route-selector-container" class="route-selector-container" style="display: none;">
             <div class="route-selector-header">
               <span class="route-selector-title">🛣️ ROUTE OPTIONS</span>
-              <span id="route-selector-count" class="route-selector-count">3 Available</span>
+              <span id="route-selector-count" class="route-selector-count">2 Available</span>
             </div>
-            <div id="route-selector-pills" class="route-selector-pills">
-              <!-- Dynamically populated route tabs -->
-            </div>
+            <div id="route-selector-pills" class="route-selector-pills"></div>
           </div>
 
-          <!-- Route Summary & Metrics -->
           <div id="route-summary-card" class="route-summary-card" style="display: none;">
             <div class="metrics-grid">
               <div class="metric-box">
@@ -340,24 +322,24 @@
               </div>
               <div class="metric-box">
                 <span id="metric-trip-time" class="metric-val">0 min</span>
-                <span class="metric-label">Duration</span>
+                <span class="metric-label">Total Time</span>
               </div>
               <div class="metric-box">
                 <span id="metric-bat-needed" class="metric-val">0%</span>
-                <span class="metric-label">Battery Req.</span>
+                <span class="metric-label">Est. Used</span>
               </div>
               <div class="metric-box">
                 <span id="metric-bat-arrival" class="metric-val">0%</span>
-                <span class="metric-label">At Arrival</span>
+                <span class="metric-label">Est. Arrival</span>
               </div>
             </div>
 
-            <!-- Range Safety Evaluation Banner -->
+            <div id="route-live-progress-banner" class="route-live-progress-banner" style="display: none;"></div>
+
             <div id="route-status-banner" class="status-banner status-safe">
               Trip ready to evaluate
             </div>
 
-            <!-- In-App & Google Maps Navigation Launch Buttons -->
             <div class="nav-buttons-cluster">
               <button id="btn-start-inapp-nav" class="btn-inapp-drive-mode" style="display: none;">
                 <div class="drive-btn-icon-wrapper">
@@ -367,46 +349,40 @@
                 </div>
                 <div class="drive-btn-text-wrapper">
                   <span class="drive-btn-title">⚡ Start In-App Drive Guidance</span>
-                  <span class="drive-btn-subtitle">Live moving navigation with Google Maps human voice guidance</span>
+                  <span class="drive-btn-subtitle">Turn-by-turn HUD with offline voice guidance &amp; live ETA</span>
                 </div>
                 <span class="drive-btn-arrow">➔</span>
               </button>
 
-              <!-- Secondary Navigation: Google Maps App -->
               <div id="nav-secondary-actions" class="nav-secondary-actions" style="display: none;">
-                <button type="button" id="btn-open-google-maps" class="btn-nav-gmaps-link" title="Open complete multi-stop route in Google Maps app with native voice navigation">
+                <button type="button" id="btn-open-google-maps" class="btn-nav-gmaps-link" title="Open multi-stop route in Google Maps app">
                   <span class="btn-nav-icon">🗺️</span>
                   <div class="btn-nav-text">
                     <span class="btn-nav-title">Open in Google Maps</span>
-                    <span class="btn-nav-desc">Launch Turn-by-Turn GPS voice navigation in Google Maps app</span>
+                    <span class="btn-nav-desc">Export multi-stop trip directly to Google Maps app</span>
                   </div>
                   <span class="btn-nav-arrow">↗</span>
                 </button>
               </div>
             </div>
 
-            <!-- Trip Battery & Stop-by-Stop Charging Plan Timeline -->
             <div id="trip-battery-timeline-section" class="battery-timeline-section" style="display: none;">
               <div class="section-title" style="flex-wrap: wrap; gap: 6px; align-items: center;">
-                <span>🔋 Trip Battery & Charging Plan</span>
+                <span>🔋 Est. Battery &amp; Charging Plan</span>
                 <div class="timeline-mode-toggle" id="timeline-mode-toggle">
-                  <button type="button" class="btn-timeline-mode active" id="btn-mode-optimal" title="Fast Travel - Charges only what's needed to reach next stop safely">⚡ Fast Travel</button>
-                  <button type="button" class="btn-timeline-mode" id="btn-mode-target" title="Full Target - Charges to configured limit at every stop">🔋 Full Target</button>
+                  <button type="button" class="btn-timeline-mode active" id="btn-mode-optimal" title="Charge only what is needed to reach next stop safely">⚡ Fast Hop</button>
+                  <button type="button" class="btn-timeline-mode" id="btn-mode-target" title="Charge up to configured Fast Charge Target at every stop">🔋 Full Target</button>
                 </div>
               </div>
-              <div id="trip-battery-timeline-container" class="battery-timeline-container">
-                <!-- Dynamically populated leg-by-leg timeline -->
-              </div>
+              <div id="trip-battery-timeline-container" class="battery-timeline-container"></div>
             </div>
 
-            <!-- Discovered Chargers Along Corridor with Interactive Distance Filter -->
             <div class="corridor-container">
               <div class="section-title">
-                <span>⚡ 2W Chargers Along Selected Route (<span id="corridor-count">0</span>)</span>
+                <span>⚡ 2W Chargers Along Route (<span id="corridor-count">0</span>)</span>
                 <span id="corridor-buffer-badge" style="font-size: 0.72rem; color: var(--color-ather); font-weight: 800;">Within 5 km</span>
               </div>
 
-              <!-- Route Corridor Distance Buffer Selector -->
               <div class="corridor-buffer-control" id="corridor-buffer-control">
                 <div class="corridor-buffer-header" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                   <span class="corridor-buffer-sub" style="margin: 0; font-size: 0.8rem; font-weight: 700; color: #94a3b8;">🛣️ Route Search Buffer:</span>
@@ -417,9 +393,7 @@
                 </div>
               </div>
 
-              <div id="corridor-chargers-list" class="corridor-chargers-list">
-                <!-- Dynamically populated -->
-              </div>
+              <div id="corridor-chargers-list" class="corridor-chargers-list"></div>
             </div>
           </div>
         </div>
@@ -427,86 +401,83 @@
         <!-- ==================== TAB 2: BATTERY & RANGE ==================== -->
         <div id="pane-battery" class="tab-pane">
           <div class="battery-dashboard">
-            <!-- Vehicle Model Selector -->
-            <div class="input-row" style="align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <div class="input-row" style="align-items: center; justify-content: space-between; margin-bottom: 4px;">
               <span class="input-label" style="margin: 0; font-weight: 700; color: #38bdf8;">🛵 EV Scooter Model:</span>
-              <select id="vehicle-preset-select" class="input-text" style="width: 175px; height: 36px; padding: 2px 6px; font-weight: 700; color: #38bdf8; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; cursor: pointer;">
+              <select id="vehicle-preset-select" class="input-text" style="width: 185px; height: 40px; padding: 2px 8px; font-weight: 700; color: #38bdf8; background: #0d1628; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; cursor: pointer;">
                 <option value="ather-450x-37">Ather 450X (3.7 kWh)</option>
                 <option value="ather-450x-29">Ather 450X (2.9 kWh)</option>
                 <option value="ather-rizta-37">Ather Rizta (3.7 kWh)</option>
                 <option value="ather-450-apex">Ather 450 Apex (Warp+)</option>
+                <option value="hero-vida-v1">Hero Vida V1 Pro (3.94 kWh)</option>
                 <option value="ola-s1-pro">Ola S1 Pro Gen 2 (4.0 kWh)</option>
                 <option value="tvs-iqube">TVS iQube (3.4 kWh)</option>
                 <option value="bajaj-chetak">Bajaj Chetak (3.2 kWh)</option>
-                <option value="hero-vida-v1">Hero Vida V1 Pro (3.94 kWh)</option>
                 <option value="custom-2w">Custom 2W Electric Scooter</option>
               </select>
             </div>
 
-            <!-- Riding Modes Selector (ECO / RIDE / SPORT / WARP) -->
-            <div class="input-row" style="align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <div id="vehicle-connector-info" class="vehicle-connector-pill">
+              🔌 Port: Type 7 LECCS Fast DC + 15A Portable AC
+            </div>
+
+            <div class="input-row" style="align-items: center; justify-content: space-between; margin-top: 2px;">
               <span class="input-label" style="margin: 0; font-weight: 700;">⚡ Riding Mode:</span>
-              <div id="riding-modes-container" style="display: flex; gap: 4px;">
-                <button type="button" class="btn-mode active" data-mode="ECO">ECO</button>
-                <button type="button" class="btn-mode" data-mode="RIDE">RIDE</button>
-                <button type="button" class="btn-mode" data-mode="SPORT">SPORT</button>
-                <button type="button" class="btn-mode" data-mode="WARP">WARP</button>
+              <div id="riding-modes-container" style="display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end;">
+                <!-- Populated dynamically per selected scooter preset -->
               </div>
             </div>
 
-            <!-- Current Battery % -->
             <div class="slider-container">
               <div class="slider-header">
                 <span class="input-label">Current Battery Charge</span>
                 <div style="display: flex; align-items: center; gap: 4px;">
-                  <input type="number" id="battery-number" min="0" max="100" value="85" style="width: 50px; background: transparent; border: 1px solid var(--border-color); color: var(--color-ather); text-align: center; font-weight: 800; border-radius: 4px; padding: 2px;">
+                  <input type="number" id="battery-number" min="0" max="100" value="85" style="width: 56px; background: #080d17; border: 1px solid var(--border-color); color: var(--color-ather); text-align: center; font-weight: 800; border-radius: 6px; padding: 4px;">
                   <span style="font-weight: 700; color: var(--color-ather);">%</span>
                 </div>
               </div>
               <input type="range" id="battery-slider" class="battery-slider" min="0" max="100" value="85">
             </div>
 
-            <!-- Custom Efficiency Input -->
-            <div class="input-row" style="align-items: center; justify-content: space-between; margin-top: 4px;">
-              <span class="input-label" style="margin: 0;">Vehicle Efficiency:</span>
+            <div class="input-row" style="align-items: center; justify-content: space-between; margin-top: 2px;">
+              <span class="input-label" style="margin: 0;">Est. Efficiency:</span>
               <div style="display: flex; align-items: center; gap: 6px;">
-                <input type="number" id="efficiency-input" step="0.05" min="0.2" max="2.5" value="0.85" class="input-text" style="width: 75px; text-align: center; height: 34px;">
+                <input type="number" id="efficiency-input" step="0.05" min="0.2" max="2.5" value="0.85" class="input-text" style="width: 78px; text-align: center; height: 38px;">
                 <span style="font-size: 0.8rem; color: var(--text-muted);">km / 1%</span>
               </div>
             </div>
 
-            <!-- Safety Reserve Margin -->
             <div class="slider-container">
               <div class="slider-header">
                 <span class="input-label">Safety Reserve Buffer</span>
                 <span id="reserve-val" style="font-weight: 700; color: var(--color-warning);">15%</span>
               </div>
-              <input type="range" id="reserve-slider" class="battery-slider" min="5" max="30" value="15" style="accent-color: var(--color-warning);">
+              <input type="range" id="reserve-slider" class="battery-slider" min="5" max="35" value="15" style="accent-color: var(--color-warning);">
             </div>
 
-            <!-- Fast Charge Target SoC Limit (User Configurable) -->
-            <div class="slider-container" style="border: 1px solid rgba(0, 230, 118, 0.25); background: rgba(0, 230, 118, 0.04); border-radius: 10px; padding: 12px; margin-top: 4px;">
+            <div class="slider-container" style="border: 1px solid rgba(0, 230, 118, 0.25); background: rgba(0, 230, 118, 0.04); border-radius: 10px; padding: 12px;">
               <div class="slider-header">
-                <div>
-                  <span class="input-label" style="color: var(--color-ather); margin: 0; font-size: 0.85rem;">⚡ Fast Charge Target Limit</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 4px;">
-                  <span id="target-charge-val" style="font-weight: 800; font-size: 1.15rem; color: var(--color-ather);">80%</span>
-                </div>
+                <span class="input-label" style="color: var(--color-ather); margin: 0; font-size: 0.82rem;">⚡ Fast Charge Target Limit</span>
+                <span id="target-charge-val" style="font-weight: 800; font-size: 1.1rem; color: var(--color-ather);">80%</span>
               </div>
               <input type="range" id="target-charge-slider" class="battery-slider" min="50" max="100" value="80" style="accent-color: var(--color-ather); margin-top: 8px;">
             </div>
 
-            <!-- Live Range Radius Metrics -->
-            <div class="metrics-grid" style="grid-template-columns: 1fr 1fr; margin-top: 4px;">
+            <div class="metrics-grid" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 4px;">
               <div class="metric-box">
                 <span id="metric-safe-range" class="metric-val" style="color: var(--color-ather);">59.5 km</span>
-                <span class="metric-label">Safe Reachable Range</span>
+                <span class="metric-label">Est. Safe Range</span>
+              </div>
+              <div class="metric-box">
+                <span id="metric-real-range" class="metric-val" style="color: #38bdf8;">53.6 km</span>
+                <span class="metric-label">Conservative (-10%)</span>
               </div>
               <div class="metric-box">
                 <span id="metric-max-range" class="metric-val" style="color: var(--text-secondary);">72.3 km</span>
-                <span class="metric-label">Absolute Max Range</span>
+                <span class="metric-label">Ideal Max (to 0%)</span>
               </div>
+            </div>
+            <div style="font-size: 0.7rem; color: var(--text-muted); text-align: center;">
+              Estimates only. Actual range varies with terrain gradient, speed, pillion load &amp; weather.
             </div>
           </div>
         </div>
@@ -514,9 +485,11 @@
         <!-- ==================== TAB 3: CHARGING TIME ESTIMATOR ==================== -->
         <div id="pane-calculator" class="tab-pane">
           <div class="battery-dashboard">
-            <span class="input-label" style="font-size: 0.85rem; color: var(--color-ather); margin-bottom: 6px;">⚡ Charging Duration & Range</span>
+            <span class="input-label" style="font-size: 0.85rem; color: var(--color-ather); margin-bottom: 2px;">⚡ Physics-Based Charging Estimator</span>
+            <div id="calc-vehicle-note" style="font-size: 0.75rem; color: var(--text-secondary);">
+              Calculated for Ather 450X (3.7 kWh) • Includes &gt;80% CC-CV taper
+            </div>
 
-            <!-- Starting % Slider -->
             <div class="slider-container">
               <div class="slider-header">
                 <span class="input-label">Starting Battery</span>
@@ -525,7 +498,6 @@
               <input type="range" id="calc-start-slider" class="battery-slider" min="0" max="95" value="20">
             </div>
 
-            <!-- Target % Slider -->
             <div class="slider-container">
               <div class="slider-header">
                 <span class="input-label">Target Battery</span>
@@ -534,23 +506,22 @@
               <input type="range" id="calc-target-slider" class="battery-slider" min="5" max="100" value="80">
             </div>
 
-            <!-- Results Grid -->
-            <div class="metrics-grid" style="grid-template-columns: 1fr 1fr; margin-top: 6px;">
+            <div class="metrics-grid" style="grid-template-columns: 1fr 1fr; margin-top: 4px;">
               <div class="metric-box" style="border: 1px solid var(--color-ather);">
-                <span id="calc-fast-time" class="metric-val" style="color: var(--color-ather);">35 mins</span>
-                <span class="metric-label">⚡ Fast Charger (Ather / Bolt)</span>
-                <span style="font-size: 0.65rem; color: var(--text-muted);">~1 km range / min</span>
+                <span id="calc-fast-time" class="metric-val" style="color: var(--color-ather);">49 mins</span>
+                <span class="metric-label">⚡ 2W DC Fast (3 kW)</span>
+                <span style="font-size: 0.65rem; color: var(--text-muted);">Type 7 / Type 6 DC Gun</span>
               </div>
               <div class="metric-box" style="border: 1px solid var(--color-bolt-slow);">
-                <span id="calc-slow-time" class="metric-val" style="color: var(--color-bolt-slow);">3h 15m</span>
-                <span class="metric-label">🔌 Bolt 15A Standard Socket</span>
-                <span style="font-size: 0.65rem; color: var(--text-muted);">~18-20% gain / hour</span>
+                <span id="calc-slow-time" class="metric-val" style="color: var(--color-bolt-slow);">3h 22m</span>
+                <span class="metric-label">🔌 15A AC Socket</span>
+                <span id="calc-slow-rate-hint" style="font-size: 0.65rem; color: var(--text-muted);">Portable Charger (~0.75 kW)</span>
               </div>
             </div>
 
             <div class="metric-box" style="background: rgba(0, 230, 118, 0.08); padding: 10px;">
-              <span class="metric-label">Range Added to Scooter:</span>
-              <span id="calc-range-gain" class="metric-val" style="color: var(--color-ather); font-size: 1.3rem;">+51.0 km</span>
+              <span class="metric-label">Est. Range Gained:</span>
+              <span id="calc-range-gain" class="metric-val" style="color: var(--color-ather); font-size: 1.25rem;">+51.0 km</span>
             </div>
           </div>
         </div>
@@ -559,12 +530,12 @@
         <div id="pane-sos" class="tab-pane">
           <div class="input-group">
             <button id="btn-trigger-sos" class="btn-primary-action btn-sos" style="height: 52px; font-size: 1rem;">
-              🚨 PINPOINT NEAREST CHARGER NOW
+              🚨 PINPOINT NEAREST 2W CHARGER
             </button>
           </div>
 
           <div id="sos-results-container" style="display: flex; flex-direction: column; gap: 10px;">
-            <div class="empty-state">Tap the button above to locate the closest emergency 2W chargers.</div>
+            <div class="empty-state">Tap the button above to locate the closest verified 2W chargers using offline spatial data.</div>
           </div>
         </div>
 
@@ -575,103 +546,95 @@
     <div id="sync-modal" class="modal-overlay">
       <div class="modal-card">
         <div class="modal-header">
-          <div class="modal-title">⚡ Live EV Network Sync</div>
-          <button id="btn-close-sync" class="btn-close-modal">&times;</button>
+          <div class="modal-title">⚡ Verified 2W Network Directory</div>
+          <button id="btn-close-sync" class="btn-close-modal" aria-label="Close">&times;</button>
         </div>
 
-        <!-- Overall Network Sync Summary -->
-        <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;">
+        <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 6px;">
           <div class="metric-box">
-            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">2,962</span>
-            <span class="metric-label">Total Verified 2W Stations</span>
+            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">9,286</span>
+            <span class="metric-label">Verified 2W Stations</span>
           </div>
           <div class="metric-box">
-            <span id="modal-network-status" class="metric-val" style="color: #00e676; font-size: 0.95rem;">🟢 Live & Verified</span>
-            <span class="metric-label">Network Status</span>
+            <span id="modal-network-status" class="metric-val" style="color: #38bdf8; font-size: 0.84rem;">Offline Ready</span>
+            <span class="metric-label">Status (Verify Gun in OEM App)</span>
           </div>
         </div>
 
-        <!-- Dedicated Network Sections: Ather Fast, Vida Fast, Bolt Fast (Ather Gun), Bolt 15A -->
         <div class="sync-networks-list">
-          <!-- 1. Ather Grid Fast Section -->
           <div class="sync-net-item sync-item-ather">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-ather">⚡ ATHER GRID FAST</span>
-              <span id="modal-ather-count" class="sync-item-count">1,332</span>
+              <span id="modal-ather-count" class="sync-item-count">3,572</span>
             </div>
             <div class="sync-item-sub">
-              <span>🔌 <strong>Connector:</strong> Ather Proprietary DC Fast Gun (IS 17017-2-7 / Type 7)</span>
-              <span class="sync-compat-tag">✅ 100% Direct Plug-in (450X, Rizta, Apex)</span>
+              <span>🔌 <strong>Connector:</strong> Type 7 LECCS (IS 17017-2-7)</span>
+              <span class="sync-compat-tag">✅ Direct Plug-in: Ather &amp; Hero VIDA</span>
             </div>
           </div>
 
-          <!-- 2. Hero VIDA Fast Section -->
           <div class="sync-net-item sync-item-vida-fast">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-vida-fast">⚡ HERO VIDA FAST</span>
-              <span id="modal-vida-count" class="sync-item-count">150</span>
+              <span id="modal-vida-count" class="sync-item-count">611</span>
             </div>
             <div class="sync-item-sub">
-              <span>🔌 <strong>Connector:</strong> Hero VIDA Official DC Fast Gun (IS 17017-2-7 / Type 7 LEV DC)</span>
-              <span class="sync-compat-tag" style="color: #ff5722;">✅ 100% Direct Plug-in (Hero VIDA Fast)</span>
+              <span>🔌 <strong>Connector:</strong> Type 7 LECCS (IS 17017-2-7)</span>
+              <span class="sync-compat-tag" style="color: #ff5722;">✅ Direct Plug-in: Hero VIDA &amp; Ather</span>
             </div>
           </div>
 
-          <!-- 3. Bolt.Earth Fast Section (Ather Gun Compatible) -->
           <div class="sync-net-item sync-item-bolt-fast">
             <div class="sync-item-top">
-              <span class="sync-net-badge badge-bolt-fast">⚡ BOLT.EARTH FAST</span>
-              <span id="modal-bolt-fast-count" class="sync-item-count">282</span>
+              <span class="sync-net-badge badge-bolt-fast">⚡ BOLT.EARTH 2W FAST</span>
+              <span id="modal-bolt-fast-count" class="sync-item-count">550</span>
             </div>
             <div class="sync-item-sub">
-              <span>🔌 <strong>Connector:</strong> Ather Gun (IS 17017 Type 7 LEV DC / L1DC)</span>
-              <span class="sync-compat-tag">✅ 100% Ather Gun Compatible (Direct Plug-in)</span>
+              <span>🔌 <strong>Connectors:</strong> Type 7 LECCS &amp; Type 6 LEVDC (filtered per scooter)</span>
+              <span class="sync-compat-tag" style="color: #fbbf24;">⚠️ Type-6-only units flagged for Ather/VIDA</span>
             </div>
           </div>
 
-          <!-- 4. Bolt.Earth 15A Socket Section -->
           <div class="sync-net-item sync-item-bolt-slow">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-bolt-slow">🔌 BOLT.EARTH 15A</span>
-              <span id="modal-bolt-slow-count" class="sync-item-count">1,198</span>
+              <span id="modal-bolt-slow-count" class="sync-item-count">4,553</span>
             </div>
             <div class="sync-item-sub">
-              <span>🔌 <strong>Connector:</strong> Standard 15A AC 3-Pin Socket</span>
-              <span class="sync-compat-tag" style="color: #94a3b8;">🔌 Requires Ather Portable Charger Cable</span>
+              <span>🔌 <strong>Connector:</strong> 15A AC 3-Pin Socket (4W Level 2/3 &amp; OCPI excluded)</span>
+              <span class="sync-compat-tag" style="color: #94a3b8;">🔌 Works with any 2W Portable Charger</span>
             </div>
           </div>
         </div>
 
-        <div class="input-row" style="justify-content: space-between; align-items: center; font-size: 0.8rem; background: #080c14; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-          <span style="color: var(--text-muted); font-weight: 700;">Live Feed:</span>
-          <span id="sync-last-timestamp" style="font-weight: 800; color: #00e676;">🟢 Connected & Synced</span>
+        <div class="input-row" style="justify-content: space-between; align-items: center; font-size: 0.78rem; background: #080c14; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <span style="color: var(--text-muted); font-weight: 700;">Last OTA Check:</span>
+          <span id="sync-last-timestamp" style="font-weight: 800; color: #00e676;">Bundled Local DB</span>
         </div>
 
         <div class="progress-container">
           <div id="sync-progress-bar" class="progress-bar"></div>
         </div>
         <div id="sync-progress-text" style="font-size: 0.78rem; color: var(--text-secondary); text-align: center;">
-          Ready to sync with official Ather & Bolt servers
+          Tap below to check GitHub OTA &amp; regional Bolt.Earth updates
         </div>
 
         <button id="btn-run-sync" class="btn-primary-action">
-          ⚡ Sync Network Now (Add New & Remove Closed)
+          ⚡ Sync Network Updates Now
         </button>
       </div>
     </div>
 
   </div>
 
-  <!-- Pre-bundled 2-Wheeler Chargers Database (Offline-ready) -->
-  <script src="chargers_db.js?v=5.28"></script>
-
-  <!-- Application Engine Scripts with Version 5.28 Cache Buster -->
-  <script src="js/battery.js?v=5.28"></script>
-  <script src="js/sync.js?v=5.28"></script>
-  <script src="js/navigator.js?v=5.28"></script>
-  <script src="js/router.js?v=5.28"></script>
-  <script src="js/utilities.js?v=5.28"></script>
-  <script src="js/map.js?v=5.28"></script>
-  <script src="js/app.js?v=5.28"></script>
+  <!-- Asynchronous Offline-First Engine Scripts -->
+  <script src="js/battery.js?v=5.50"></script>
+  <script src="js/sync.js?v=5.50"></script>
+  <script src="js/navigator.js?v=5.50"></script>
+  <script src="js/voice.js?v=5.50"></script>
+  <script src="js/router.js?v=5.50"></script>
+  <script src="js/utilities.js?v=5.50"></script>
+  <script src="js/map.js?v=5.50"></script>
+  <script src="js/app.js?v=5.50"></script>
 </body>
 </html>
