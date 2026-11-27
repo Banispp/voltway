@@ -1103,7 +1103,8 @@ const MapEngine = (function () {
       weight: 10,
       opacity: 0.42,
       lineCap: 'round',
-      lineJoin: 'round'
+      lineJoin: 'round',
+      interactive: false
     }).addTo(routeLayer);
 
     activeMainLine = L.polyline(activeRoute.coordinates, {
@@ -1111,7 +1112,8 @@ const MapEngine = (function () {
       weight: 6,
       opacity: 0.98,
       lineCap: 'round',
-      lineJoin: 'round'
+      lineJoin: 'round',
+      interactive: false
     }).addTo(routeLayer);
 
     if (routesList.length > 1) {
@@ -1158,7 +1160,13 @@ const MapEngine = (function () {
     }
 
     if (shouldFitBounds && activeMainLine) {
+      // Mark as programmatic so movestart doesn't trigger isUserInteracting
+      isProgrammaticMove = true;
       map.fitBounds(activeMainLine.getBounds(), { padding: [55, 55] });
+      setTimeout(() => {
+        isProgrammaticMove = false;
+        isUserInteracting = false;
+      }, 800);
     }
   }
 
