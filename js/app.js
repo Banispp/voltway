@@ -1851,13 +1851,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const aheadRoad = cleanRoadLabel(nextNamedRoad);
 
       let routeHeadline = directRoad;
-      if (directRoad && signToward && !directRoad.toLowerCase().includes(signToward.toLowerCase())) {
-        routeHeadline = `${directRoad} • ${signToward}`;
-      } else if (!routeHeadline && signToward) {
+      if (!routeHeadline && signToward) {
         routeHeadline = `Towards ${signToward}`;
       } else if (!routeHeadline && aheadRoad) {
         routeHeadline = `Towards ${aheadRoad}`;
       }
+
+      const towardTarget = (signToward && (!routeHeadline || !routeHeadline.toLowerCase().includes(signToward.toLowerCase())))
+        ? signToward
+        : (legTarget || '');
 
       if (type === 'arrive') {
         const place = legTarget || 'Destination';
@@ -1865,7 +1867,7 @@ document.addEventListener('DOMContentLoaded', () => {
           iconKey: 'arrive',
           icon: '🏁',
           headline: place,
-          action: isStopLeg ? 'Arrive at charging stop' : 'Arrive at destination',
+          action: isStopLeg ? `Arrive at ${place}` : `Towards ${place} • Arrive`,
           text: `Arrive at ${place}`,
           shortSub: `Arrive at ${place}`,
           speech: `You have arrived at ${place}.`
@@ -1875,11 +1877,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (type === 'roundabout' || type === 'rotary') {
         const ex = m.exit ? `Take ${m.exit}${Number(m.exit) === 1 ? 'st' : (Number(m.exit) === 2 ? 'nd' : (Number(m.exit) === 3 ? 'rd' : 'th'))} exit` : 'Exit roundabout';
         const roadOut = routeHeadline || (isStopLeg ? 'Charging stop road' : 'Roundabout exit');
+        const roundToward = towardTarget && !roadOut.toLowerCase().includes(towardTarget.toLowerCase()) ? ` • Towards ${towardTarget}` : '';
         return {
           iconKey: 'roundabout',
           icon: '⟲',
           headline: roadOut,
-          action: ex,
+          action: `${ex}${roundToward}`,
           text: `${ex}${directRoad ? ` onto ${directRoad}` : ''}`,
           shortSub: directRoad ? `${ex} → ${directRoad}` : ex,
           speech: `At the roundabout, ${ex}${directRoad ? ` onto ${directRoad}` : ''}`
@@ -1914,6 +1917,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const headline = routeHeadline || (type === 'depart' ? 'Starting road' : actionLabel);
+      const showTowardSuffix = towardTarget && !headline.toLowerCase().includes(`towards ${towardTarget.toLowerCase()}`);
+      const actionDisplay = showTowardSuffix
+        ? `${actionLabel} • Towards ${towardTarget}`
+        : (routeHeadline ? actionLabel : 'Follow route');
       const shortSub = directRoad
         ? `${actionLabel} • ${directRoad}`
         : (aheadRoad ? `${actionLabel} → ${aheadRoad}` : actionLabel);
@@ -1922,7 +1929,7 @@ document.addEventListener('DOMContentLoaded', () => {
         iconKey,
         icon,
         headline,
-        action: routeHeadline ? actionLabel : 'Follow route',
+        action: actionDisplay,
         text: directRoad ? `${actionLabel} onto ${directRoad}` : shortSub,
         shortSub,
         speech: directRoad ? `${actionLabel} onto ${directRoad}` : actionLabel
@@ -2026,8 +2033,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (hudTurnIcon) {
         hudTurnIcon.innerHTML = getManeuverArrowSvg(targetStep.iconKey || 'straight', 44);
       }
-      if (hudStreetName) hudStreetName.textContent = targetStep.headline || targetStep.text;
-      if (hudTowardDest) hudTowardDest.textContent = targetStep.action || targetStep.shortSub || 'Follow route';
+      if (hudStreetName) {
+        const headlineTxt = targetStep.headline || targetStep.text || 'Follow route';
+        hudStreetName.textContent = headlineTxt;
+        hudStreetName.style.fontSize = headlineTxt.length > 28 ? '0.86rem' : '';
+      }
+      if (hudTowardDest) {
+        const towardTxt = targetStep.action || targetStep.shortSub || 'Follow route';
+        hudTowardDest.textContent = towardTxt;
+        hudTowardDest.style.fontSize = towardTxt.length > 34 ? '0.64rem' : '';
+      }
       if (navRoadPillText && targetStep.name) navRoadPillText.textContent = targetStep.name;
 
       if (hudSubStep && hudSubTurnIcon) {
@@ -2240,8 +2255,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (nearestUpcoming) {
           nextChargerDistKm = Math.round(minD * 10) / 10;
+          const stopTitle = shortPlaceName(nearestUpcoming.name, 'Charging Stop');
           hudNextChargerBadge.style.display = 'inline-block';
-          hudNextChargerName.textContent = shortPlaceName(nearestUpcoming.name, 'Charging Stop');
+          hudNextChargerBadge.title = `Next Stop: ${stopTitle} (${nextChargerDistKm} km)`;
+          hudNextChargerName.textContent = stopTitle;
           hudNextChargerDist.textContent = `${nextChargerDistKm} km`;
         }
       } else if (hudNextChargerBadge) {

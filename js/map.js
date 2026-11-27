@@ -527,8 +527,10 @@ const MapEngine = (function () {
       }
     }
 
-    let cleanName = (wp.name || `Stop ${idx + 1}`).replace(/^(?:Vida Grid Fast|Ather Grid Fast|Bolt\.Earth Fast|Bolt Fast)\s*-\s*/i, '').trim();
-    if (cleanName.length > 18) cleanName = cleanName.substring(0, 16) + '…';
+    let cleanName = (wp.name || `Stop ${idx + 1}`)
+      .replace(/^(?:Vida Grid Fast|Ather Grid Fast|Bolt\.Earth Fast|Bolt Fast)\s*-\s*/i, '')
+      .replace(/\s*\(Ather Gun[^)]*\)/gi, '')
+      .trim();
 
     const badgeLabel = customBadgeText || `STOP ${idx + 1}`;
     const brandIconHtml = (wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID' || wp.network === 'BOLT_EARTH')

@@ -1090,12 +1090,13 @@ body.nav-active .btn-nav-compass {
   padding: 2px 7px;
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.8);
-  white-space: nowrap;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  width: max-content;
+  max-width: 260px;
+  overflow: visible;
 }
 
 .highlight-stop-label .label-net {
@@ -1103,14 +1104,18 @@ body.nav-active .btn-nav-compass {
   font-weight: 800;
   color: var(--brand-color, #00E676);
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .highlight-stop-label .label-name {
   font-size: 0.63rem;
   font-weight: 700;
   color: #f8fafc;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.15;
+  text-align: center;
 }
 
 /* Route Endpoint Pins */
@@ -3186,11 +3191,11 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   background: #004d40; /* Google Maps Signature Dark Teal Green */
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 14px;
-  padding: 8px 12px;
+  padding: 6px 11px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 77, 64, 0.38);
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 9px;
   pointer-events: auto;
 }
 
@@ -3201,13 +3206,13 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 
 .hud-left-col {
   flex-shrink: 0;
-  min-width: 54px;
+  min-width: 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 1px;
-  padding-right: 8px;
+  padding-right: 7px;
   border-right: 1px solid rgba(255, 255, 255, 0.14);
 }
 
@@ -3241,20 +3246,21 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .hud-top-road-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .hud-meta-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  flex-wrap: nowrap;
   gap: 6px;
 }
 
@@ -3285,42 +3291,41 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 .hud-street-name {
   flex: 1;
   min-width: 0;
-  font-size: 1.02rem;
+  font-size: 0.96rem;
   font-weight: 900;
   color: #ffffff;
-  line-height: 1.2;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  line-height: 1.15;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
   margin-top: 0;
 }
 
 .hud-toward-dest {
-  font-size: 0.74rem;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.72rem;
   font-weight: 700;
   color: #b2dfdb;
   margin-top: 0;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.15;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .hud-next-charger-badge {
-  font-size: 0.68rem;
+  flex-shrink: 0;
+  font-size: 0.65rem;
   font-weight: 800;
   color: #a7f3d0;
   margin-top: 0;
   background: rgba(16, 185, 129, 0.22);
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 6px;
   border: 1px solid rgba(16, 185, 129, 0.38);
   display: inline-block;
-  max-width: 100%;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Google Maps Attached Subsequent Turn Step ("Then ↱") */
@@ -3349,13 +3354,13 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 }
 
 .hud-sub-text {
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 700;
   color: #e0f2f1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.2;
 }
 
 .hud-sub-turn-icon {
