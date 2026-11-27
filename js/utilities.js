@@ -259,9 +259,10 @@ const Utilities = (function () {
     let photonResults = [];
     try {
       const encoded = encodeURIComponent(query.trim());
-      const url = `https://photon.komoot.io/api/?q=${encoded}&limit=7&lat=10.5&lon=76.2`;
+      // bbox biased to India; lat/lon bias to Kerala centre
+      const url = `https://photon.komoot.io/api/?q=${encoded}&limit=8&lat=10.5&lon=76.2&bbox=68.0,8.0,97.0,37.0&lang=en`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2200);
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
       const resp = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
 
@@ -290,34 +291,34 @@ const Utilities = (function () {
       }
     } catch (e) {}
 
+    // Always also query Nominatim (not just as fallback) for better India/Kerala coverage
     let osmResults = [];
-    if (photonResults.length === 0) {
-      try {
-        const encoded = encodeURIComponent(query.trim() + ', India');
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&countrycodes=in&limit=5&addressdetails=1`;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2200);
-        const resp = await fetch(url, {
-          headers: { 'Accept': 'application/json' },
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+    try {
+      const encoded = encodeURIComponent(query.trim() + ', India');
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&countrycodes=in&limit=8&addressdetails=1&accept-language=en,ml`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
+      const resp = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
 
-        if (resp.ok) {
-          const data = await resp.json();
-          osmResults = data.map(item => ({
-            name: item.display_name.split(',')[0],
-            fullName: item.display_name,
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon)
-          }));
-        }
-      } catch (e) {}
-    }
+      if (resp.ok) {
+        const data = await resp.json();
+        osmResults = data.map(item => ({
+          name: item.display_name.split(',')[0],
+          fullName: item.display_name,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon)
+        }));
+      }
+    } catch (e) {}
 
+    // Merge local + Photon + Nominatim (deduplicate by proximity ~3km)
     const combined = [...localMatches];
-    const incoming = photonResults.length > 0 ? photonResults : osmResults;
-    incoming.forEach(item => {
+    const allRemote = [...photonResults, ...osmResults];
+    allRemote.forEach(item => {
       const exists = combined.some(c =>
         Math.abs(c.lat - item.lat) < 0.03 && Math.abs(c.lng - item.lng) < 0.03
       );
@@ -326,7 +327,7 @@ const Utilities = (function () {
       }
     });
 
-    return combined.slice(0, 8);
+    return combined.slice(0, 10);
   }
 
   const shortUrlCache = new Map();
