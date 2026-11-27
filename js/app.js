@@ -1034,7 +1034,18 @@ document.addEventListener('DOMContentLoaded', () => {
   async function resolvePlannerDest() {
     const raw = destInput ? destInput.value.trim() : '';
     if (!raw) return null;
-    if (destCoords) return destCoords;
+    // Always prefer cached destCoords — prevents name-text re-search after share link resolution
+    if (destCoords && typeof destCoords.lat === 'number' && typeof destCoords.lng === 'number') return destCoords;
+    // Check if input contains inline coordinate pattern like "Name (10.1234,76.5678)"
+    const inlineCoordMatch = raw.match(/\((-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)\)/);
+    if (inlineCoordMatch) {
+      const lat = parseFloat(inlineCoordMatch[1]);
+      const lng = parseFloat(inlineCoordMatch[2]);
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        destCoords = { lat, lng, name: raw };
+        return destCoords;
+      }
+    }
     if (window.Utilities) {
       const resolved = await window.Utilities.resolveLocationInput(raw);
       if (resolved) {
@@ -2512,17 +2523,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const resolved = await window.Utilities.resolveLocationInput(cleaned, expandedHint);
     if (resolved && typeof resolved.lat === 'number' && typeof resolved.lng === 'number') {
+      // Lock in the EXACT resolved coordinates — do not use place name text for re-resolution
       destCoords = { lat: resolved.lat, lng: resolved.lng, name: resolved.name || 'Shared Location' };
-      if (destInput) destInput.value = destCoords.name;
+      // Show exact pin coords in dest field for transparency (name + coords)
+      const coordLabel = resolved.isMapLink
+        ? `${resolved.name || 'Shared Pin'} (${resolved.lat.toFixed(4)},${resolved.lng.toFixed(4)})`
+        : (resolved.name || 'Shared Location');
+      if (destInput) destInput.value = coordLabel;
+      // Also update destCoords.name for route label
+      destCoords.name = coordLabel;
+
       if (window.MapEngine && window.MapEngine.getMap()) {
         const m = window.MapEngine.getMap();
         m.flyTo([destCoords.lat, destCoords.lng], 15, { animate: true, duration: 0.6 });
         if (typeof window.MapEngine.showSearchPin === 'function') {
-          window.MapEngine.showSearchPin(resolved);
+          window.MapEngine.showSearchPin({ ...resolved, name: coordLabel });
         }
       }
       if (window.SyncEngine) {
-        window.SyncEngine.showAutoUpdateToast(`⚡ Routing to: ${destCoords.name}...`);
+        window.SyncEngine.showAutoUpdateToast(`📍 Pin: ${resolved.name || 'Location'} → ${resolved.lat.toFixed(4)}, ${resolved.lng.toFixed(4)}`);
       }
 
       // Auto-calculate route immediately from GPS origin
@@ -2530,9 +2549,14 @@ document.addEventListener('DOMContentLoaded', () => {
         originInput.value = 'Current Location (GPS)';
       }
       if (btnPlanRoute) {
+        // Delay 700ms: let flyTo + showSearchPin popup settle before route click
+        // so destCoords is not re-read from destInput text
+        const capturedDest = { ...destCoords };
         setTimeout(() => {
+          // Ensure destCoords is still our exact coords (not cleared by reset)
+          destCoords = capturedDest;
           btnPlanRoute.click();
-        }, 300);
+        }, 700);
       }
       return true;
     }
