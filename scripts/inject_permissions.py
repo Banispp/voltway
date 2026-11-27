@@ -76,30 +76,28 @@ import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
-    private String pendingShareText = null;
-    private boolean shareBridgeRegistered = false;
+    private volatile String pendingShareText = null;
 
     public class VoltWayShareBridge {
         @JavascriptInterface
         public String consumePendingShare() {
-            synchronized (MainActivity.this) {
-                String val = pendingShareText;
-                pendingShareText = null;
-                return val != null ? val : "";
-            }
+            String val = pendingShareText;
+            pendingShareText = null;
+            return val != null ? val : "";
         }
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+        // Capture intent BEFORE super.onCreate() so it is available during app init
         captureShareIntent(getIntent(), false);
-    }
-
-    @Override
-    public void onStart() {
-        super.onStart();
-        ensureShareBridge();
+        super.onCreate(savedInstanceState);
+        // addJavascriptInterface after super.onCreate() — WebView exists now.
+        // The interface is active for all JS loaded after this point.
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView != null) {
+            webView.addJavascriptInterface(new VoltWayShareBridge(), "VoltWayAndroidShare");
+        }
     }
 
     @Override
@@ -107,14 +105,6 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         captureShareIntent(intent, true);
-    }
-
-    private void ensureShareBridge() {
-        if (shareBridgeRegistered || getBridge() == null) return;
-        WebView webView = getBridge().getWebView();
-        if (webView == null) return;
-        webView.addJavascriptInterface(new VoltWayShareBridge(), "VoltWayAndroidShare");
-        shareBridgeRegistered = true;
     }
 
     private void captureShareIntent(Intent intent, boolean notifyWeb) {
@@ -139,13 +129,15 @@ public class MainActivity extends BridgeActivity {
             }
         }
         if (extracted == null || extracted.isEmpty()) return;
-        synchronized (this) {
-            pendingShareText = extracted;
-        }
+        pendingShareText = extracted;
         if (notifyWeb && getBridge() != null && getBridge().getWebView() != null) {
+            final String sharePayload = extracted.replace("\\\\", "\\\\\\\\").replace("\"", "\\\\\"").replace("\\n", "\\\\n");
             final WebView wv = getBridge().getWebView();
+            // Push text directly — do NOT rely on consumePendingShare() for warm launches
             wv.post(() -> wv.evaluateJavascript(
-                "if (window.checkIncomingNativeShare) window.checkIncomingNativeShare();",
+                "(function(){var t=\\"" + sharePayload + "\\";pendingShareText=t;" +
+                "if(window.handleVoltwayIncomingShare){window.handleVoltwayIncomingShare(t)}" +
+                "else if(window.checkIncomingNativeShare){window.checkIncomingNativeShare()}})()",
                 null
             ));
         }

@@ -378,10 +378,28 @@ const Utilities = (function () {
       out.coords = extractFromUrlString(resolvedUrl);
     }
     if (htmlBody && typeof htmlBody === 'string') {
+      // 1. Find embedded full maps URL in HTML (most reliable)
       const mapsUrlMatch = htmlBody.match(/https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^\s"'<>\\]+/i);
       if (!out.url && mapsUrlMatch) out.url = mapsUrlMatch[0].replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
       if (!out.coords && mapsUrlMatch) out.coords = extractFromUrlString(out.url);
+
+      // 2. APP_INITIALIZATION_STATE — Google Maps JS embeds coords as [[lat,lng]] in this global
+      if (!out.coords) {
+        // Pattern: ,lat,lng, inside APP_INITIALIZATION_STATE where lat/lng are India-range floats
+        const appStateM = htmlBody.match(/APP_INITIALIZATION_STATE\s*=\s*\[+[^\]]*?(-?\d{1,2}\.\d{4,}),(-?\d{2,3}\.\d{4,})/);
+        if (appStateM) {
+          const lat = parseFloat(appStateM[1]);
+          const lng = parseFloat(appStateM[2]);
+          if (lat >= 6 && lat <= 38 && lng >= 68 && lng <= 98) {
+            out.coords = { lat, lng };
+          }
+        }
+      }
+
+      // 3. Any @lat,lng or ?q=lat,lng in the HTML body
       if (!out.coords) out.coords = extractFromUrlString(htmlBody);
+
+      // 4. og:title / <title> for place name
       out.title = extractPlaceTitleFromHtml(htmlBody);
     }
     return out;

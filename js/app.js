@@ -2480,8 +2480,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   window.handleVoltwayIncomingShare = handleVoltwayIncomingShare;
+
+  // Native Android may set window.pendingShareText directly via evaluateJavascript
+  // before the JS bridge object is ready (warm-launch path).
+  if (window.pendingShareText && window.pendingShareText.trim()) {
+    const _pt = window.pendingShareText;
+    window.pendingShareText = null;
+    setTimeout(() => handleVoltwayIncomingShare(_pt.trim()), 50);
+  }
+
   window.checkIncomingNativeShare = function () {
     try {
+      // Check native-pushed global first (evaluateJavascript cold/warm launch)
+      if (window.pendingShareText && window.pendingShareText.trim()) {
+        const _t = window.pendingShareText;
+        window.pendingShareText = null;
+        handleVoltwayIncomingShare(_t.trim());
+        return true;
+      }
+      // Then check addJavascriptInterface bridge (may not be ready on cold launch)
       if (window.VoltWayAndroidShare && typeof window.VoltWayAndroidShare.consumePendingShare === 'function') {
         const shared = window.VoltWayAndroidShare.consumePendingShare();
         if (shared && shared.trim()) {
@@ -2492,6 +2509,14 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {}
     return false;
   };
+
+  // Retry polling: bridge may not be injected yet on cold launch (addJavascriptInterface runs after page load)
+  let _shareRetries = 0;
+  const _sharePollId = setInterval(() => {
+    _shareRetries++;
+    if (_shareRetries > 15) { clearInterval(_sharePollId); return; } // stop after ~3s
+    if (window.checkIncomingNativeShare()) clearInterval(_sharePollId);
+  }, 200);
 
   // Web PWA share_target (?text=...&url=...&title=...) & shortcut (?tab=..., ?action=sos)
   (function handleUrlLaunchParams() {
@@ -2524,8 +2549,8 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {}
   })();
 
+  // Cold-launch check: also run once synchronously in case bridge was already injected
   window.checkIncomingNativeShare();
-  setTimeout(window.checkIncomingNativeShare, 400);
 
   document.addEventListener('backbutton', (e) => handleHardwareBack(e, false), false);
   if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App && typeof window.Capacitor.Plugins.App.addListener === 'function') {
