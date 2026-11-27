@@ -58,7 +58,7 @@ def query_url(url, max_retries=6):
 def is_verified_2w_fast(cid, model_id):
     mid = (model_id or '').upper()
     cid_up = (cid or '').upper()
-    return ('2WFC' in mid) or cid_up.startswith('L1DC')
+    return ('2WFC' in mid) or ('LEVDC' in mid) or ('TYPE6' in mid) or ('TYPE7' in mid) or cid_up.startswith('L1DC')
 
 
 def is_verified_2w_slow(cid, model_id):

@@ -115,8 +115,9 @@ def parse_bolt_power_kw(model_id, is_fast):
 
 
 def parse_bolt_connector(model_id, is_fast):
-    """Returns (connector_std, compatible_vehicles, connector_label)."""
-    mid = (model_id or '').upper()
+    """Returns (connector_std, compatible_vehicles, connector_label).
+    Bolt.Earth 2W fast stations ship Dual Type 7 + Type 6 on the same hardware unit even when
+    backend model_id only tags TYPE6 or TYPE7 individually."""
     if not is_fast:
         return (
             'AC_15A',
@@ -124,30 +125,8 @@ def parse_bolt_connector(model_id, is_fast):
             'Standard 15A / 3-Pin AC Socket (Portable Charger)'
         )
 
-    has_t6 = 'TYPE6' in mid
-    has_t7 = 'TYPE7' in mid
-
-    if has_t6 and has_t7:
-        return (
-            'TYPE6_TYPE7',
-            ['ATHER', 'VIDA', 'OLA'],
-            'Dual 2W Fast DC (Type 7 LECCS + Type 6 LEVDC)'
-        )
-    if has_t7:
-        return (
-            'TYPE7_LECCS',
-            ['ATHER', 'VIDA'],
-            'Type 7 LECCS Fast DC (Ather / Hero VIDA)'
-        )
-    if has_t6:
-        return (
-            'TYPE6_LEVDC',
-            ['OLA'],
-            'Type 6 LEVDC Fast DC (Ola / Type 6 — Adapter req. for Ather)'
-        )
-
     return (
-        'TYPE7_LECCS',
-        ['ATHER', 'VIDA'],
-        'Bolt 2W Fast Charger'
+        'TYPE6_TYPE7',
+        ['ATHER', 'VIDA', 'OLA'],
+        'Dual 2W Fast DC (Type 7 LECCS + Type 6 LEVDC)'
     )

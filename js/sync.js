@@ -7,7 +7,7 @@
 const SyncEngine = (function () {
   const DB_NAME = 'VoltWay2W_DB';
   const DB_VERSION = 2;
-  const DB_SCHEMA_TAG = '5.53-bolt-dual-t6t7';
+  const DB_SCHEMA_TAG = '5.54-bolt-dual-t6t7';
   const STORE_NAME = 'chargers';
 
   let db = null;
@@ -128,7 +128,7 @@ const SyncEngine = (function () {
     const normalized = { ...item };
     if (!normalized.state) normalized.state = classifyState(normalized);
 
-    if (normalized.network === 'BOLT_EARTH' && (normalized.type === 'FAST' || normalized.connector_std === 'TYPE6_LEVDC' || mid.includes('2WFC'))) {
+    if (normalized.network === 'BOLT_EARTH' && (normalized.type === 'FAST' || normalized.connector_std === 'TYPE6_LEVDC' || mid.includes('2WFC') || mid.includes('LEVDC') || (!mid.includes('LEVEL_2') && !mid.includes('LEVEL_3') && (mid.includes('TYPE6') || mid.includes('TYPE7'))))) {
       normalized.type = 'FAST';
       normalized.connector_std = 'TYPE6_TYPE7';
       normalized.compatible_vehicles = ['ATHER', 'VIDA', 'OLA'];
@@ -409,15 +409,13 @@ const SyncEngine = (function () {
         const addr = (item.station?.address || '').trim();
         const stnName = (item.station?.name || '').trim();
 
-        const is2WFast = cidUpper.startsWith('L1DC') || modelId.includes('2WFC');
+        const is2WFast = cidUpper.startsWith('L1DC') || modelId.includes('2WFC') || modelId.includes('LEVDC') || modelId.includes('TYPE6') || modelId.includes('TYPE7');
         const is2WSlow = !is2WFast && (
           ['BOLT_16A', 'BOLT_LITE', 'OCPP_LEVEL_1', 'LEVAC'].some(k => modelId.includes(k)) ||
           ['L100', 'L1OC', 'BOLT_'].some(p => cidUpper.startsWith(p))
         );
         if (!is2WFast && !is2WSlow) return;
 
-        const hasT6 = modelId.includes('TYPE6');
-        const hasT7 = modelId.includes('TYPE7');
         let connStd = 'AC_15A';
         let compatVehicles = ['ATHER', 'VIDA', 'OLA', 'TVS', 'BAJAJ', 'ALL_2W'];
         let connLabel = 'Standard 15A / 3-Pin AC Socket (Portable Charger)';

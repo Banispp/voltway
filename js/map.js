@@ -84,6 +84,7 @@ const MapEngine = (function () {
   let cameraTargetLat = null;
   let cameraTargetLng = null;
   let cameraGlideActive = false;
+  let isContinuousMotion = false;
   let glideStartTime = 0;
   let glideDurationMs = 950;
   let prevGpsFixAt = 0;
@@ -91,6 +92,8 @@ const MapEngine = (function () {
   let motionLastTickTime = 0;
   let lastMoveEndSyncTime = 0;
   let panSinceMoveEndPx = 0;
+  let capWatchId = null;
+  let lastBoltLiveScanTime = 0;
 
   function esc(str) {
     return window.Utilities && window.Utilities.escapeHtml
@@ -1344,9 +1347,9 @@ const MapEngine = (function () {
 
       let needsMore = false;
       const tRaw = glideDurationMs > 0 ? Math.min(1, Math.max(0, (now - glideStartTime) / glideDurationMs)) : 1;
-      // Continuous velocity-preserving linear progression while moving in Drive Mode; gentle cubic settle otherwise
-      const isRidingFast = Boolean(window.DriveEngine && window.DriveEngine.isActive() && userCoords && (userCoords.speed || 0) >= 1.4);
-      const tPos = isRidingFast ? tRaw : (1 - Math.pow(1 - tRaw, 3));
+      // Continuous velocity-preserving linear progression whenever moving (both in Drive Mode & live map follow); gentle ease-out only when stationary
+      const isMovingSmoothly = Boolean(isContinuousMotion || (userCoords && (userCoords.speed || 0) >= 0.8));
+      const tPos = isMovingSmoothly ? tRaw : (1 - Math.pow(1 - tRaw, 3));
 
       if (markerTargetLat != null && markerTargetLng != null && markerStartLat != null && markerStartLng != null) {
         markerCurrentLat = markerStartLat + (markerTargetLat - markerStartLat) * tPos;
@@ -1364,12 +1367,12 @@ const MapEngine = (function () {
         const centerPt = map.getSize()._divideBy(2);
         const dx = targetPt.x - centerPt.x;
         const dy = targetPt.y - centerPt.y;
-        if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) {
+        if (Math.abs(dx) >= 0.35 || Math.abs(dy) >= 0.35) {
           if (typeof map._rawPanBy === 'function') {
             map._rawPanBy(L.point(dx, dy));
             map.fire('move');
             panSinceMoveEndPx += Math.hypot(dx, dy);
-            if (panSinceMoveEndPx >= 48 || (now - lastMoveEndSyncTime) >= 420) {
+            if (panSinceMoveEndPx >= 180 || (now - lastMoveEndSyncTime) >= 1800) {
               panSinceMoveEndPx = 0;
               lastMoveEndSyncTime = now;
               map.fire('moveend');
@@ -1414,11 +1417,9 @@ const MapEngine = (function () {
 
   function animateMarkerTo(targetLat, targetLng, camLat = null, camLng = null) {
     const now = performance.now();
-    if (prevGpsFixAt > 0) {
-      const fixGap = now - prevGpsFixAt;
-      if (fixGap >= 250 && fixGap <= 2600) {
-        smoothedGpsCadenceMs = smoothedGpsCadenceMs * 0.65 + fixGap * 0.35;
-      }
+    const fixGap = prevGpsFixAt > 0 ? (now - prevGpsFixAt) : 1000;
+    if (prevGpsFixAt > 0 && fixGap >= 250 && fixGap <= 2600) {
+      smoothedGpsCadenceMs = smoothedGpsCadenceMs * 0.65 + fixGap * 0.35;
     }
     prevGpsFixAt = now;
 
@@ -1449,6 +1450,7 @@ const MapEngine = (function () {
 
     if (hypot > 0.005) {
       // Large jump (>550m): snap immediately instead of panning across cities
+      isContinuousMotion = false;
       markerCurrentLat = markerStartLat = markerTargetLat = targetLat;
       markerCurrentLng = markerStartLng = markerTargetLng = targetLng;
       if (userLocationMarker) userLocationMarker.setLatLng([targetLat, targetLng]);
@@ -1482,11 +1484,12 @@ const MapEngine = (function () {
       cameraGlideActive = false;
     }
 
+    isContinuousMotion = Boolean(fixGap <= 2800 && (hypot >= 0.000012 || (userCoords && (userCoords.speed || 0) >= 0.8)));
     glideStartTime = now;
-    const isDriving = Boolean(window.DriveEngine && window.DriveEngine.isActive());
-    glideDurationMs = isDriving
-      ? Math.max(700, Math.min(1350, Math.round(smoothedGpsCadenceMs * 0.96)))
-      : 520;
+    const cadenceRatio = fixGap >= 250 ? 1.03 : 0.72;
+    glideDurationMs = isContinuousMotion
+      ? Math.max(680, Math.min(1550, Math.round(smoothedGpsCadenceMs * cadenceRatio)))
+      : 720;
 
     startUnifiedMotionLoop();
   }
@@ -1655,7 +1658,7 @@ const MapEngine = (function () {
       isUserInteracting = false;
       updateGpsButtonUi();
     }
-    if (watchId !== null || !navigator.geolocation) return;
+    if (watchId !== null || capWatchId !== null) return;
 
     const onPos = (pos) => {
       lastGpsFixTime = Date.now();
@@ -1748,14 +1751,46 @@ const MapEngine = (function () {
       }
     };
 
-    watchId = navigator.geolocation.watchPosition(onPos, onErr, {
-      enableHighAccuracy: true,
-      maximumAge: 1000,
-      timeout: 12000
-    });
+    const isNativeCap = Boolean(
+      window.Capacitor &&
+      typeof window.Capacitor.isNativePlatform === 'function' &&
+      window.Capacitor.isNativePlatform() &&
+      window.Capacitor.Plugins &&
+      window.Capacitor.Plugins.Geolocation &&
+      typeof window.Capacitor.Plugins.Geolocation.watchPosition === 'function'
+    );
+
+    if (isNativeCap) {
+      try {
+        capWatchId = window.Capacitor.Plugins.Geolocation.watchPosition(
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 },
+          (pos, err) => {
+            if (err) onErr(err);
+            else if (pos && pos.coords) onPos(pos);
+          }
+        );
+        return;
+      } catch (capWatchErr) {
+        capWatchId = null;
+      }
+    }
+
+    if (navigator.geolocation) {
+      watchId = navigator.geolocation.watchPosition(onPos, onErr, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 12000
+      });
+    }
   }
 
   function stopLiveTracking() {
+    if (capWatchId !== null && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation && typeof window.Capacitor.Plugins.Geolocation.clearWatch === 'function') {
+      try {
+        Promise.resolve(capWatchId).then(id => window.Capacitor.Plugins.Geolocation.clearWatch({ id })).catch(() => {});
+      } catch (e) {}
+      capWatchId = null;
+    }
     if (watchId !== null && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchId);
       watchId = null;
@@ -1916,6 +1951,10 @@ const MapEngine = (function () {
       renderChargers();
 
       if (map && map.getZoom() >= 13 && navigator.onLine && window.SyncEngine) {
+        const now = Date.now();
+        const minGap = (window.DriveEngine && window.DriveEngine.isActive()) ? 12000 : 1200;
+        if (now - lastBoltLiveScanTime < minGap) return;
+        lastBoltLiveScanTime = now;
         const b = map.getBounds();
         window.SyncEngine.fetchLiveBoltInBounds({
           south: Math.round(b.getSouth() * 1000) / 1000,
