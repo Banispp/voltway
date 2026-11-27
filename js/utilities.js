@@ -464,10 +464,10 @@ const Utilities = (function () {
       return localMatches.slice(0, 8);
     }
 
-    // Run Photon and Nominatim in parallel with generous 4.2s mobile timeout
+    // Run Photon and Nominatim in parallel with 5.5s mobile timeout
     const [photonSettled, osmSettled] = await Promise.allSettled([
-      queryPhotonRaw(qTrim, 4200),
-      queryNominatimRaw(qTrim, 4200)
+      queryPhotonRaw(qTrim, 5500),
+      queryNominatimRaw(qTrim, 5500)
     ]);
 
     let photonResults = photonSettled.status === 'fulfilled' ? photonSettled.value : [];
@@ -573,13 +573,19 @@ const Utilities = (function () {
   }
 
   const shortUrlCache = new Map();
+  let lastResolveDiag = null;
 
-  function hasMapLinkOrCoords(rawText) {
+  function isMapsOrGeoInput(rawText) {
     if (!rawText || typeof rawText !== 'string') return false;
-    return /https?:\/\/|geo:|maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|maps\.google\.[a-z.]+|google\.[a-z.]+\/maps|share\.google/i.test(rawText) ||
+    return /geo:|maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|maps\.google\.[a-z.]+|google\.[a-z.]+\/maps|share\.google/i.test(rawText) ||
       /-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+/.test(rawText) ||
       /\d+[°\s]+\d+['\s]+[\d.]+"?\s*[NS]/i.test(rawText) ||
       PLUS_CODE_RE.test(rawText.toUpperCase());
+  }
+
+  function hasMapLinkOrCoords(rawText) {
+    if (!rawText || typeof rawText !== 'string') return false;
+    return /https?:\/\//i.test(rawText) || isMapsOrGeoInput(rawText);
   }
 
   function parseDmsPair(str) {
@@ -709,7 +715,11 @@ const Utilities = (function () {
     if (!shortUrl) return null;
     const trimmed = shortUrl.trim();
     if (shortUrlCache.has(trimmed)) return shortUrlCache.get(trimmed);
-    if (!navigator.onLine) return null;
+    lastResolveDiag = { stage: 'start', staleApk: false, detail: '' };
+    if (!navigator.onLine) {
+      lastResolveDiag = { stage: 'offline', staleApk: false, detail: 'Device offline' };
+      return null;
+    }
 
     // Strip ?g_st=ac Android app-link hint so servers favor web redirect -> @lat,lng
     const cleanedUrl = trimmed
@@ -721,6 +731,10 @@ const Utilities = (function () {
         typeof window.Capacitor.Plugins.VoltWayNative.resolveMapUrl === 'function') {
       try {
         const res = await window.Capacitor.Plugins.VoltWayNative.resolveMapUrl({ url: cleanedUrl });
+        const hasNewDohPlugin = Boolean(res && res.pluginBuild);
+        if (!hasNewDohPlugin) {
+          lastResolveDiag.staleApk = true;
+        }
         if (res && res.success) {
           const urlCoords = res.url ? extractFromUrlString(res.url) : null;
           const htmlCoords = (typeof res.lat === 'number' && typeof res.lng === 'number' && !isNaN(res.lat) && !isNaN(res.lng))
@@ -737,21 +751,48 @@ const Utilities = (function () {
             shortUrlCache.set(trimmed, info);
             return info;
           }
+          lastResolveDiag.detail = res.error || 'Native returned without google maps URL';
+        } else if (res && res.error) {
+          lastResolveDiag.detail = `Native: ${res.error}`;
         }
-      } catch (err) {}
+      } catch (err) {
+        lastResolveDiag.detail = `Native exception: ${err && err.message ? err.message : 'failed'}`;
+      }
     }
 
-    // 2. Secondary on Android APK: CapacitorHttp with strict 3s timeout (single fast check)
+    // 2. Secondary on Android APK: CapacitorHttp fast header-only redirect check (disableRedirects), then full GET
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
+      const capHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml'
+      };
+      try {
+        const hopResp = await window.Capacitor.Plugins.CapacitorHttp.get({
+          url: cleanedUrl,
+          disableRedirects: true,
+          connectTimeout: 4500,
+          readTimeout: 4500,
+          headers: capHeaders
+        });
+        const hopLoc = (hopResp && hopResp.headers && (hopResp.headers['location'] || hopResp.headers['Location'])) || '';
+        const hopFinal = (hopLoc && hopLoc.includes('google'))
+          ? hopLoc
+          : ((hopResp && hopResp.url && hopResp.url !== cleanedUrl && hopResp.url !== trimmed && hopResp.url.includes('google.')) ? hopResp.url : '');
+        if (hopFinal) {
+          const hopInfo = extractBestMapInfoFromHtmlOrUrl(hopFinal, '');
+          if (hopInfo.coords || hopInfo.title || hopInfo.url.includes('google.')) {
+            shortUrlCache.set(trimmed, hopInfo);
+            return hopInfo;
+          }
+        }
+      } catch (e) {}
+
       try {
         const resp = await window.Capacitor.Plugins.CapacitorHttp.get({
           url: cleanedUrl,
-          connectTimeout: 3000,
-          readTimeout: 3000,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml'
-          }
+          connectTimeout: 5500,
+          readTimeout: 5500,
+          headers: capHeaders
         });
         const headerLoc = (resp && resp.headers && (resp.headers['location'] || resp.headers['Location'])) || '';
         const finalUrl = (resp && resp.url && resp.url !== cleanedUrl && resp.url !== trimmed)
@@ -763,7 +804,11 @@ const Utilities = (function () {
           shortUrlCache.set(trimmed, info);
           return info;
         }
-      } catch (err) {}
+      } catch (err) {
+        if (!lastResolveDiag.detail) {
+          lastResolveDiag.detail = `HTTP: ${err && err.message ? err.message : 'timeout'}`;
+        }
+      }
     }
 
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
@@ -951,7 +996,11 @@ const Utilities = (function () {
       if (url) {
         const expandedRaw = preExpanded || await unshortenUrl(url);
         if (expandedRaw) {
-          const expUrl = typeof expandedRaw === 'object' ? (expandedRaw.url || '') : String(expandedRaw);
+          let expUrl = typeof expandedRaw === 'object' ? (expandedRaw.url || '') : String(expandedRaw);
+          if (expUrl.includes('consent.google.')) {
+            const contM = expUrl.match(/[?&]continue=([^&]+)/i);
+            if (contM && contM[1]) expUrl = decodeUrlSegment(contM[1]);
+          }
           expTitle = typeof expandedRaw === 'object' ? (expandedRaw.title || '') : '';
           const expCoords = (typeof expandedRaw === 'object' && expandedRaw.coords) || extractFromUrlString(expUrl);
           htmlFallbackCoords = (typeof expandedRaw === 'object' && expandedRaw.htmlFallbackCoords) || null;
@@ -1042,6 +1091,9 @@ const Utilities = (function () {
             isMapLink: true
           };
         }
+      }
+      if (geoQueries.length > 0 && lastResolveDiag && !lastResolveDiag.detail) {
+        lastResolveDiag.detail = `Geocoder 0 results: ${geoQueries[0].slice(0, 45)}`;
       }
       return null;
     }
@@ -1181,7 +1233,9 @@ const Utilities = (function () {
     formatMinutes,
     searchPlace,
     unshortenUrl,
+    isMapsOrGeoInput,
     hasMapLinkOrCoords,
+    getLastResolveDiag: () => lastResolveDiag,
     parseGoogleMapsDirectionsUrl,
     resolveLocationInput,
     getLocalPlaces,

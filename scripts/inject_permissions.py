@@ -112,8 +112,12 @@ import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.net.ssl.HostnameVerifier;
@@ -237,14 +241,19 @@ public class VoltWayNativePlugin extends Plugin {
 
         executor.execute(() -> {
             JSObject ret = new JSObject();
+            ret.put("pluginBuild", "v5.53-doh");
+            String stage = "init";
             try {
+                stage = "redirects";
                 String finalUrl = followGoogleRedirects(target, 5);
                 String placeTitle = extractPlaceFromUrl(finalUrl);
                 double[] coords = extractCoords(finalUrl);
 
                 if (coords == null && finalUrl != null && isAllowedGoogleHost(new URL(finalUrl).getHost())) {
+                    stage = "html";
+                    int htmlTimeout = (placeTitle != null && !placeTitle.isEmpty()) ? 2400 : 4200;
                     try {
-                        HttpResult htmlRes = fetchWithDohFallback(finalUrl, true, 4500);
+                        HttpResult htmlRes = fetchWithDohFallback(finalUrl, true, htmlTimeout);
                         if (htmlRes != null && htmlRes.body != null) {
                             coords = extractCoordsFromHtml(htmlRes.body);
                             if (placeTitle == null || placeTitle.isEmpty()) {
@@ -256,8 +265,12 @@ public class VoltWayNativePlugin extends Plugin {
                     }
                 }
 
-                ret.put("success", true);
+                boolean changed = finalUrl != null && !finalUrl.equals(target) && finalUrl.contains("google.");
+                ret.put("success", changed || coords != null || (placeTitle != null && !placeTitle.isEmpty()));
                 ret.put("url", finalUrl != null ? finalUrl : target);
+                if (!changed && coords == null && (placeTitle == null || placeTitle.isEmpty())) {
+                    ret.put("error", "No redirect from " + target);
+                }
                 if (placeTitle != null && !placeTitle.isEmpty()) {
                     ret.put("title", placeTitle);
                 }
@@ -268,7 +281,7 @@ public class VoltWayNativePlugin extends Plugin {
                 call.resolve(ret);
             } catch (Exception e) {
                 ret.put("success", false);
-                ret.put("error", e.getMessage() != null ? e.getMessage() : "Resolve failed");
+                ret.put("error", stage + ": " + e.getClass().getSimpleName() + (e.getMessage() != null ? " - " + e.getMessage() : ""));
                 call.resolve(ret);
             }
         });
@@ -311,6 +324,14 @@ public class VoltWayNativePlugin extends Plugin {
             String nextUrl = res.location.trim();
             if (nextUrl.startsWith("/")) {
                 nextUrl = u.getProtocol() + "://" + u.getAuthority() + nextUrl;
+            }
+            if (nextUrl.contains("consent.google.")) {
+                Matcher contM = Pattern.compile("[?&]continue=([^&]+)", Pattern.CASE_INSENSITIVE).matcher(nextUrl);
+                if (contM.find()) {
+                    try {
+                        nextUrl = URLDecoder.decode(contM.group(1), "UTF-8");
+                    } catch (Exception ignoredDec) {}
+                }
             }
             URL nextParsed = new URL(nextUrl);
             if (!isAllowedGoogleHost(nextParsed.getHost())) {
@@ -389,44 +410,68 @@ public class VoltWayNativePlugin extends Plugin {
     }
 
     private String resolveIpv4ViaDoh(String host) {
-        String encoded;
+        final String encoded;
         try {
             encoded = URLEncoder.encode(host, "UTF-8");
         } catch (Exception e) {
             return null;
         }
         String[] endpoints = new String[] {
-            "https://8.8.8.8/resolve?name=" + encoded + "&type=A",
             "https://dns.google/resolve?name=" + encoded + "&type=A",
-            "https://cloudflare-dns.com/dns-query?name=" + encoded + "&type=A"
+            "https://cloudflare-dns.com/dns-query?name=" + encoded + "&type=A",
+            "https://8.8.8.8/resolve?name=" + encoded + "&type=A"
         };
-        for (String ep : endpoints) {
-            HttpURLConnection c = null;
-            try {
-                c = (HttpURLConnection) new URL(ep).openConnection();
-                c.setConnectTimeout(2500);
-                c.setReadTimeout(2500);
-                c.setRequestProperty("Accept", "application/dns-json, application/json");
-                if (c.getResponseCode() == 200) {
-                    String json = readStreamLimited(c.getInputStream(), 16384);
-                    JSONObject obj = new JSONObject(json);
-                    JSONArray ans = obj.optJSONArray("Answer");
-                    if (ans != null) {
-                        for (int i = 0; i < ans.length(); i++) {
-                            JSONObject rec = ans.optJSONObject(i);
-                            if (rec != null && rec.optInt("type", 0) == 1) {
-                                String ip = rec.optString("data", "").trim();
-                                if (ip.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
-                                    return ip;
-                                }
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<String> winner = new AtomicReference<>(null);
+        final AtomicInteger remaining = new AtomicInteger(endpoints.length);
+        for (final String ep : endpoints) {
+            executor.execute(() -> {
+                try {
+                    String found = querySingleDohEndpoint(ep, 2200);
+                    if (found != null && winner.compareAndSet(null, found)) {
+                        latch.countDown();
+                    }
+                } finally {
+                    if (remaining.decrementAndGet() == 0) {
+                        latch.countDown();
+                    }
+                }
+            });
+        }
+        try {
+            latch.await(2500, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        return winner.get();
+    }
+
+    private String querySingleDohEndpoint(String ep, int timeoutMs) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(ep).openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            c.setRequestProperty("Accept", "application/dns-json, application/json");
+            if (c.getResponseCode() == 200) {
+                String json = readStreamLimited(c.getInputStream(), 16384);
+                JSONObject obj = new JSONObject(json);
+                JSONArray ans = obj.optJSONArray("Answer");
+                if (ans != null) {
+                    for (int i = 0; i < ans.length(); i++) {
+                        JSONObject rec = ans.optJSONObject(i);
+                        if (rec != null && rec.optInt("type", 0) == 1) {
+                            String ip = rec.optString("data", "").trim();
+                            if (ip.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
+                                return ip;
                             }
                         }
                     }
                 }
-            } catch (Exception ignored) {
-            } finally {
-                if (c != null) c.disconnect();
             }
+        } catch (Exception ignored) {
+        } finally {
+            if (c != null) c.disconnect();
         }
         return null;
     }

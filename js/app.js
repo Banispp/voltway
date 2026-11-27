@@ -603,6 +603,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         div.addEventListener('click', (e) => {
           e.stopPropagation();
+          if (item.actionUrl) {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppLauncher) {
+              window.Capacitor.Plugins.AppLauncher.openUrl({ url: item.actionUrl }).catch(() => window.open(item.actionUrl, '_system'));
+            } else {
+              window.open(item.actionUrl, '_system');
+            }
+            return;
+          }
           if (item.isStatusNotice) return;
           inputEl.value = item.name;
           dropdownEl.classList.remove('visible');
@@ -631,6 +639,17 @@ document.addEventListener('DOMContentLoaded', () => {
         : (/https?:\/\/|geo:|goo\.gl|maps\.app/i.test(q) || /-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+/.test(q));
 
       if (isLinkOrCoords) {
+        const isNonMapsUrl = /^https?:\/\//i.test(q) && window.Utilities &&
+          typeof window.Utilities.isMapsOrGeoInput === 'function' &&
+          !window.Utilities.isMapsOrGeoInput(q);
+        if (isNonMapsUrl) {
+          showItems([{
+            isStatusNotice: true,
+            name: '⚠️ Not a Google Maps location link',
+            fullName: 'Paste a Google Maps link (maps.app.goo.gl / google.com/maps), Place Name, or GPS coords'
+          }]);
+          return;
+        }
         if (/https?:\/\/|goo\.gl|maps\.app|share\.google/i.test(q)) {
           showItems([{ isStatusNotice: true, name: '🔗 Reading Google Maps link...', fullName: 'Extracting location pin' }]);
         }
@@ -686,17 +705,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.Capacitor.Plugins.VoltWayNative &&
                 typeof window.Capacitor.Plugins.VoltWayNative.resolveMapUrl === 'function'
               );
-              showItems([{
-                isStatusNotice: true,
-                name: hasNativeResolver
-                  ? '⚠️ Short link timed out (slow network or invalid link)'
-                  : '⚠️ Update APK or paste Place Name / Coordinates',
-                fullName: !navigator.onLine
-                  ? 'Connect to internet to open short Google Maps links'
-                  : (hasNativeResolver
-                      ? 'Retry, or copy Place Name + Address from Google Maps Share (e.g. Mukkam, 673582) or paste lat,lng'
-                      : 'Install v5.51+ APK for Jio DoH link opening, or paste Place Name / Coordinates (11.3454, 75.9565)')
-              }]);
+              const diag = (window.Utilities && typeof window.Utilities.getLastResolveDiag === 'function')
+                ? window.Utilities.getLastResolveDiag()
+                : null;
+              const apkUrl = 'https://github.com/Banispp/voltway/releases/download/v5.51-release/app-debug.apk';
+              if (hasNativeResolver && diag && diag.staleApk) {
+                showItems([{
+                  isStatusNotice: true,
+                  actionUrl: apkUrl,
+                  name: '📲 Tap to install updated VoltWay APK (DoH fix)',
+                  fullName: 'Your installed APK uses old short-link code. Tap here to download latest APK, or paste Place Name'
+                }]);
+              } else {
+                const detailTxt = (diag && diag.detail) ? ` (${diag.detail})` : '';
+                showItems([{
+                  isStatusNotice: true,
+                  actionUrl: hasNativeResolver ? null : apkUrl,
+                  name: hasNativeResolver
+                    ? '⚠️ Short link timed out (slow network or invalid link)'
+                    : '🌐 Web browser blocks short links — Use VoltWay APK',
+                  fullName: !navigator.onLine
+                    ? 'Connect to internet to open short Google Maps links'
+                    : (hasNativeResolver
+                        ? `Retry, or paste Place Name + PIN (e.g. Valluvambram, 673642)${detailTxt}`
+                        : 'Tap to get Android APK for maps.app.goo.gl links, or paste Place Name / Long Maps URL')
+                }]);
+              }
             }
           }
         }, 120);
