@@ -96,6 +96,95 @@ const MapEngine = (function () {
       defaultZoom = 10;
     }
 
+    if (!L.Map.TouchGestures || !L.Map.TouchGestures.prototype._voltwayPinchFixed) {
+      if (L.Map.TouchGestures && L.Map.TouchGestures.prototype) {
+        const origTouchEnd = L.Map.TouchGestures.prototype._onTouchEnd;
+        L.Map.TouchGestures.prototype._onTouchMove = function (t) {
+          if (!t.touches || t.touches.length !== 2 || !this._gesture) return;
+          const e = this._map;
+          const container = e.getContainer();
+          const rect = container.getBoundingClientRect();
+          const pt = (ev) => new L.Point(ev.clientX - rect.left - container.clientLeft, ev.clientY - rect.top - container.clientTop);
+          const o = pt(t.touches[0]);
+          const n = pt(t.touches[1]);
+          const s = o.subtract(n);
+          const a = o.distanceTo(n) / this._startDist;
+
+          if (this._gesture === 'pending') {
+            const h = o.subtract(this._startP1);
+            const _ = n.subtract(this._startP2);
+            if (Math.max(h.x * h.x + h.y * h.y, _.x * _.x + _.y * _.y) < 25) {
+              L.DomEvent.preventDefault(t);
+              return;
+            }
+            const isVert = (m) => Math.abs(m.y) > Math.abs(m.x);
+            if (isVert(h) && isVert(_) && Math.sign(h.y) === Math.sign(_.y)) {
+              this._gesture = 'pitch';
+              this._lastPitchY = (this._startP1.y + this._startP2.y) / 2;
+              this._zooming = this._rotating = false;
+            } else {
+              this._gesture = 'pinch';
+            }
+          }
+
+          if (this._gesture === 'pitch') {
+            const midY = (o.y + n.y) / 2;
+            e._setPitchAndBearing(e.getPitch() - (midY - this._lastPitchY) * 0.5, e.getBearing());
+            this._lastPitchY = midY;
+            L.DomEvent.preventDefault(t);
+            return;
+          }
+
+          if (!(this._zooming || this._rotating)) return;
+
+          if (this._rotating) {
+            let thetaDiff = (Math.atan(s.x / s.y) - this._startTheta) * (180 / Math.PI);
+            if (s.y < 0) thetaDiff += 180;
+            if (thetaDiff) e.setBearing(this._startBearing - thetaDiff);
+          }
+
+          if (this._zooming) {
+            this._zoom = e.getScaleZoom(a, this._startZoom);
+            if (!e.options.bounceAtZoomLimits && ((this._zoom < e.getMinZoom() && a < 1) || (this._zoom > e.getMaxZoom() && a > 1))) {
+              this._zoom = e._limitZoom(this._zoom);
+            }
+            if (e.options.touchZoom === 'center') {
+              this._center = this._startLatLng;
+              if (a === 1) return;
+            } else {
+              const r = o._add(n)._divideBy(2)._subtract(this._centerPoint);
+              if (a === 1 && r.x === 0 && r.y === 0) return;
+              const h = e._pitch
+                ? e.containerPointToLayerPoint(this._centerPoint.add(r)).subtract(e.containerPointToLayerPoint(this._centerPoint))
+                : r.rotate(-e.getBearing() * (Math.PI / 180));
+              this._center = e.unproject(e.project(this._pinchStartLatLng, this._zoom).subtract(h), this._zoom);
+            }
+          }
+
+          if (!this._moved) {
+            e._moveStart(true, false);
+            this._moved = true;
+          }
+
+          L.Util.cancelAnimFrame(this._animRequest);
+          this._animRequest = L.Util.requestAnimFrame(() => {
+            if (!e || !e._mapPane) return;
+            if (e._pitch && e.options.zoomAnimation) {
+              e._animateZoomNoDelay(this._center, e._limitZoom(this._zoom));
+            } else {
+              e._move(this._center, this._zoom, { pinch: true, round: false });
+            }
+          }, this, true);
+          L.DomEvent.preventDefault(t);
+        };
+        L.Map.TouchGestures.prototype._onTouchEnd = function () {
+          L.Util.cancelAnimFrame(this._animRequest);
+          return origTouchEnd.apply(this, arguments);
+        };
+        L.Map.TouchGestures.prototype._voltwayPinchFixed = true;
+      }
+    }
+
     map = L.map(containerId, {
       center: defaultCenter,
       zoom: defaultZoom,
@@ -329,10 +418,10 @@ const MapEngine = (function () {
     });
   }
 
-  function getBrandLogoSvg(network, size = 19) {
+  function getBrandLogoSvg(network, size = 21) {
     if (network === 'ATHER_GRID') {
-      // Official Ather Energy logo 'A' glyph (media.atherenergy.com/Ather-logo-black.svg)
-      return `<svg width="${size}" height="${size}" viewBox="-4 -3 70 46" fill="currentColor" aria-hidden="true"><path d="M51.3996 40H61.6996C62.0996 40 62.3996 39.5 62.0996 39.2L36.6996 0.499989C36.5996 0.399989 36.3996 0.299988 36.2996 0.299988H26.3996C26.1996 0.299988 26.0996 0.399989 25.9996 0.499989L0.199555 39.2C-0.000445217 39.5 0.199554 40 0.599554 40H10.6996C10.8996 40 10.9996 39.9 11.0996 39.8L15.9996 32.3C16.0996 32.2 16.2996 32.1 16.3996 32.1H45.5996C45.7996 32.1 45.8996 32.2 45.9996 32.3L50.8996 39.8C51.0996 39.9 51.1996 40 51.3996 40ZM22.0996 23L30.6996 9.79999C30.8996 9.49999 31.3996 9.49999 31.5996 9.79999L40.0996 23C40.2996 23.3 40.0996 23.8 39.6996 23.8H22.4996C22.0996 23.8 21.8996 23.4 22.0996 23Z"/></svg>`;
+      // Official Ather Energy / Ather Grid emblem symbol (ring + dot + slanted pill mark)
+      return `<svg width="${size}" height="${size}" viewBox="0 0 48 48" fill="none" aria-hidden="true"><circle cx="24" cy="24" r="20.2" stroke="currentColor" stroke-width="3.6"/><circle cx="17.336" cy="28.845" r="4.336" fill="currentColor"/><path fill="currentColor" d="m27.997 14.94 6.541 12.39a3.99 3.99 0 0 1-1.666 5.392 3.99 3.99 0 0 1-5.382-1.67L20.95 18.66a3.98 3.98 0 0 1 1.661-5.377 3.983 3.983 0 0 1 5.386 1.657Z"/></svg>`;
     }
     if (network === 'VIDA_GRID') {
       // Official Hero VIDA wings emblem (vidaworld.com/.../vida-white-logo-img.svg)
@@ -348,7 +437,7 @@ const MapEngine = (function () {
     if (_iconCache[key]) return _iconCache[key];
 
     let pinClass = 'pin-ather';
-    const iconSvg = getBrandLogoSvg(charger.network, 17);
+    const iconSvg = getBrandLogoSvg(charger.network, 21);
     let label = 'Ather Grid';
 
     if (charger.network === 'VIDA_GRID') {

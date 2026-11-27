@@ -872,8 +872,8 @@ body.nav-active .btn-nav-compass {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 
 .pin-label {
@@ -982,13 +982,13 @@ body.nav-active .btn-nav-compass {
 }
 
 .leaflet-zoom-anim .leaflet-zoom-animated {
-  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1) !important;
   will-change: transform;
 }
 
 .leaflet-cluster-anim .leaflet-marker-icon,
 .leaflet-cluster-anim .leaflet-marker-shadow {
-  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease-out !important;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease-out !important;
   will-change: transform, opacity;
   backface-visibility: hidden;
 }
