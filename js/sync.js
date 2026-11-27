@@ -7,7 +7,7 @@
 const SyncEngine = (function () {
   const DB_NAME = 'VoltWay2W_DB';
   const DB_VERSION = 2;
-  const DB_SCHEMA_TAG = '5.52-bolt-z18';
+  const DB_SCHEMA_TAG = '5.53-bolt-dual-t6t7';
   const STORE_NAME = 'chargers';
 
   let db = null;
@@ -128,7 +128,12 @@ const SyncEngine = (function () {
     const normalized = { ...item };
     if (!normalized.state) normalized.state = classifyState(normalized);
 
-    if (!normalized.connector_std) {
+    if (normalized.network === 'BOLT_EARTH' && (normalized.type === 'FAST' || normalized.connector_std === 'TYPE6_LEVDC' || mid.includes('2WFC'))) {
+      normalized.type = 'FAST';
+      normalized.connector_std = 'TYPE6_TYPE7';
+      normalized.compatible_vehicles = ['ATHER', 'VIDA', 'OLA'];
+      normalized.connector = 'Dual 2W Fast DC (Type 7 LECCS + Type 6 LEVDC)';
+    } else if (!normalized.connector_std) {
       if (normalized.network === 'ATHER_GRID' || normalized.network === 'VIDA_GRID') {
         normalized.connector_std = 'TYPE7_LECCS';
         normalized.compatible_vehicles = ['ATHER', 'VIDA'];
@@ -418,19 +423,9 @@ const SyncEngine = (function () {
         let connLabel = 'Standard 15A / 3-Pin AC Socket (Portable Charger)';
 
         if (is2WFast) {
-          if (hasT6 && hasT7) {
-            connStd = 'TYPE6_TYPE7';
-            compatVehicles = ['ATHER', 'VIDA', 'OLA'];
-            connLabel = 'Dual 2W Fast DC (Type 7 LECCS + Type 6 LEVDC)';
-          } else if (hasT6 && !hasT7) {
-            connStd = 'TYPE6_LEVDC';
-            compatVehicles = ['OLA'];
-            connLabel = 'Type 6 LEVDC Fast DC (Ola / Type 6 — Adapter req. for Ather)';
-          } else {
-            connStd = 'TYPE7_LECCS';
-            compatVehicles = ['ATHER', 'VIDA'];
-            connLabel = 'Type 7 LECCS Fast DC (Ather / Hero VIDA)';
-          }
+          connStd = 'TYPE6_TYPE7';
+          compatVehicles = ['ATHER', 'VIDA', 'OLA'];
+          connLabel = 'Dual 2W Fast DC (Type 7 LECCS + Type 6 LEVDC)';
         }
 
         const powerMatch = modelId.match(/_1_(\d+)KW/);

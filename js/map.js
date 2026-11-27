@@ -27,6 +27,7 @@ const MapEngine = (function () {
   let isAutoFollow = false;
   let isUserInteracting = false;
   let isUserRotating = false;
+  let isProgrammaticMove = false;
   let isNavCompassMode = false; // false = Route-Locked, true = Free Compass
   let lastGpsFixTime = 0;
 
@@ -72,6 +73,24 @@ const MapEngine = (function () {
   let markerAnimRaf = null;
   let markerCurrentLat = null;
   let markerCurrentLng = null;
+  let markerStartLat = null;
+  let markerStartLng = null;
+  let markerTargetLat = null;
+  let markerTargetLng = null;
+  let cameraCurrentLat = null;
+  let cameraCurrentLng = null;
+  let cameraStartLat = null;
+  let cameraStartLng = null;
+  let cameraTargetLat = null;
+  let cameraTargetLng = null;
+  let cameraGlideActive = false;
+  let glideStartTime = 0;
+  let glideDurationMs = 950;
+  let prevGpsFixAt = 0;
+  let smoothedGpsCadenceMs = 1000;
+  let motionLastTickTime = 0;
+  let lastMoveEndSyncTime = 0;
+  let panSinceMoveEndPx = 0;
 
   function esc(str) {
     return window.Utilities && window.Utilities.escapeHtml
@@ -263,6 +282,9 @@ const MapEngine = (function () {
     function handleUserManualInteraction() {
       isAutoFollow = false;
       isUserInteracting = true;
+      cameraGlideActive = false;
+      cameraTargetLat = null;
+      cameraTargetLng = null;
       updateGpsButtonUi();
 
       if (bearingRafId) {
@@ -280,9 +302,11 @@ const MapEngine = (function () {
     }
 
     map.on('dragstart', handleUserManualInteraction);
-    map.on('zoomstart', handleUserManualInteraction);
+    map.on('zoomstart', () => {
+      if (!isProgrammaticMove) handleUserManualInteraction();
+    });
     map.on('movestart', (e) => {
-      if (!e.hard && !isAutoFollow) {
+      if (!e.hard && !isAutoFollow && !isProgrammaticMove) {
         handleUserManualInteraction();
       }
     });
@@ -383,6 +407,9 @@ const MapEngine = (function () {
       tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         subdomains: ['a', 'b', 'c'],
+        updateWhenIdle: false,
+        updateInterval: 150,
+        keepBuffer: 4,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> | VoltWay 2W'
       }).addTo(map);
     }
@@ -1112,15 +1139,16 @@ const MapEngine = (function () {
   }
 
   function scheduleBearingAnimation() {
+    if (markerAnimRaf) return;
     if (bearingRafId) return;
     bearingRafId = requestAnimationFrame(() => {
       bearingRafId = null;
-      if (!map || typeof map.setBearing !== 'function') return;
+      if (!map || typeof map.setBearing !== 'function' || isUserRotating) return;
 
       let bDiff = (targetBearing - currentRenderedBearing + 180) % 360 - 180;
       if (bDiff < -180) bDiff += 360;
 
-      if (Math.abs(bDiff) < 0.25) {
+      if (Math.abs(bDiff) < 0.2) {
         currentRenderedBearing = targetBearing;
         map.setBearing(currentRenderedBearing);
         updatePuckHeading(userHeading);
@@ -1245,52 +1273,168 @@ const MapEngine = (function () {
     if (arrow) arrow.style.transform = `rotate(${rotDeg}deg)`;
   }
 
-  function animateMarkerTo(targetLat, targetLng) {
+  function startUnifiedMotionLoop() {
+    if (markerAnimRaf) return;
+    if (bearingRafId) {
+      cancelAnimationFrame(bearingRafId);
+      bearingRafId = null;
+    }
+    motionLastTickTime = performance.now();
+
+    function tick(now) {
+      const dt = Math.min(50, Math.max(4, now - motionLastTickTime));
+      motionLastTickTime = now;
+
+      let needsMore = false;
+      const tRaw = glideDurationMs > 0 ? Math.min(1, Math.max(0, (now - glideStartTime) / glideDurationMs)) : 1;
+      // Continuous velocity-preserving linear progression while moving in Drive Mode; gentle cubic settle otherwise
+      const isRidingFast = Boolean(window.DriveEngine && window.DriveEngine.isActive() && userCoords && (userCoords.speed || 0) >= 1.4);
+      const tPos = isRidingFast ? tRaw : (1 - Math.pow(1 - tRaw, 3));
+
+      if (markerTargetLat != null && markerTargetLng != null && markerStartLat != null && markerStartLng != null) {
+        markerCurrentLat = markerStartLat + (markerTargetLat - markerStartLat) * tPos;
+        markerCurrentLng = markerStartLng + (markerTargetLng - markerStartLng) * tPos;
+        if (userLocationMarker) userLocationMarker.setLatLng([markerCurrentLat, markerCurrentLng]);
+        if (userAccuracyCircle) userAccuracyCircle.setLatLng([markerCurrentLat, markerCurrentLng]);
+        if (tRaw < 1) needsMore = true;
+      }
+
+      if (cameraGlideActive && isAutoFollow && !isUserInteracting && map && !map._animatingZoom && cameraTargetLat != null && cameraTargetLng != null && cameraStartLat != null && cameraStartLng != null) {
+        cameraCurrentLat = cameraStartLat + (cameraTargetLat - cameraStartLat) * tPos;
+        cameraCurrentLng = cameraStartLng + (cameraTargetLng - cameraStartLng) * tPos;
+
+        const targetPt = map.latLngToContainerPoint([cameraCurrentLat, cameraCurrentLng]);
+        const centerPt = map.getSize()._divideBy(2);
+        const dx = targetPt.x - centerPt.x;
+        const dy = targetPt.y - centerPt.y;
+        if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) {
+          if (typeof map._rawPanBy === 'function') {
+            map._rawPanBy(L.point(dx, dy));
+            map.fire('move');
+            panSinceMoveEndPx += Math.hypot(dx, dy);
+            if (panSinceMoveEndPx >= 48 || (now - lastMoveEndSyncTime) >= 420) {
+              panSinceMoveEndPx = 0;
+              lastMoveEndSyncTime = now;
+              map.fire('moveend');
+            }
+          } else {
+            map.setView([cameraCurrentLat, cameraCurrentLng], map.getZoom(), { animate: false });
+          }
+        }
+        if (tRaw < 1) needsMore = true;
+      }
+
+      if (map && typeof map.setBearing === 'function' && !isUserRotating && isAutoFollow) {
+        let bDiff = (targetBearing - currentRenderedBearing + 180) % 360 - 180;
+        if (bDiff < -180) bDiff += 360;
+        if (Math.abs(bDiff) >= 0.2) {
+          const bAlpha = 1 - Math.exp(-dt / 190);
+          currentRenderedBearing = (currentRenderedBearing + bDiff * bAlpha + 360) % 360;
+          map.setBearing(currentRenderedBearing);
+          updatePuckHeading(userHeading);
+          needsMore = true;
+        } else if (currentRenderedBearing !== targetBearing) {
+          currentRenderedBearing = targetBearing;
+          map.setBearing(currentRenderedBearing);
+          updatePuckHeading(userHeading);
+        }
+      }
+
+      if (needsMore) {
+        markerAnimRaf = requestAnimationFrame(tick);
+      } else {
+        markerAnimRaf = null;
+        if (cameraGlideActive && isAutoFollow && !isUserInteracting && map && !map._animatingZoom && panSinceMoveEndPx > 0) {
+          panSinceMoveEndPx = 0;
+          lastMoveEndSyncTime = now;
+          map.fire('moveend');
+        }
+      }
+    }
+
+    markerAnimRaf = requestAnimationFrame(tick);
+  }
+
+  function animateMarkerTo(targetLat, targetLng, camLat = null, camLng = null) {
+    const now = performance.now();
+    if (prevGpsFixAt > 0) {
+      const fixGap = now - prevGpsFixAt;
+      if (fixGap >= 250 && fixGap <= 2600) {
+        smoothedGpsCadenceMs = smoothedGpsCadenceMs * 0.65 + fixGap * 0.35;
+      }
+    }
+    prevGpsFixAt = now;
+
     if (markerCurrentLat == null || markerCurrentLng == null) {
       markerCurrentLat = targetLat;
       markerCurrentLng = targetLng;
+      markerStartLat = targetLat;
+      markerStartLng = targetLng;
+      markerTargetLat = targetLat;
+      markerTargetLng = targetLng;
       if (userLocationMarker) userLocationMarker.setLatLng([targetLat, targetLng]);
       if (userAccuracyCircle) userAccuracyCircle.setLatLng([targetLat, targetLng]);
+      if (camLat != null && camLng != null && map && isAutoFollow && !isUserInteracting) {
+        cameraCurrentLat = camLat;
+        cameraCurrentLng = camLng;
+        cameraStartLat = camLat;
+        cameraStartLng = camLng;
+        cameraTargetLat = camLat;
+        cameraTargetLng = camLng;
+        map.setView([camLat, camLng], map.getZoom(), { animate: false });
+      }
       return;
     }
 
     const dLat = targetLat - markerCurrentLat;
     const dLng = targetLng - markerCurrentLng;
     const hypot = Math.hypot(dLat, dLng);
-    if (hypot > 0.0025 || hypot < 0.000005) {
-      markerCurrentLat = targetLat;
-      markerCurrentLng = targetLng;
+
+    if (hypot > 0.005) {
+      // Large jump (>550m): snap immediately instead of panning across cities
+      markerCurrentLat = markerStartLat = markerTargetLat = targetLat;
+      markerCurrentLng = markerStartLng = markerTargetLng = targetLng;
       if (userLocationMarker) userLocationMarker.setLatLng([targetLat, targetLng]);
       if (userAccuracyCircle) userAccuracyCircle.setLatLng([targetLat, targetLng]);
+      if (camLat != null && camLng != null && map && isAutoFollow && !isUserInteracting) {
+        cameraCurrentLat = cameraStartLat = cameraTargetLat = camLat;
+        cameraCurrentLng = cameraStartLng = cameraTargetLng = camLng;
+        cameraGlideActive = false;
+        map.setView([camLat, camLng], map.getZoom(), { animate: false });
+      }
       return;
     }
 
-    const startLat = markerCurrentLat;
-    const startLng = markerCurrentLng;
-    const startTime = performance.now();
-    const duration = 650;
+    markerStartLat = markerCurrentLat;
+    markerStartLng = markerCurrentLng;
+    markerTargetLat = targetLat;
+    markerTargetLng = targetLng;
 
-    if (markerAnimRaf) cancelAnimationFrame(markerAnimRaf);
-
-    function step(now) {
-      const progress = Math.min(1, (now - startTime) / duration);
-      const ease = 1 - Math.pow(1 - progress, 3);
-      markerCurrentLat = startLat + dLat * ease;
-      markerCurrentLng = startLng + dLng * ease;
-
-      if (userLocationMarker) userLocationMarker.setLatLng([markerCurrentLat, markerCurrentLng]);
-      if (userAccuracyCircle) userAccuracyCircle.setLatLng([markerCurrentLat, markerCurrentLng]);
-
-      if (progress < 1) {
-        markerAnimRaf = requestAnimationFrame(step);
-      } else {
-        markerAnimRaf = null;
+    if (camLat != null && camLng != null && isAutoFollow && !isUserInteracting && map) {
+      if (cameraCurrentLat == null || cameraCurrentLng == null) {
+        const mc = map.getCenter();
+        cameraCurrentLat = mc.lat;
+        cameraCurrentLng = mc.lng;
       }
+      cameraStartLat = cameraCurrentLat;
+      cameraStartLng = cameraCurrentLng;
+      cameraTargetLat = camLat;
+      cameraTargetLng = camLng;
+      cameraGlideActive = true;
+    } else {
+      cameraGlideActive = false;
     }
-    markerAnimRaf = requestAnimationFrame(step);
+
+    glideStartTime = now;
+    const isDriving = Boolean(window.DriveEngine && window.DriveEngine.isActive());
+    glideDurationMs = isDriving
+      ? Math.max(700, Math.min(1350, Math.round(smoothedGpsCadenceMs * 0.96)))
+      : 520;
+
+    startUnifiedMotionLoop();
   }
 
-  function updateUserPuck(lat, lng, accuracy = 15, heading = 0) {
+  function updateUserPuck(lat, lng, accuracy = 15, heading = 0, cameraTarget = null) {
     if (!map) return;
 
     let renderLat = lat;
@@ -1327,11 +1471,18 @@ const MapEngine = (function () {
       });
 
       userLocationMarker = L.marker([renderLat, renderLng], { icon: puckIcon, zIndexOffset: 30000 }).addTo(map);
-      markerCurrentLat = renderLat;
-      markerCurrentLng = renderLng;
+      markerCurrentLat = markerStartLat = markerTargetLat = renderLat;
+      markerCurrentLng = markerStartLng = markerTargetLng = renderLng;
+      if (cameraTarget && isAutoFollow && !isUserInteracting) {
+        cameraCurrentLat = cameraStartLat = cameraTargetLat = cameraTarget[0];
+        cameraCurrentLng = cameraStartLng = cameraTargetLng = cameraTarget[1];
+        map.setView([cameraTarget[0], cameraTarget[1]], map.getZoom(), { animate: false });
+      }
       updatePuckHeading(heading);
     } else {
-      animateMarkerTo(renderLat, renderLng);
+      const camLat = cameraTarget ? cameraTarget[0] : null;
+      const camLng = cameraTarget ? cameraTarget[1] : null;
+      animateMarkerTo(renderLat, renderLng, camLat, camLng);
       updatePuckHeading(heading);
     }
 
@@ -1434,7 +1585,9 @@ const MapEngine = (function () {
 
     if (Math.abs(map.getZoom() - targetZoom) >= 0.5) {
       lastZoomAdjustTime = now;
+      isProgrammaticMove = true;
       map.setZoom(targetZoom, { animate: true });
+      setTimeout(() => { isProgrammaticMove = false; }, 300);
     }
   }
 
@@ -1442,6 +1595,7 @@ const MapEngine = (function () {
     initCompass();
     if (autoCenter) {
       isAutoFollow = true;
+      isUserInteracting = false;
       updateGpsButtonUi();
     }
     if (watchId !== null || !navigator.geolocation) return;
@@ -1482,12 +1636,7 @@ const MapEngine = (function () {
       userCoords = { lat, lng, accuracy, heading: userHeading, speed };
       try { localStorage.setItem('voltway_last_known_pos', JSON.stringify({ lat, lng })); } catch (e) {}
 
-      updateUserPuck(lat, lng, accuracy, userHeading);
-
-      if (window.DriveEngine && window.DriveEngine.isActive() && isAutoFollow && map) {
-        updateSpeedAdaptiveZoom(speed);
-      }
-
+      let cameraTarget = null;
       if (isAutoFollow && map) {
         if (window.DriveEngine && window.DriveEngine.isActive()) {
           let desiredHeading = userHeading;
@@ -1501,9 +1650,8 @@ const MapEngine = (function () {
           if (typeof map.setBearing === 'function' && desiredHeading != null) {
             const nextBearing = (360 - desiredHeading + 360) % 360;
             const bDiff = (nextBearing - targetBearing + 180) % 360 - 180;
-            if (Math.abs(bDiff) >= 3.0) {
+            if (Math.abs(bDiff) >= 1.5) {
               targetBearing = nextBearing;
-              scheduleBearingAnimation();
             }
           }
 
@@ -1511,14 +1659,20 @@ const MapEngine = (function () {
           const rad = (desiredHeading || 0) * Math.PI / 180;
           const lookLat = lat + (lookaheadKm / 111.32) * Math.cos(rad);
           const lookLng = lng + (lookaheadKm / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(rad);
-          map.setView([lookLat, lookLng], map.getZoom(), { animate: false });
+          cameraTarget = [lookLat, lookLng];
         } else {
           if (typeof map.setBearing === 'function' && map.getBearing() !== 0) {
             targetBearing = 0;
             scheduleBearingAnimation();
           }
-          map.panTo([lat, lng], { animate: true, duration: 0.5 });
+          cameraTarget = [lat, lng];
         }
+      }
+
+      updateUserPuck(lat, lng, accuracy, userHeading, cameraTarget);
+
+      if (window.DriveEngine && window.DriveEngine.isActive() && isAutoFollow && map) {
+        updateSpeedAdaptiveZoom(speed);
       }
 
       updateGpsButtonUi();
@@ -1590,6 +1744,9 @@ const MapEngine = (function () {
           }
         }
         const targetZoom = forcedZoom || (map.getZoom() < 16 ? 17.5 : map.getZoom());
+        cameraCurrentLat = cameraStartLat = cameraTargetLat = userCoords.lat;
+        cameraCurrentLng = cameraStartLng = cameraTargetLng = userCoords.lng;
+        cameraGlideActive = false;
         map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: false });
 
         if (typeof map.setBearing === 'function' && desiredHeading != null) {
@@ -1599,6 +1756,9 @@ const MapEngine = (function () {
         }
       } else {
         const targetZoom = forcedZoom || Math.max(16, map.getZoom());
+        cameraCurrentLat = cameraStartLat = cameraTargetLat = userCoords.lat;
+        cameraCurrentLng = cameraStartLng = cameraTargetLng = userCoords.lng;
+        cameraGlideActive = false;
         map.setView([userCoords.lat, userCoords.lng], targetZoom, { animate: false });
         if (typeof map.setBearing === 'function') {
           targetBearing = 0;

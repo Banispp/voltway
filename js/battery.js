@@ -269,8 +269,11 @@ const BatteryEngine = (function () {
     const vConn = v.connectorType || 'TYPE7';
 
     // Determine charger standard cleanly even on legacy cached records
+    // Bolt.Earth 2W Fast chargers ship Dual Type 6 + Type 7 on the same unit even if backend model_id only says TYPE6
     let cStd = charger.connector_std || '';
-    if (!cStd) {
+    if (charger.network === 'BOLT_EARTH' && (charger.type === 'FAST' || cStd === 'TYPE6_LEVDC' || cStd === 'TYPE6_TYPE7')) {
+      cStd = 'TYPE6_TYPE7';
+    } else if (!cStd) {
       const mid = String(charger.model_id || '').toUpperCase();
       if (charger.network === 'ATHER_GRID' || charger.network === 'VIDA_GRID') {
         cStd = 'TYPE7_LECCS';
