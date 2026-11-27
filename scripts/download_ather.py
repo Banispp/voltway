@@ -9,6 +9,8 @@ import json
 import os
 import sys
 
+import time
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from charger_validator import classify_state
 
@@ -21,11 +23,24 @@ HEADERS = {
 }
 
 
-def sync_ather():
+def sync_ather(max_retries=3):
     print("Connecting to Ather Energy Official API...")
-    req = urllib.request.Request(URL, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode('utf-8'))
+    data = None
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            req = urllib.request.Request(URL, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+            break
+        except Exception as exc:
+            last_err = exc
+            print(f"Ather attempt {attempt}/{max_retries} failed: {exc}", flush=True)
+            if attempt < max_retries:
+                time.sleep(3 * attempt)
+
+    if data is None:
+        raise RuntimeError(f"Ather API unavailable after {max_retries} attempts: {last_err}")
 
     features = data.get('features', [])
     print(f"Fetched {len(features)} stations from Ather.")
@@ -56,7 +71,7 @@ def sync_ather():
             'state': classify_state(name, addr, lat, lng),
             'connector_std': 'TYPE7_LECCS',
             'compatible_vehicles': ['ATHER', 'VIDA'],
-            'connector': 'Type 7 LECCS DC Fast (Ather 450X / Rizta / Apex & Hero VIDA)',
+            'connector': 'Type 7 LECCS DC Fast (Ather / Hero VIDA)',
             'power_kw': 3.3,
             'lat': round(lat, 6),
             'lng': round(lng, 6),
@@ -67,10 +82,13 @@ def sync_ather():
         })
 
     out_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ather_grid_chargers.json')
-    with open(out_path, 'w', encoding='utf-8') as f:
-        json.dump(cleaned, f, ensure_ascii=False)
+    if len(cleaned) > 0:
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(cleaned, f, ensure_ascii=False)
+        print(f"Successfully saved {len(cleaned)} Ather Grid fast chargers to {out_path}")
+    else:
+        print("Warning: Ather returned 0 valid chargers, keeping existing baseline.")
 
-    print(f"Successfully saved {len(cleaned)} Ather Grid fast chargers to {out_path}")
     return cleaned
 
 

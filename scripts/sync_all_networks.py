@@ -18,21 +18,29 @@ def run():
     print("=" * 75)
 
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    steps = [
+        ("[Step 1/4] Syncing Official Ather Grid API...", 'download_ather.py'),
+        ("[Step 2/4] Syncing Official Hero VIDA Grid API...", 'download_vida.py'),
+        ("[Step 3/4] Running Bolt.Earth National Zoom 18 Deep Harvester...", 'harvest_bolt_national.py'),
+    ]
 
-    print("\n[Step 1/4] Syncing Official Ather Grid API...", flush=True)
-    subprocess.run([sys.executable, os.path.join(scripts_dir, 'download_ather.py')], check=True)
+    ok_networks = 0
+    for label, script_name in steps:
+        print(f"\n{label}", flush=True)
+        try:
+            subprocess.run([sys.executable, os.path.join(scripts_dir, script_name)], check=True)
+            ok_networks += 1
+        except Exception as exc:
+            print(f"Warning: {script_name} failed ({exc}); keeping previous baseline and continuing.", flush=True)
 
-    print("\n[Step 2/4] Syncing Official Hero VIDA Grid API...", flush=True)
-    subprocess.run([sys.executable, os.path.join(scripts_dir, 'download_vida.py')], check=True)
-
-    print("\n[Step 3/4] Running Bolt.Earth National Zoom 18 Deep Harvester...", flush=True)
-    subprocess.run([sys.executable, os.path.join(scripts_dir, 'harvest_bolt_national.py')], check=True)
+    if ok_networks == 0:
+        raise RuntimeError("All 3 EV network sync steps failed!")
 
     print("\n[Step 4/4] Verifying merged database bundle...", flush=True)
     subprocess.run([sys.executable, os.path.join(scripts_dir, 'merge_and_update.py')], check=True)
 
     print("\n" + "=" * 75)
-    print("Master Deep Scan & Merge Completed Successfully!")
+    print(f"Master Deep Scan & Merge Completed ({ok_networks}/3 live sources succeeded)!")
     print("=" * 75)
 
 

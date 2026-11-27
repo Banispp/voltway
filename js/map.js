@@ -1564,44 +1564,10 @@ const MapEngine = (function () {
   }
 
   function updateBatteryRangeCircle() {
-    if (!map || !window.BatteryEngine) return;
-    const bat = window.BatteryEngine.getState();
-    const safeKm = bat && typeof bat.reachableSafeKm === 'number' ? bat.reachableSafeKm : 0;
-    const safeRadiusM = Math.max(0, safeKm * 1000);
-
-    const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
-    let center = null;
-    if (userCoords && lastGpsFixTime > 0) {
-      center = [userCoords.lat, userCoords.lng];
-    } else if (activeRoute && activeRoute.origin) {
-      center = [activeRoute.origin.lat, activeRoute.origin.lng];
+    if (batteryRangeCircle && map) {
+      map.removeLayer(batteryRangeCircle);
     }
-
-    if (!center || safeRadiusM < 200) {
-      if (batteryRangeCircle) {
-        map.removeLayer(batteryRangeCircle);
-        batteryRangeCircle = null;
-      }
-      return;
-    }
-
-    const ringColor = safeKm <= 5 ? '#ff4d6d' : (safeKm <= 20 ? '#fbbf24' : '#00e676');
-    if (!batteryRangeCircle) {
-      batteryRangeCircle = L.circle(center, {
-        radius: safeRadiusM,
-        color: ringColor,
-        weight: 1.8,
-        dashArray: '6, 8',
-        opacity: 0.55,
-        fillColor: ringColor,
-        fillOpacity: 0.04,
-        interactive: false
-      }).addTo(map);
-    } else {
-      batteryRangeCircle.setLatLng(center);
-      batteryRangeCircle.setRadius(safeRadiusM);
-      batteryRangeCircle.setStyle({ color: ringColor, fillColor: ringColor });
-    }
+    batteryRangeCircle = null;
   }
 
   function refreshBatteryVisuals() {

@@ -33,5 +33,6 @@ jobs:
             echo "No new chargers detected today. Database is already up to date!"
           else
             git commit -m "Auto-Sync: Added newly detected Ather, VIDA & Bolt chargers [skip ci]"
+            git pull --rebase --autostash origin master
             git push
           fi

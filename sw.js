@@ -1,5 +1,5 @@
 // VoltWay 2W Service Worker - Version 5.50 (Aligned Cache Shell & Bounded Tile Cache)
-const CACHE_NAME = 'voltway-2w-v5-68';
+const CACHE_NAME = 'voltway-2w-v5-69';
 const TILE_CACHE_NAME = 'voltway-2w-tiles-v1';
 const MAX_CACHED_TILES = 350;
 
@@ -76,6 +76,7 @@ self.addEventListener('fetch', (event) => {
     url.includes('project-osrm.org') ||
     url.includes('routing.openstreetmap.de') ||
     url.includes('api.bolt.earth') ||
+    url.includes('raw.githubusercontent.com') ||
     url.includes('nominatim.openstreetmap.org') ||
     url.includes('photon.komoot.io')
   ) {
