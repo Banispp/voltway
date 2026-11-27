@@ -1713,6 +1713,13 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   margin-top: 2px;
 }
 
+.dropdown-item.status-notice .item-sub {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
 /* Search Area Group in Drawer */
 .search-area-group {
   margin-bottom: 8px;

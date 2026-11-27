@@ -132,8 +132,13 @@ public class MainActivity extends BridgeActivity {
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -394,17 +399,42 @@ public class VoltWayNativePlugin extends Plugin {
 
         executor.execute(() -> {
             JSObject ret = new JSObject();
-            ret.put("pluginBuild", "v5.53-doh");
+            ret.put("pluginBuild", "v5.54-wv");
             String stage = "init";
+            String socketErr = null;
             try {
                 stage = "redirects";
-                String finalUrl = followGoogleRedirects(target, 5);
+                String finalUrl = null;
+                try {
+                    finalUrl = followGoogleRedirects(target, 5);
+                } catch (Exception followEx) {
+                    socketErr = followEx.getClass().getSimpleName() + (followEx.getMessage() != null ? ": " + followEx.getMessage() : "");
+                }
+
+                boolean needsWebViewFallback = (finalUrl == null) ||
+                    (finalUrl.equals(target) && !finalUrl.contains("/maps/place/") && !finalUrl.contains("/maps/dir/") && extractCoords(finalUrl) == null);
+                if (needsWebViewFallback) {
+                    stage = "webview";
+                    String wvUrl = resolveViaHiddenWebView(target, 7000);
+                    if (wvUrl != null && !wvUrl.isEmpty()) {
+                        finalUrl = wvUrl;
+                    }
+                }
+
+                if (finalUrl == null) {
+                    ret.put("success", false);
+                    ret.put("url", target);
+                    ret.put("error", socketErr != null ? ("socket+wv failed: " + socketErr) : "No redirect from short link");
+                    call.resolve(ret);
+                    return;
+                }
+
                 String placeTitle = extractPlaceFromUrl(finalUrl);
                 double[] coords = extractCoords(finalUrl);
 
-                if (coords == null && finalUrl != null && isAllowedGoogleHost(new URL(finalUrl).getHost())) {
+                if (coords == null && isAllowedGoogleHost(new URL(finalUrl).getHost())) {
                     stage = "html";
-                    int htmlTimeout = (placeTitle != null && !placeTitle.isEmpty()) ? 2400 : 4200;
+                    int htmlTimeout = (placeTitle != null && !placeTitle.isEmpty()) ? 2200 : 4000;
                     try {
                         HttpResult htmlRes = fetchWithDohFallback(finalUrl, true, htmlTimeout);
                         if (htmlRes != null && htmlRes.body != null) {
@@ -418,11 +448,11 @@ public class VoltWayNativePlugin extends Plugin {
                     }
                 }
 
-                boolean changed = finalUrl != null && !finalUrl.equals(target) && finalUrl.contains("google.");
+                boolean changed = !finalUrl.equals(target) && (finalUrl.contains("google.") || finalUrl.startsWith("geo:"));
                 ret.put("success", changed || coords != null || (placeTitle != null && !placeTitle.isEmpty()));
-                ret.put("url", finalUrl != null ? finalUrl : target);
+                ret.put("url", finalUrl);
                 if (!changed && coords == null && (placeTitle == null || placeTitle.isEmpty())) {
-                    ret.put("error", "No redirect from " + target);
+                    ret.put("error", socketErr != null ? socketErr : ("No redirect from " + target));
                 }
                 if (placeTitle != null && !placeTitle.isEmpty()) {
                     ret.put("title", placeTitle);
@@ -438,6 +468,109 @@ public class VoltWayNativePlugin extends Plugin {
                 call.resolve(ret);
             }
         });
+    }
+
+    private String resolveViaHiddenWebView(final String startUrl, long timeoutMs) {
+        if (getActivity() == null) return null;
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<String> foundUrl = new AtomicReference<>(null);
+        final AtomicReference<WebView> wvHolder = new AtomicReference<>(null);
+
+        getActivity().runOnUiThread(() -> {
+            try {
+                final WebView wv = new WebView(getActivity());
+                wvHolder.set(wv);
+                WebSettings ws = wv.getSettings();
+                ws.setJavaScriptEnabled(true);
+                ws.setDomStorageEnabled(true);
+                ws.setLoadsImagesAutomatically(false);
+                ws.setBlockNetworkImage(true);
+                ws.setUserAgentString(DESKTOP_UA);
+
+                wv.setWebViewClient(new WebViewClient() {
+                    private boolean tryCapture(String rawUrl) {
+                        if (rawUrl == null || rawUrl.isEmpty()) return false;
+                        String cand = rawUrl.trim();
+                        if (cand.startsWith("intent://")) {
+                            Matcher fbM = Pattern.compile("S\\.browser_fallback_url=([^;]+)").matcher(cand);
+                            if (fbM.find()) {
+                                try {
+                                    cand = URLDecoder.decode(fbM.group(1), "UTF-8");
+                                } catch (Exception ignored) {}
+                            } else {
+                                int hashIdx = cand.indexOf("#Intent;");
+                                if (hashIdx > 9) {
+                                    cand = "https://" + cand.substring(9, hashIdx);
+                                }
+                            }
+                        }
+                        if (cand.contains("consent.google.")) {
+                            Matcher contM = Pattern.compile("[?&]continue=([^&]+)", Pattern.CASE_INSENSITIVE).matcher(cand);
+                            if (contM.find()) {
+                                try {
+                                    cand = URLDecoder.decode(contM.group(1), "UTF-8");
+                                } catch (Exception ignored) {}
+                            }
+                        }
+                        if (cand.startsWith("geo:") || (cand.contains("google.") && (
+                            cand.contains("/maps/place/") || cand.contains("/maps/search/") ||
+                            cand.contains("/maps/dir/") || extractCoords(cand) != null))) {
+                            if (foundUrl.compareAndSet(null, cand)) {
+                                latch.countDown();
+                            }
+                            return true;
+                        }
+                        return false;
+                    }
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                        String u = (request != null && request.getUrl() != null) ? request.getUrl().toString() : null;
+                        return tryCapture(u);
+                    }
+
+                    @Override
+                    public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                        tryCapture(url);
+                    }
+
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        if (!tryCapture(url) && foundUrl.get() == null && view != null) {
+                            view.evaluateJavascript("window.location.href", value -> {
+                                if (value != null && value.length() > 2 && value.startsWith("\"") && value.endsWith("\"")) {
+                                    String clean = value.substring(1, value.length() - 1).replace("\\/", "/");
+                                    tryCapture(clean);
+                                }
+                            });
+                        }
+                    }
+                });
+
+                wv.loadUrl(startUrl);
+            } catch (Exception e) {
+                latch.countDown();
+            }
+        });
+
+        try {
+            latch.await(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        } finally {
+            if (getActivity() != null) {
+                getActivity().runOnUiThread(() -> {
+                    WebView w = wvHolder.get();
+                    if (w != null) {
+                        try {
+                            w.stopLoading();
+                            w.destroy();
+                        } catch (Exception ignored) {}
+                    }
+                });
+            }
+        }
+        return foundUrl.get();
     }
 
     private static class HttpResult {

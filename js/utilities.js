@@ -994,7 +994,7 @@ const Utilities = (function () {
       let expPlace = '';
       let expTitle = '';
       if (url) {
-        const expandedRaw = preExpanded || await unshortenUrl(url);
+        const expandedRaw = (preExpanded === false) ? null : (preExpanded || await unshortenUrl(url));
         if (expandedRaw) {
           let expUrl = typeof expandedRaw === 'object' ? (expandedRaw.url || '') : String(expandedRaw);
           if (expUrl.includes('consent.google.')) {

@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.52. Tap v5.52 pill anytime to update.');
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.53. Tap v5.53 pill anytime to update.');
               }
             };
           };
@@ -142,9 +142,9 @@ document.addEventListener('DOMContentLoaded', () => {
             updateAvailable = true;
           }
           if (updateAvailable) {
-            btnForceRefresh.textContent = 'v5.52 ↑';
+            btnForceRefresh.textContent = 'v5.53 ↑';
             if (window.SyncEngine) {
-              window.SyncEngine.showAutoUpdateToast('🆕 New VoltWay APK ready! Tap "v5.52 ↑" at top right to auto-update.');
+              window.SyncEngine.showAutoUpdateToast('🆕 New VoltWay APK ready! Tap "v5.53 ↑" at top right to auto-update.');
             }
           }
         } catch (e) {}
@@ -642,7 +642,7 @@ document.addEventListener('DOMContentLoaded', () => {
       expanded = await window.Utilities.unshortenUrl(normalizedShort);
     }
     const dir = window.Utilities.parseGoogleMapsDirectionsUrl(expanded || rawTrimmed);
-    if (!dir) return { imported: false, expanded };
+    if (!dir) return { imported: false, expanded: expanded || (shortMatch ? false : null) };
 
     if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔗 Importing Google Maps directions...');
     const oRes = await window.Utilities.resolveLocationInput(dir.origin);
@@ -679,7 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       items.forEach(item => {
         const div = document.createElement('div');
-        div.className = 'dropdown-item';
+        div.className = item.isStatusNotice ? 'dropdown-item status-notice' : 'dropdown-item';
 
         if (item.isStatusNotice) {
           div.innerHTML = `
@@ -817,7 +817,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   fullName: 'Your installed APK uses old short-link code. Tap here to download latest APK, or paste Place Name'
                 }]);
               } else {
-                const detailTxt = (diag && diag.detail) ? ` (${diag.detail})` : '';
+                const detailPrefix = (diag && diag.detail) ? `[${diag.detail}] ` : '';
                 showItems([{
                   isStatusNotice: true,
                   actionUrl: hasNativeResolver ? null : apkUrl,
@@ -827,7 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   fullName: !navigator.onLine
                     ? 'Connect to internet to open short Google Maps links'
                     : (hasNativeResolver
-                        ? `Retry, or paste Place Name + PIN (e.g. Valluvambram, 673642)${detailTxt}`
+                        ? `${detailPrefix}Retry or paste Place Name + PIN (e.g. Valluvambram, 673642)`
                         : 'Tap to get Android APK for maps.app.goo.gl links, or paste Place Name / Long Maps URL')
                 }]);
               }
@@ -2692,7 +2692,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let expandedHint = null;
-    if (cleaned.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps/i.test(cleaned)) {
+    if (cleaned.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps|share\.google/i.test(cleaned)) {
       const dirRes = await tryImportGoogleDirectionsUrl(cleaned);
       expandedHint = dirRes.expanded;
       if (dirRes.imported) {
