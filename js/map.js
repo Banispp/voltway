@@ -347,26 +347,35 @@ const MapEngine = (function () {
   }
 
   function setTileTheme(theme = 'dark') {
-    currentTileTheme = theme;
-    try { localStorage.setItem('voltway_map_theme', theme); } catch (e) {}
+    currentTileTheme = theme === 'daylight' || theme === 'light' ? 'daylight' : 'dark';
+    try { localStorage.setItem('voltway_map_theme', currentTileTheme); } catch (e) {}
 
+    const isLight = currentTileTheme !== 'dark';
     const mapEl = document.getElementById(mapContainerId) || document.getElementById('map');
     const themeBtnIcon = document.getElementById('theme-btn-icon');
     const themeBtn = document.getElementById('btn-toggle-map-theme');
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
 
-    if (theme === 'dark') {
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.toggle('ui-light-mode', isLight);
+    }
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute('content', isLight ? '#ffffff' : '#06090f');
+    }
+
+    if (!isLight) {
       if (mapEl) mapEl.classList.add('map-dark-mode');
       if (themeBtnIcon) themeBtnIcon.textContent = '☀️';
       if (themeBtn) {
-        themeBtn.setAttribute('title', 'Switch to Daylight Map');
+        themeBtn.setAttribute('title', 'Switch to White Light Mode (Map + UI)');
         themeBtn.style.color = '#fbbf24';
       }
     } else {
       if (mapEl) mapEl.classList.remove('map-dark-mode');
       if (themeBtnIcon) themeBtnIcon.textContent = '🌙';
       if (themeBtn) {
-        themeBtn.setAttribute('title', 'Switch to OLED Dark Map');
-        themeBtn.style.color = '#38bdf8';
+        themeBtn.setAttribute('title', 'Switch to OLED Dark Mode (Map + UI)');
+        themeBtn.style.color = '#0284c7';
       }
     }
 
@@ -383,7 +392,7 @@ const MapEngine = (function () {
     const nextTheme = (currentTileTheme === 'dark') ? 'daylight' : 'dark';
     setTileTheme(nextTheme);
     if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 OLED Dark Map' : '☀️ Daylight Map');
+      window.SyncEngine.showAutoUpdateToast(nextTheme === 'dark' ? '🌙 OLED Dark Mode (UI + Map)' : '☀️ Daylight White Mode (UI + Map)');
     }
     return nextTheme;
   }
@@ -812,9 +821,9 @@ const MapEngine = (function () {
         const btns = nearby.map(o => {
           const safeJsId = esc(String(o.id).replace(/['"\\]/g, ''));
           const badge = o.network === 'ATHER_GRID' ? '⚡Ather' : (o.network === 'VIDA_GRID' ? '⚡VIDA' : (o.type === 'FAST' ? '⚡Bolt' : '🔌15A'));
-          return `<button type="button" onclick="MapEngine.handleFocusChargerById('${safeJsId}')" style="width:100%; text-align:left; background:rgba(15,23,42,0.88); border:1px solid rgba(56,189,248,0.3); color:#e2e8f0; border-radius:6px; padding:5px 8px; font-size:0.68rem; font-weight:700; cursor:pointer; display:flex; justify-content:space-between; gap:6px; align-items:center;"><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${badge} • ${esc((o.name || 'Charger').slice(0, 26))}</span><span style="color:#38bdf8; flex-shrink:0;">View ➔</span></button>`;
+          return `<button type="button" class="popup-colocated-btn" onclick="MapEngine.handleFocusChargerById('${safeJsId}')"><span class="popup-colocated-name">${badge} • ${esc((o.name || 'Charger').slice(0, 26))}</span><span class="popup-colocated-go">View ➔</span></button>`;
         }).join('');
-        coLocatedHtml = `<div style="margin:6px 0; padding:6px; border-radius:8px; background:rgba(56,189,248,0.10); border:1px solid rgba(56,189,248,0.28); display:flex; flex-direction:column; gap:4px;"><div style="font-size:0.67rem; font-weight:800; color:#7dd3fc;">📍 ${nearby.length} Other Charger${nearby.length > 1 ? 's' : ''} Right Here:</div>${btns}</div>`;
+        coLocatedHtml = `<div class="popup-colocated-box"><div class="popup-colocated-hdr">📍 ${nearby.length} Other Charger${nearby.length > 1 ? 's' : ''} Right Here:</div>${btns}</div>`;
       }
     }
 
@@ -822,7 +831,7 @@ const MapEngine = (function () {
       <div class="popup-card">
         <div class="popup-header">
           ${stopHeaderBadge}
-          <span style="font-size: 0.68rem; font-weight: 800; color: ${isFast ? '#00e676' : '#38bdf8'};">${isFast ? '⚡ Fast' : '🔌 15A'} • ${powerBadge}</span>
+          <span class="popup-power-tag ${isFast ? 'is-fast' : 'is-slow'}">${isFast ? '⚡ Fast' : '🔌 15A'} • ${powerBadge}</span>
         </div>
 
         <div class="popup-title">${cleanTitle}</div>
@@ -833,8 +842,8 @@ const MapEngine = (function () {
         </div>
 
         <div class="popup-meta-box">
-          <div style="font-size: 0.7rem; color: #cbd5e1; font-weight: 600;">🔌 ${safeConnector}</div>
-          <div style="display: flex; justify-content: space-between; font-size: 0.68rem; color: #94a3b8; margin-top: 3px;">
+          <div class="popup-connector-line">🔌 ${safeConnector}</div>
+          <div class="popup-meta-sub">
             <span>${verifiedBadge}</span>
             <span>⏱️ ~${estTimeText} (${startPct}→${batteryState.targetChargePct ?? 80}%)</span>
           </div>

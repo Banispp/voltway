@@ -7,7 +7,7 @@
 const SyncEngine = (function () {
   const DB_NAME = 'VoltWay2W_DB';
   const DB_VERSION = 2;
-  const DB_SCHEMA_TAG = '5.51-deep-2w';
+  const DB_SCHEMA_TAG = '5.52-bolt-z18';
   const STORE_NAME = 'chargers';
 
   let db = null;
@@ -368,7 +368,7 @@ const SyncEngine = (function () {
   async function fetchLiveBoltInBounds(bounds) {
     if (!bounds || !navigator.onLine) return [];
     const { south, west, north, east } = bounds;
-    const url = `https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom=${south}&lng_right=${east}&lat_top=${north}&lng_left=${west}&zoom=16`;
+    const url = `https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom=${south}&lng_right=${east}&lat_top=${north}&lng_left=${west}&zoom=18`;
 
     try {
       const controller = new AbortController();
@@ -491,6 +491,7 @@ const SyncEngine = (function () {
         for (let i = 0; i < keyCorridors.length; i++) {
           const c = keyCorridors[i];
           await fetchLiveBoltInBounds({ south: c.lat_bottom, west: c.lng_left, north: c.lat_top, east: c.lng_right });
+          if (i < keyCorridors.length - 1) await new Promise(r => setTimeout(r, 350));
         }
       }
 

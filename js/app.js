@@ -1443,10 +1443,10 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="corridor-card-desc">${c.kmFromOrigin} km ahead • ${c.power_kw || (c.type === 'FAST' ? 3 : 1.5)} kW • ${compat.compatible ? '✅' : '⚠️'} ${esc(compat.reason)}</div>
             <div class="corridor-card-actions">
-              <button type="button" class="btn-sm ${isAdded ? 'btn-remove-stop' : 'btn-add-stop'}" style="background: ${isAdded ? 'rgba(255,51,102,0.18)' : 'rgba(0,230,118,0.16)'}; color: ${isAdded ? '#fca5a5' : '#00e676'}; border: 1px solid ${isAdded ? 'rgba(255,51,102,0.4)' : 'rgba(0,230,118,0.4)'};">
+              <button type="button" class="btn-sm ${isAdded ? 'btn-remove-stop' : 'btn-add-stop'} btn-corridor-toggle ${isAdded ? 'is-added' : ''}">
                 ${isAdded ? '❌ Remove Stop' : '➕ Add Stop'}
               </button>
-              <button type="button" class="btn-sm btn-focus-corridor" style="background: rgba(56,189,248,0.14); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.35);">📍 View on Map</button>
+              <button type="button" class="btn-sm btn-focus-corridor">📍 View on Map</button>
             </div>
           `;
 
@@ -1642,8 +1642,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="sos-address">${esc(charger.address || `${charger.lat.toFixed(4)}, ${charger.lng.toFixed(4)}`)}</div>
         <div class="sos-actions">
           <button type="button" class="btn-sos-nav btn-sos-inapp">⚡ Route Here</button>
-          <button type="button" class="btn-sos-nav btn-sos-focus" style="background: rgba(56,189,248,0.14); border-color: rgba(56,189,248,0.35); color: #7dd3fc;">📍 Focus</button>
-          <button type="button" class="btn-sos-nav btn-sos-gmaps" style="background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); color: #e2e8f0;">🗺️ Maps</button>
+          <button type="button" class="btn-sos-nav btn-sos-focus">📍 Focus</button>
+          <button type="button" class="btn-sos-nav btn-sos-gmaps">🗺️ Maps</button>
         </div>
       `;
 
@@ -1802,61 +1802,130 @@ document.addEventListener('DOMContentLoaded', () => {
       return head;
     }
 
+    function cleanRoadLabel(raw) {
+      if (!raw || typeof raw !== 'string') return '';
+      const trimmed = raw.replace(/\s+/g, ' ').trim();
+      if (!trimmed || /^unnamed/i.test(trimmed) || /^(road|ramp|street)$/i.test(trimmed)) return '';
+      return trimmed.replace(/\b(NH|SH|AH)(\d+)/gi, (_, pfx, num) => `${pfx.toUpperCase()} ${num}`);
+    }
+
     function extractTowardHint(instruction) {
       if (!instruction || typeof instruction !== 'string') return '';
       const m = instruction.match(/\btoward\s+([^.;]+)/i);
-      return m && m[1] ? m[1].trim() : '';
+      return m && m[1] ? cleanRoadLabel(m[1]) || m[1].trim() : '';
     }
 
-    function mapManeuver(step, legTarget = '') {
+    function getManeuverArrowSvg(iconKey, size = 44) {
+      const common = `width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"`;
+      switch (iconKey) {
+        case 'left':
+          return `<svg ${common}><path d="M16 20V11a3 3 0 0 0-3-3H5"/><polyline points="9 4 5 8 9 12"/></svg>`;
+        case 'right':
+          return `<svg ${common}><path d="M8 20V11a3 3 0 0 1 3-3h8"/><polyline points="15 4 19 8 15 12"/></svg>`;
+        case 'slight_left':
+          return `<svg ${common}><path d="M15 20v-5.5a3 3 0 0 0-.88-2.12L6.5 4.8"/><polyline points="6 11 6 4.5 12.5 4.5"/></svg>`;
+        case 'slight_right':
+          return `<svg ${common}><path d="M9 20v-5.5a3 3 0 0 1 .88-2.12L17.5 4.8"/><polyline points="11.5 4.5 18 4.5 18 11"/></svg>`;
+        case 'sharp_left':
+          return `<svg ${common}><path d="M17 20V7.5L6.5 17"/><polyline points="6 11 6 17.5 12.5 17.5"/></svg>`;
+        case 'sharp_right':
+          return `<svg ${common}><path d="M7 20V7.5L17.5 17"/><polyline points="11.5 17.5 18 17.5 18 11"/></svg>`;
+        case 'uturn':
+          return `<svg ${common}><path d="M17 20V10a5 5 0 0 0-10 0v9"/><polyline points="3.5 15.5 7 19.5 10.5 15.5"/></svg>`;
+        case 'roundabout':
+          return `<svg ${common}><circle cx="12" cy="11" r="4"/><path d="M12 15v5"/><path d="M12 7V3"/><polyline points="9 5.5 12 2.5 15 5.5"/></svg>`;
+        case 'arrive':
+          return `<svg ${common}><path d="M5 21V4"/><path d="M5 4h11l-2.5 4L16 12H5" fill="currentColor" fill-opacity="0.22"/></svg>`;
+        case 'straight':
+        default:
+          return `<svg ${common}><line x1="12" y1="20" x2="12" y2="4"/><polyline points="6.5 9.5 12 4 17.5 9.5"/></svg>`;
+      }
+    }
+
+    function mapManeuver(step, nextNamedRoad = '', legTarget = '', isStopLeg = false) {
       const m = step.maneuver || {};
       const type = (m.type || 'continue').toLowerCase();
       const mod = (m.modifier || '').toLowerCase();
-      const road = step.name && step.name.trim() && !/unnamed/i.test(step.name) ? step.name.trim() : '';
-      const hint = extractTowardHint(step.instruction) || legTarget;
-      const onto = road ? ` onto ${road}` : (hint ? ` toward ${hint}` : '');
-      const onRoad = road ? ` on ${road}` : (hint ? ` toward ${hint}` : '');
-      const shortWhere = road || hint || 'Route';
+      const directRoad = cleanRoadLabel(step.name) || cleanRoadLabel(step.ref) || cleanRoadLabel(step.signBranch);
+      const signToward = cleanRoadLabel(step.signToward) || cleanRoadLabel(step.destinations) || extractTowardHint(step.instruction);
+      const aheadRoad = cleanRoadLabel(nextNamedRoad);
+
+      let routeHeadline = directRoad;
+      if (directRoad && signToward && !directRoad.toLowerCase().includes(signToward.toLowerCase())) {
+        routeHeadline = `${directRoad} • ${signToward}`;
+      } else if (!routeHeadline && signToward) {
+        routeHeadline = `Towards ${signToward}`;
+      } else if (!routeHeadline && aheadRoad) {
+        routeHeadline = `Towards ${aheadRoad}`;
+      }
 
       if (type === 'arrive') {
-        const place = legTarget || 'destination';
+        const place = legTarget || 'Destination';
         return {
+          iconKey: 'arrive',
           icon: '🏁',
+          headline: place,
+          action: isStopLeg ? 'Arrive at charging stop' : 'Arrive at destination',
           text: `Arrive at ${place}`,
           shortSub: `Arrive at ${place}`,
           speech: `You have arrived at ${place}.`
         };
       }
-      if (type === 'depart') {
-        return {
-          icon: '⬆',
-          text: `Head${onRoad}`,
-          shortSub: `Head • ${shortWhere}`,
-          speech: road ? `Head on ${road}` : (hint ? `Head toward ${hint}` : 'Head straight ahead')
-        };
-      }
+
       if (type === 'roundabout' || type === 'rotary') {
-        const ex = m.exit ? `${m.exit} ` : '';
+        const ex = m.exit ? `Take ${m.exit}${Number(m.exit) === 1 ? 'st' : (Number(m.exit) === 2 ? 'nd' : (Number(m.exit) === 3 ? 'rd' : 'th'))} exit` : 'Exit roundabout';
+        const roadOut = routeHeadline || (isStopLeg ? 'Charging stop road' : 'Roundabout exit');
         return {
+          iconKey: 'roundabout',
           icon: '⟲',
-          text: `Take roundabout ${ex}exit${onto}`,
-          shortSub: `Roundabout → ${shortWhere}`,
-          speech: `At the roundabout, take exit ${m.exit || ''}${onto}`
+          headline: roadOut,
+          action: ex,
+          text: `${ex}${directRoad ? ` onto ${directRoad}` : ''}`,
+          shortSub: directRoad ? `${ex} → ${directRoad}` : ex,
+          speech: `At the roundabout, ${ex}${directRoad ? ` onto ${directRoad}` : ''}`
         };
       }
-      if (mod.includes('sharp left')) return { icon: '↙', text: `Sharp left${onto}`, shortSub: `Sharp left → ${shortWhere}`, speech: `Turn sharp left${onto}` };
-      if (mod.includes('slight left')) return { icon: '↖', text: `Keep left${onto}`, shortSub: `Keep left → ${shortWhere}`, speech: `Keep left${onto}` };
-      if (mod.includes('left')) return { icon: '↰', text: `Turn left${onto}`, shortSub: `Turn left → ${shortWhere}`, speech: `Turn left${onto}` };
-      if (mod.includes('sharp right')) return { icon: '↘', text: `Sharp right${onto}`, shortSub: `Sharp right → ${shortWhere}`, speech: `Turn sharp right${onto}` };
-      if (mod.includes('slight right')) return { icon: '↗', text: `Keep right${onto}`, shortSub: `Keep right → ${shortWhere}`, speech: `Keep right${onto}` };
-      if (mod.includes('right')) return { icon: '↱', text: `Turn right${onto}`, shortSub: `Turn right → ${shortWhere}`, speech: `Turn right${onto}` };
-      if (mod.includes('uturn')) return { icon: '↺', text: `Make a U-turn${onto}`, shortSub: `U-turn → ${shortWhere}`, speech: `Make a U-turn${onto}` };
+
+      let iconKey = 'straight';
+      let icon = '⬆';
+      let actionLabel = 'Continue';
+      if (type === 'depart') {
+        iconKey = mod.includes('left') ? 'slight_left' : (mod.includes('right') ? 'slight_right' : 'straight');
+        icon = '⬆';
+        actionLabel = 'Head straight';
+      } else if (mod.includes('sharp left')) {
+        iconKey = 'sharp_left'; icon = '↙'; actionLabel = 'Sharp left';
+      } else if (mod.includes('slight left')) {
+        iconKey = 'slight_left'; icon = '↖'; actionLabel = type === 'fork' ? 'Keep left' : 'Slight left';
+      } else if (mod.includes('left')) {
+        iconKey = 'left'; icon = '↰'; actionLabel = 'Turn left';
+      } else if (mod.includes('sharp right')) {
+        iconKey = 'sharp_right'; icon = '↘'; actionLabel = 'Sharp right';
+      } else if (mod.includes('slight right')) {
+        iconKey = 'slight_right'; icon = '↗'; actionLabel = type === 'fork' ? 'Keep right' : 'Slight right';
+      } else if (mod.includes('right')) {
+        iconKey = 'right'; icon = '↱'; actionLabel = 'Turn right';
+      } else if (mod.includes('uturn')) {
+        iconKey = 'uturn'; icon = '↺'; actionLabel = 'Make U-turn';
+      } else if (type === 'merge') {
+        iconKey = 'straight'; icon = '⬆'; actionLabel = 'Merge onto';
+      } else if (type === 'fork') {
+        iconKey = 'straight'; icon = '⬆'; actionLabel = 'Stay on route';
+      }
+
+      const headline = routeHeadline || (type === 'depart' ? 'Starting road' : actionLabel);
+      const shortSub = directRoad
+        ? `${actionLabel} • ${directRoad}`
+        : (aheadRoad ? `${actionLabel} → ${aheadRoad}` : actionLabel);
 
       return {
-        icon: '⬆',
-        text: `Continue${onRoad}`,
-        shortSub: `${shortWhere}`,
-        speech: road ? `Continue straight on ${road}` : 'Continue straight'
+        iconKey,
+        icon,
+        headline,
+        action: routeHeadline ? actionLabel : 'Follow route',
+        text: directRoad ? `${actionLabel} onto ${directRoad}` : shortSub,
+        shortSub,
+        speech: directRoad ? `${actionLabel} onto ${directRoad}` : actionLabel
       };
     }
 
@@ -1871,20 +1940,35 @@ document.addEventListener('DOMContentLoaded', () => {
         const legTarget = isStopLeg
           ? shortPlaceName(waypoints[legIdx].name, 'Charging Stop')
           : destName;
+        const legSteps = Array.isArray(leg.steps) ? leg.steps : [];
 
-        (leg.steps || []).forEach(st => {
+        legSteps.forEach((st, stIdx) => {
           const loc = st.maneuver && st.maneuver.location;
           if (!loc || loc.length < 2) return;
-          const mapped = mapManeuver(st, legTarget);
+          let nextNamedRoad = '';
+          let lookDist = 0;
+          for (let k = stIdx + 1; k < legSteps.length && k <= stIdx + 3; k++) {
+            const cand = cleanRoadLabel(legSteps[k].name) || cleanRoadLabel(legSteps[k].ref) || cleanRoadLabel(legSteps[k].signBranch);
+            if (cand) {
+              nextNamedRoad = cand;
+              break;
+            }
+            lookDist += legSteps[k].distance || 0;
+            if (lookDist > 1800) break;
+          }
+          const mapped = mapManeuver(st, nextNamedRoad, legTarget, isStopLeg);
           out.push({
             lat: loc[1],
             lng: loc[0],
-            name: st.name || 'Road',
+            name: cleanRoadLabel(st.name) || mapped.headline || 'Route',
             distanceM: st.distance || 0,
             legTarget,
             destName,
             isStopLeg,
+            iconKey: mapped.iconKey,
             icon: mapped.icon,
+            headline: mapped.headline,
+            action: mapped.action,
             text: mapped.text,
             shortSub: mapped.shortSub,
             speech: mapped.speech,
@@ -1932,36 +2016,26 @@ document.addEventListener('DOMContentLoaded', () => {
       return arr.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
-    function formatTowardLabel(step) {
-      if (!step) return '➔ Destination';
-      if (step.isStopLeg && step.legTarget && step.destName && step.legTarget !== step.destName) {
-        return `➔ To: ${step.destName} • via ${step.legTarget}`;
-      }
-      return `➔ To: ${step.destName || step.legTarget || 'Destination'}`;
-    }
-
     function renderStepHud(targetStep, nextAfter, distToStepM) {
       if (!targetStep) return;
       if (hudDistVal) {
         hudDistVal.textContent = (typeof distToStepM === 'number' && Number.isFinite(distToStepM))
-          ? `In ${formatHudDist(distToStepM)}`
+          ? formatHudDist(distToStepM)
           : 'Now';
       }
-      if (hudTurnIcon) hudTurnIcon.textContent = targetStep.icon;
-      if (hudStreetName) hudStreetName.textContent = targetStep.text;
-      if (hudTowardDest) hudTowardDest.textContent = formatTowardLabel(targetStep);
+      if (hudTurnIcon) {
+        hudTurnIcon.innerHTML = getManeuverArrowSvg(targetStep.iconKey || 'straight', 44);
+      }
+      if (hudStreetName) hudStreetName.textContent = targetStep.headline || targetStep.text;
+      if (hudTowardDest) hudTowardDest.textContent = targetStep.action || targetStep.shortSub || 'Follow route';
       if (navRoadPillText && targetStep.name) navRoadPillText.textContent = targetStep.name;
 
       if (hudSubStep && hudSubTurnIcon) {
         if (nextAfter) {
           hudSubStep.style.display = 'inline-flex';
-          hudSubTurnIcon.textContent = nextAfter.icon;
+          hudSubTurnIcon.innerHTML = getManeuverArrowSvg(nextAfter.iconKey || 'straight', 16);
           if (hudSubText) {
-            const placeTag = nextAfter.legTarget ? ` • ${nextAfter.legTarget}` : '';
-            const label = nextAfter.shortSub || nextAfter.text || 'Next turn';
-            hudSubText.textContent = (nextAfter.isArrive || (nextAfter.legTarget && label.includes(nextAfter.legTarget)))
-              ? label
-              : `${label}${placeTag}`;
+            hudSubText.textContent = nextAfter.shortSub || nextAfter.headline || 'Next turn';
           }
         } else {
           hudSubStep.style.display = 'none';
@@ -2188,9 +2262,9 @@ document.addEventListener('DOMContentLoaded', () => {
         currentStepIdx = Math.max(0, steps.length - 1);
         const finalPlace = (steps[currentStepIdx] && steps[currentStepIdx].destName) || shortPlaceName(route.destination && route.destination.name, 'destination');
         if (hudDistVal) hudDistVal.textContent = '0 m';
-        if (hudTurnIcon) hudTurnIcon.textContent = '🏁';
-        if (hudStreetName) hudStreetName.textContent = `Arrive at ${finalPlace}`;
-        if (hudTowardDest) hudTowardDest.textContent = `🏁 Reached ${finalPlace}`;
+        if (hudTurnIcon) hudTurnIcon.innerHTML = getManeuverArrowSvg('arrive', 44);
+        if (hudStreetName) hudStreetName.textContent = finalPlace;
+        if (hudTowardDest) hudTowardDest.textContent = 'Arrived at destination';
         if (hudSubStep) hudSubStep.style.display = 'none';
         if (hudSubText) hudSubText.textContent = '';
         if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🏁 You have arrived!');

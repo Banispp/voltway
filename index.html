@@ -37,7 +37,7 @@
       </div>
       <div class="header-actions">
         <button id="btn-open-sync" class="btn-header-action btn-sync-header" title="Sync Verified 2W EV Chargers">
-          <span class="live-status-dot"></span> <span class="sync-text-prefix">🔄 Sync (</span><span id="header-station-count">9,338</span><span class="sync-text-suffix">)</span>
+          <span class="live-status-dot"></span> <span class="sync-text-prefix">🔄 Sync (</span><span id="header-station-count">9,418</span><span class="sync-text-suffix">)</span>
         </button>
         <button id="btn-sos-header" class="btn-header-action btn-sos" title="Nearest Charger Emergency SOS">
           🚨 SOS
@@ -68,11 +68,11 @@
       <div class="filter-chips-bar">
         <button type="button" id="chip-fast-only" class="filter-chip chip-fast-only active" title="Show High-Speed 2W Fast Chargers Only">
           <span>⚡ Fast Only</span>
-          <span id="count-fast-only" class="chip-badge">4,749</span>
+          <span id="count-fast-only" class="chip-badge">4,769</span>
         </button>
         <button type="button" id="chip-ather-fast" class="filter-chip chip-ather active" title="Toggle Ather Grid Type 7 Fast Chargers">
           <span>⚡ Ather Grid</span>
-          <span id="count-ather-fast" class="chip-badge">3,587</span>
+          <span id="count-ather-fast" class="chip-badge">3,596</span>
         </button>
         <button type="button" id="chip-vida-fast" class="filter-chip chip-vida-fast active" title="Toggle Hero VIDA Type 7 Fast Chargers">
           <span>⚡ Vida Grid</span>
@@ -80,11 +80,11 @@
         </button>
         <button type="button" id="chip-bolt-fast" class="filter-chip chip-bolt-fast active" title="Toggle Bolt.Earth 2W Fast Chargers">
           <span>⚡ Bolt Fast</span>
-          <span id="count-bolt-fast" class="chip-badge">551</span>
+          <span id="count-bolt-fast" class="chip-badge">562</span>
         </button>
         <button type="button" id="chip-bolt-slow" class="filter-chip chip-bolt-slow" title="Toggle Bolt.Earth 15A AC Sockets">
           <span>🔌 Bolt 15A</span>
-          <span id="count-bolt-slow" class="chip-badge">4,589</span>
+          <span id="count-bolt-slow" class="chip-badge">4,649</span>
         </button>
       </div>
 
@@ -111,7 +111,7 @@
       ⛶
     </button>
 
-    <button type="button" id="btn-toggle-map-theme" class="btn-toggle-map-theme" title="Switch Map Theme">
+    <button type="button" id="btn-toggle-map-theme" class="btn-toggle-map-theme" title="Switch Light / Dark Mode (Map + UI)">
       <span id="theme-btn-icon">☀️</span>
     </button>
 
@@ -128,21 +128,25 @@
       <span class="start-label">Start Ride</span>
     </button>
 
-    <!-- In-App Turn-by-Turn Driving Mode HUD Wrapper -->
+    <!-- In-App Turn-by-Turn Driving Mode HUD Wrapper (Google Maps Compact Style) -->
     <div id="nav-driving-hud-wrapper" class="nav-driving-hud-wrapper" style="display: none;">
       <div id="nav-driving-hud" class="nav-driving-hud">
-        <div class="hud-maneuver-icon-box">
-          <span id="hud-turn-icon" class="hud-turn-icon">⬆</span>
+        <div class="hud-left-col">
+          <div class="hud-maneuver-icon-box">
+            <span id="hud-turn-icon" class="hud-turn-icon" aria-hidden="true"></span>
+          </div>
+          <span id="hud-distance-val" class="hud-distance-val">--</span>
         </div>
         <div class="hud-instruction-content">
-          <div class="hud-distance-row">
-            <span id="hud-distance-val" class="hud-distance-val">--</span>
+          <div class="hud-top-road-row">
+            <div id="hud-street-name" class="hud-street-name">Follow route</div>
             <span id="hud-battery-pill" class="hud-battery-pill">🔋 --%</span>
           </div>
-          <div id="hud-street-name" class="hud-street-name">Follow route</div>
-          <div id="hud-toward-dest" class="hud-toward-dest">➔ Destination</div>
-          <div id="hud-next-charger-badge" class="hud-next-charger-badge" style="display: none;">
-            ⚡ Stop: <span id="hud-next-charger-name">Charging Station</span> (<span id="hud-next-charger-dist">-- km</span>)
+          <div class="hud-meta-row">
+            <div id="hud-toward-dest" class="hud-toward-dest">Head straight</div>
+            <div id="hud-next-charger-badge" class="hud-next-charger-badge" style="display: none;">
+              ⚡ <span id="hud-next-charger-name">Stop</span> (<span id="hud-next-charger-dist">-- km</span>)
+            </div>
           </div>
         </div>
       </div>
@@ -404,7 +408,7 @@
           <div class="battery-dashboard">
             <div class="input-row" style="align-items: center; justify-content: space-between; margin-bottom: 4px;">
               <span class="input-label" style="margin: 0; font-weight: 700; color: #38bdf8;">🛵 EV Scooter Model:</span>
-              <select id="vehicle-preset-select" class="input-text" style="width: 185px; height: 40px; padding: 2px 8px; font-weight: 700; color: #38bdf8; background: #0d1628; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; cursor: pointer;">
+              <select id="vehicle-preset-select" class="input-text vehicle-preset-select">
                 <option value="ather-450x-37">Ather 450X (3.7 kWh)</option>
                 <option value="ather-450x-29">Ather 450X (2.9 kWh)</option>
                 <option value="ather-rizta-37">Ather Rizta (3.7 kWh)</option>
@@ -432,7 +436,7 @@
               <div class="slider-header">
                 <span class="input-label">Current Battery Charge</span>
                 <div style="display: flex; align-items: center; gap: 4px;">
-                  <input type="number" id="battery-number" min="0" max="100" value="85" style="width: 56px; background: #080d17; border: 1px solid var(--border-color); color: var(--color-ather); text-align: center; font-weight: 800; border-radius: 6px; padding: 4px;">
+                  <input type="number" id="battery-number" min="0" max="100" value="85" class="battery-pct-input">
                   <span style="font-weight: 700; color: var(--color-ather);">%</span>
                 </div>
               </div>
@@ -553,7 +557,7 @@
 
         <div class="metrics-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 6px;">
           <div class="metric-box">
-            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">9,338</span>
+            <span id="sync-total-chargers" class="metric-val" style="color: var(--color-ather);">9,418</span>
             <span class="metric-label">Verified 2W Stations</span>
           </div>
           <div class="metric-box">
@@ -566,7 +570,7 @@
           <div class="sync-net-item sync-item-ather">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-ather">⚡ ATHER GRID FAST</span>
-              <span id="modal-ather-count" class="sync-item-count">3,587</span>
+              <span id="modal-ather-count" class="sync-item-count">3,596</span>
             </div>
             <div class="sync-item-sub">
               <span>🔌 <strong>Connector:</strong> Type 7 LECCS (IS 17017-2-7)</span>
@@ -588,7 +592,7 @@
           <div class="sync-net-item sync-item-bolt-fast">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-bolt-fast">⚡ BOLT.EARTH 2W FAST</span>
-              <span id="modal-bolt-fast-count" class="sync-item-count">551</span>
+              <span id="modal-bolt-fast-count" class="sync-item-count">562</span>
             </div>
             <div class="sync-item-sub">
               <span>🔌 <strong>Connectors:</strong> Type 7 LECCS &amp; Type 6 LEVDC (filtered per scooter)</span>
@@ -599,7 +603,7 @@
           <div class="sync-net-item sync-item-bolt-slow">
             <div class="sync-item-top">
               <span class="sync-net-badge badge-bolt-slow">🔌 BOLT.EARTH 15A</span>
-              <span id="modal-bolt-slow-count" class="sync-item-count">4,589</span>
+              <span id="modal-bolt-slow-count" class="sync-item-count">4,649</span>
             </div>
             <div class="sync-item-sub">
               <span>🔌 <strong>Connector:</strong> 15A AC 3-Pin Socket (4W Level 2/3 &amp; OCPI excluded)</span>
@@ -608,9 +612,9 @@
           </div>
         </div>
 
-        <div class="input-row" style="justify-content: space-between; align-items: center; font-size: 0.78rem; background: #080c14; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-          <span style="color: var(--text-muted); font-weight: 700;">Last OTA Check:</span>
-          <span id="sync-last-timestamp" style="font-weight: 800; color: #00e676;">Bundled Local DB</span>
+        <div class="input-row sync-last-check-box">
+          <span class="sync-last-check-label">Last OTA Check:</span>
+          <span id="sync-last-timestamp" class="sync-last-check-val">Bundled Local DB</span>
         </div>
 
         <div class="progress-container">

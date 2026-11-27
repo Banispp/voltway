@@ -68,6 +68,10 @@ const RouteEngine = (function () {
             distance: st.distance || 0,
             duration: st.duration || 0,
             name: st.name || '',
+            ref: st.ref || '',
+            signBranch: st.signBranch || '',
+            signToward: st.signToward || '',
+            destinations: st.destinations || '',
             instruction: st.instruction || '',
             maneuver: st.maneuver
               ? {
@@ -436,13 +440,18 @@ const RouteEngine = (function () {
   function mapValhallaManeuver(vType) {
     switch (Number(vType)) {
       case 1:
-      case 2:
-      case 3:
         return { type: 'depart', modifier: 'straight' };
+      case 2:
+        return { type: 'depart', modifier: 'right' };
+      case 3:
+        return { type: 'depart', modifier: 'left' };
       case 4:
       case 5:
       case 6:
         return { type: 'arrive', modifier: '' };
+      case 7:
+      case 8:
+        return { type: 'continue', modifier: 'straight' };
       case 9:
         return { type: 'turn', modifier: 'slight right' };
       case 10:
@@ -458,12 +467,30 @@ const RouteEngine = (function () {
         return { type: 'turn', modifier: 'left' };
       case 16:
         return { type: 'turn', modifier: 'slight left' };
+      case 17:
+      case 22:
+        return { type: 'fork', modifier: 'straight' };
+      case 18:
+      case 20:
+      case 23:
+        return { type: 'fork', modifier: 'slight right' };
+      case 19:
+      case 21:
+      case 24:
+        return { type: 'fork', modifier: 'slight left' };
+      case 25:
+        return { type: 'merge', modifier: 'straight' };
       case 26:
       case 27:
         return { type: 'roundabout', modifier: '' };
       default:
         return { type: 'continue', modifier: 'straight' };
     }
+  }
+
+  function formatValhallaSignText(arr) {
+    if (!Array.isArray(arr) || arr.length === 0) return '';
+    return arr.map(x => (x && x.text) ? String(x.text).trim() : '').filter(Boolean).slice(0, 2).join(' / ');
   }
 
   function convertValhallaTrip(trip) {
@@ -486,17 +513,24 @@ const RouteEngine = (function () {
         const ptIdx = Math.min(Math.max(0, m.begin_shape_index || 0), Math.max(0, legCoords.length - 1));
         const pt = legCoords[ptIdx] || legCoords[0];
         const mapped = mapValhallaManeuver(m.type);
-        const street = (Array.isArray(m.street_names) && m.street_names.length > 0)
-          ? m.street_names.join(' / ')
-          : ((Array.isArray(m.begin_street_names) && m.begin_street_names[0]) || '');
+        const rawNames = (Array.isArray(m.street_names) && m.street_names.length > 0)
+          ? m.street_names
+          : (Array.isArray(m.begin_street_names) ? m.begin_street_names : []);
+        const street = rawNames.map(s => String(s).trim()).filter(Boolean).join(' / ');
+        const signObj = m.sign || {};
+        const signBranch = formatValhallaSignText(signObj.exit_branch_elements);
+        const signToward = formatValhallaSignText(signObj.exit_toward_elements) || formatValhallaSignText(signObj.exit_name_elements);
         return {
           distance: Math.round((m.length || 0) * 1000),
           duration: Math.round(m.time || 0),
           name: street,
+          signBranch,
+          signToward,
           instruction: m.instruction || '',
           maneuver: {
             type: mapped.type,
             modifier: mapped.modifier,
+            exit: m.roundabout_exit_count || undefined,
             location: pt ? [pt[1], pt[0]] : [0, 0]
           }
         };
