@@ -37,6 +37,32 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnForceRefresh = document.getElementById('btn-force-refresh');
   if (btnForceRefresh) {
     btnForceRefresh.addEventListener('click', async () => {
+      const isNative = window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform();
+
+      if (isNative) {
+        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔍 Checking latest VoltWay APK release on GitHub...');
+        try {
+          const resp = await fetch('https://api.github.com/repos/Banispp/voltway/releases/latest', { cache: 'no-store' });
+          if (resp.ok) {
+            const rel = await resp.json();
+            const tag = rel.tag_name || '';
+            const apkAsset = (rel.assets || []).find(a => a.name && a.name.endsWith('.apk'));
+            const downloadUrl = (apkAsset && apkAsset.browser_download_url) || 'https://github.com/Banispp/voltway/releases/download/v5.51-release/app-debug.apk';
+
+            if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast(`📥 Opening latest APK (${tag || 'v5.51'})...`);
+            if (window.Capacitor.Plugins && window.Capacitor.Plugins.AppLauncher) {
+              await window.Capacitor.Plugins.AppLauncher.openUrl({ url: downloadUrl }).catch(() => window.open(downloadUrl, '_system'));
+            } else {
+              window.open(downloadUrl, '_system');
+            }
+            return;
+          }
+        } catch (e) {
+          window.open('https://github.com/Banispp/voltway/releases/download/v5.51-release/app-debug.apk', '_system');
+          return;
+        }
+      }
+
       try {
         if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔄 Refreshing app cache (keeping your EV settings)...');
         if ('caches' in window) {
