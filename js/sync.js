@@ -538,7 +538,7 @@ const SyncEngine = (function () {
     return addedCount;
   }
 
-  function showAutoUpdateToast(message) {
+  function showAutoUpdateToast(message, onClick = null) {
     let toast = document.getElementById('voltway-toast');
     if (!toast) {
       toast = document.createElement('div');
@@ -558,11 +558,14 @@ const SyncEngine = (function () {
     } else {
       toast.textContent = String(message || '');
     }
+    toast.onclick = typeof onClick === 'function' ? onClick : null;
+    toast.style.pointerEvents = typeof onClick === 'function' ? 'auto' : '';
+    toast.style.cursor = typeof onClick === 'function' ? 'pointer' : '';
     toast.classList.add('visible');
     clearTimeout(toast._timer);
     toast._timer = setTimeout(() => {
       toast.classList.remove('visible');
-    }, 4000);
+    }, typeof onClick === 'function' ? 6000 : 4000);
   }
 
   function getStats(stateFilter = 'all') {
