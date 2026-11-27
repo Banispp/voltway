@@ -284,6 +284,110 @@ const Utilities = (function () {
     { name: 'Goa (Panaji)', fullName: 'Panaji, Goa, India', lat: 15.4909, lng: 73.8278 }
   ];
 
+  const OLC_ALPHABET = '23456789CFGHJMPQRVWX';
+  const PLUS_CODE_RE = /\b([23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,4})\b/;
+
+  function extractPlusCode(str) {
+    if (!str || typeof str !== 'string') return '';
+    const m = str.toUpperCase().match(PLUS_CODE_RE);
+    return m ? m[1] : '';
+  }
+
+  function decodeFullPlusCode(fullCode) {
+    if (!fullCode) return null;
+    const clean = fullCode.toUpperCase().replace('+', '');
+    if (clean.length < 8) return null;
+    const res = [20.0, 1.0, 0.05, 0.0025, 0.000125];
+    let lat = -90.0;
+    let lng = -180.0;
+    const pairs = Math.min(5, Math.floor(clean.length / 2));
+    for (let i = 0; i < pairs; i++) {
+      const cLat = OLC_ALPHABET.indexOf(clean[i * 2]);
+      const cLng = OLC_ALPHABET.indexOf(clean[i * 2 + 1]);
+      if (cLat < 0 || cLng < 0) return null;
+      lat += cLat * res[i];
+      lng += cLng * res[i];
+    }
+    const step = res[pairs - 1];
+    return {
+      lat: Math.round((lat + step / 2) * 1000000) / 1000000,
+      lng: Math.round((lng + step / 2) * 1000000) / 1000000
+    };
+  }
+
+  function recoverPlusCode(codeStr, refLat, refLng) {
+    if (!codeStr || !codeStr.includes('+')) return null;
+    const upper = codeStr.toUpperCase().trim();
+    const plusIdx = upper.indexOf('+');
+    if (plusIdx >= 8) return decodeFullPlusCode(upper);
+    if (typeof refLat !== 'number' || typeof refLng !== 'number' || isNaN(refLat) || isNaN(refLng)) return null;
+
+    if (plusIdx === 4) {
+      let best = null;
+      const baseLat = Math.floor(refLat + 90);
+      const baseLng = Math.floor(refLng + 180);
+      for (let dLat = -1; dLat <= 1; dLat++) {
+        for (let dLng = -1; dLng <= 1; dLng++) {
+          const rLat = baseLat + dLat;
+          const rLng = baseLng + dLng;
+          if (rLat < 0 || rLng < 0) continue;
+          const i20Lat = Math.floor(rLat / 20);
+          const i1Lat = rLat % 20;
+          const i20Lng = Math.floor(rLng / 20);
+          const i1Lng = rLng % 20;
+          if (i20Lat >= 20 || i20Lng >= 20) continue;
+          const prefix = OLC_ALPHABET[i20Lat] + OLC_ALPHABET[i20Lng] + OLC_ALPHABET[i1Lat] + OLC_ALPHABET[i1Lng];
+          const pt = decodeFullPlusCode(prefix + upper);
+          if (!pt) continue;
+          const d = (pt.lat - refLat) * (pt.lat - refLat) + (pt.lng - refLng) * (pt.lng - refLng);
+          if (!best || d < best.d) best = { d, pt };
+        }
+      }
+      return best ? best.pt : null;
+    }
+
+    if (plusIdx === 6) {
+      let best = null;
+      const b20Lat = Math.floor((refLat + 90) / 20);
+      const b20Lng = Math.floor((refLng + 180) / 20);
+      for (let dLat = -1; dLat <= 1; dLat++) {
+        for (let dLng = -1; dLng <= 1; dLng++) {
+          const iLat = b20Lat + dLat;
+          const iLng = b20Lng + dLng;
+          if (iLat < 0 || iLat >= 20 || iLng < 0 || iLng >= 20) continue;
+          const pt = decodeFullPlusCode(OLC_ALPHABET[iLat] + OLC_ALPHABET[iLng] + upper);
+          if (!pt) continue;
+          const d = (pt.lat - refLat) * (pt.lat - refLat) + (pt.lng - refLng) * (pt.lng - refLng);
+          if (!best || d < best.d) best = { d, pt };
+        }
+      }
+      return best ? best.pt : null;
+    }
+
+    return null;
+  }
+
+  function decodeUrlSegment(seg) {
+    if (!seg || typeof seg !== 'string') return '';
+    const spaced = seg.replace(/\+/g, ' ');
+    try {
+      return decodeURIComponent(spaced).trim();
+    } catch (e) {
+      return spaced.trim();
+    }
+  }
+
+  function normalizeIndiaPlaceQuery(qStr) {
+    if (!qStr || typeof qStr !== 'string') return '';
+    return qStr
+      .replace(PLUS_CODE_RE, '')
+      .replace(/\bKeralam\b/gi, 'Kerala')
+      .replace(/\s*,\s*,+/g, ', ')
+      .replace(/^[\s,+]+|[\s,]+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
   async function queryNominatimRaw(qStr, timeoutMs = 4200) {
     try {
       const cleanQ = qStr.trim();
@@ -347,7 +451,8 @@ const Utilities = (function () {
 
   async function searchPlace(query) {
     if (!query || query.trim().length < 2) return [];
-    const qTrim = query.trim();
+    const rawTrim = query.trim();
+    const qTrim = normalizeIndiaPlaceQuery(rawTrim) || rawTrim;
     const qLower = qTrim.toLowerCase();
 
     const localMatches = POPULAR_INDIAN_PLACES.filter(p =>
@@ -369,14 +474,30 @@ const Utilities = (function () {
     let osmResults = osmSettled.status === 'fulfilled' ? osmSettled.value : [];
 
     // Progressive fallback if noisy/multi-word/address query returned nothing from both engines
-    if (photonResults.length === 0 && osmResults.length === 0 && qTrim.length >= 5) {
+    const pinMatch = rawTrim.match(/\b([1-9]\d{5})\b/);
+    if (photonResults.length === 0 && osmResults.length === 0 && qTrim.length >= 4) {
       const fallbacks = [];
       const commaParts = qTrim.split(',').map(s => s.trim()).filter(Boolean);
+      const stateMatch = qTrim.match(/\b(Kerala|Karnataka|Tamil Nadu|Maharashtra|Goa|Telangana|Andhra Pradesh|Delhi|Gujarat|Rajasthan|Punjab|Haryana|West Bengal|Uttar Pradesh|Madhya Pradesh|Bihar|Odisha|Jharkhand|Assam|Puducherry)\b/i);
+      const isKeralaPin = pinMatch && /^6[789]\d{4}$/.test(pinMatch[1]);
+      const fallbackState = stateMatch ? stateMatch[1] : (isKeralaPin ? 'Kerala' : 'India');
+
       if (commaParts.length >= 2) {
         fallbacks.push(commaParts.slice(1).join(', '));
-        if (commaParts.length >= 3) fallbacks.push(commaParts.slice(-3).join(', '));
+        if (commaParts.length >= 3) {
+          const p1Clean = commaParts[1].replace(/\b\d{6}\b/g, '').trim();
+          if (p1Clean) fallbacks.push(`${p1Clean}, ${fallbackState}`);
+          if (commaParts.length >= 4) {
+            const p2Clean = commaParts[2].replace(/\b\d{6}\b/g, '').trim();
+            if (p2Clean && p2Clean.toLowerCase() !== fallbackState.toLowerCase()) {
+              fallbacks.push(`${p2Clean}, ${fallbackState}`);
+            }
+          }
+          fallbacks.push(commaParts.slice(-3).join(', '));
+        } else {
+          fallbacks.push(commaParts[commaParts.length - 1]);
+        }
       }
-      const pinMatch = qTrim.match(/\b([1-9]\d{5})\b/);
       if (pinMatch) {
         fallbacks.push(`${pinMatch[1]}, India`);
       }
@@ -385,7 +506,7 @@ const Utilities = (function () {
         fallbacks.push(words.slice(-2).join(' '));
         fallbacks.push(words[words.length - 1]);
       } else if (words.length >= 2 && localMatches.length === 0) {
-        // Also check local places against individual significant town words
+        // Check local places against individual significant town words
         words.forEach(w => {
           const wl = w.toLowerCase();
           if (wl.length >= 4 && wl !== 'kerala' && wl !== 'india' && wl !== 'road') {
@@ -426,6 +547,28 @@ const Utilities = (function () {
       }
     });
 
+    // Disambiguate duplicate Indian village/town names using 6-digit PIN code when results span > 30km
+    if (pinMatch && combined.length > 1) {
+      let minLat = combined[0].lat, maxLat = combined[0].lat;
+      let minLng = combined[0].lng, maxLng = combined[0].lng;
+      for (const c of combined) {
+        if (c.lat < minLat) minLat = c.lat;
+        if (c.lat > maxLat) maxLat = c.lat;
+        if (c.lng < minLng) minLng = c.lng;
+        if (c.lng > maxLng) maxLng = c.lng;
+      }
+      if ((maxLat - minLat) > 0.3 || (maxLng - minLng) > 0.3) {
+        const pinHits = await queryPhotonRaw(`${pinMatch[1]}, India`, 2200);
+        if (pinHits && pinHits.length > 0) {
+          const pr = pinHits[0];
+          combined.sort((a, b) =>
+            ((a.lat - pr.lat) ** 2 + (a.lng - pr.lng) ** 2) -
+            ((b.lat - pr.lat) ** 2 + (b.lng - pr.lng) ** 2)
+          );
+        }
+      }
+    }
+
     return combined.slice(0, 10);
   }
 
@@ -435,7 +578,8 @@ const Utilities = (function () {
     if (!rawText || typeof rawText !== 'string') return false;
     return /https?:\/\/|geo:|maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|maps\.google\.[a-z.]+|google\.[a-z.]+\/maps|share\.google/i.test(rawText) ||
       /-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+/.test(rawText) ||
-      /\d+[°\s]+\d+['\s]+[\d.]+"?\s*[NS]/i.test(rawText);
+      /\d+[°\s]+\d+['\s]+[\d.]+"?\s*[NS]/i.test(rawText) ||
+      PLUS_CODE_RE.test(rawText.toUpperCase());
   }
 
   function parseDmsPair(str) {
@@ -508,12 +652,10 @@ const Utilities = (function () {
       const urlPlaceM = resolvedUrl.match(/\/maps\/(?:place|search)\/([^/@?]+)/i) ||
         resolvedUrl.match(/[?&](?:q|query)=([^&]+)/i);
       if (urlPlaceM && urlPlaceM[1]) {
-        try {
-          const decoded = decodeURIComponent(urlPlaceM[1]).replace(/\+/g, ' ').trim();
-          if (decoded && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(decoded) && !parseDmsPair(decoded)) {
-            out.title = decoded;
-          }
-        } catch (e) {}
+        const decoded = decodeUrlSegment(urlPlaceM[1]);
+        if (decoded && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(decoded) && !parseDmsPair(decoded)) {
+          out.title = decoded;
+        }
       }
     }
     if (htmlBody && typeof htmlBody === 'string') {
@@ -660,10 +802,10 @@ const Utilities = (function () {
     try {
       const qMatch = url.match(/[?&]origin=([^&]+).*?[?&]destination=([^&]+)/i);
       if (qMatch) {
-        const origin = decodeURIComponent(qMatch[1]).replace(/\+/g, ' ');
-        const destination = decodeURIComponent(qMatch[2]).replace(/\+/g, ' ');
+        const origin = decodeUrlSegment(qMatch[1]);
+        const destination = decodeUrlSegment(qMatch[2]);
         const wpMatch = url.match(/[?&]waypoints=([^&]+)/i);
-        const waypoints = wpMatch ? decodeURIComponent(wpMatch[1]).replace(/\+/g, ' ').split('|') : [];
+        const waypoints = wpMatch ? decodeUrlSegment(wpMatch[1]).split('|') : [];
         return { origin, destination, waypoints };
       }
 
@@ -671,7 +813,7 @@ const Utilities = (function () {
       if (pathMatch) {
         const rawParts = pathMatch[1]
           .split('/')
-          .map(p => decodeURIComponent(p).replace(/\+/g, ' ').trim())
+          .map(p => decodeUrlSegment(p))
           .filter(p => p && !p.startsWith('@') && !p.startsWith('data='));
         if (rawParts.length >= 2) {
           return {
@@ -742,15 +884,15 @@ const Utilities = (function () {
     if (!labelHint && /^geo:/i.test(text)) {
       const parenMatch = text.match(/\(([^)]+)\)/);
       if (parenMatch && parenMatch[1]) {
-        labelHint = decodeURIComponent(parenMatch[1]).replace(/\+/g, ' ').trim();
+        labelHint = decodeUrlSegment(parenMatch[1]);
       }
     }
 
     const directCoords = extractFromUrlString(text);
     if (directCoords) {
       const placeInDirectUrl = text.match(/\/maps\/place\/([^/@?]+)/i);
-      const urlPlaceLabel = placeInDirectUrl ? decodeURIComponent(placeInDirectUrl[1]).replace(/\+/g, ' ').trim() : '';
-      const display = labelHint || urlPlaceLabel || `Map Pin (${directCoords.lat.toFixed(4)}, ${directCoords.lng.toFixed(4)})`;
+      const urlPlaceLabel = placeInDirectUrl ? decodeUrlSegment(placeInDirectUrl[1]) : '';
+      const display = normalizeIndiaPlaceQuery(labelHint || urlPlaceLabel) || labelHint || urlPlaceLabel || `Map Pin (${directCoords.lat.toFixed(4)}, ${directCoords.lng.toFixed(4)})`;
       return {
         lat: directCoords.lat,
         lng: directCoords.lng,
@@ -762,11 +904,39 @@ const Utilities = (function () {
 
     const placeInUrlMatch = text.match(/\/maps\/place\/([^/@?]+)/i) || text.match(/\/maps\/search\/([^/@?]+)/i);
     if (placeInUrlMatch) {
-      const decodedPlace = decodeURIComponent(placeInUrlMatch[1]).replace(/\+/g, ' ').trim();
+      const decodedPlace = decodeUrlSegment(placeInUrlMatch[1]);
+      const directUrlPlus = extractPlusCode(decodedPlace) || extractPlusCode(labelHint);
       const placeQuery = labelHint || decodedPlace;
+      if (directUrlPlus && directUrlPlus.indexOf('+') >= 8) {
+        const olcDirect = decodeFullPlusCode(directUrlPlus);
+        if (olcDirect) {
+          return {
+            lat: olcDirect.lat,
+            lng: olcDirect.lng,
+            name: normalizeIndiaPlaceQuery(placeQuery) || `Plus Code ${directUrlPlus}`,
+            fullName: `Plus Code ${directUrlPlus}: ${olcDirect.lat.toFixed(5)}, ${olcDirect.lng.toFixed(5)}`,
+            isMapLink: true
+          };
+        }
+      }
       if (placeQuery) {
         const results = await searchPlace(placeQuery);
-        if (results && results.length > 0) return { ...results[0], name: labelHint || decodedPlace || results[0].name, isMapLink: true };
+        if (results && results.length > 0) {
+          const geo = results[0];
+          if (directUrlPlus) {
+            const olcPt = recoverPlusCode(directUrlPlus, geo.lat, geo.lng);
+            if (olcPt) {
+              return {
+                lat: olcPt.lat,
+                lng: olcPt.lng,
+                name: normalizeIndiaPlaceQuery(placeQuery) || geo.name,
+                fullName: `Plus Code ${directUrlPlus}: ${olcPt.lat.toFixed(5)}, ${olcPt.lng.toFixed(5)}`,
+                isMapLink: true
+              };
+            }
+          }
+          return { ...geo, name: normalizeIndiaPlaceQuery(placeQuery) || geo.name, isMapLink: true };
+        }
       }
     }
 
@@ -789,16 +959,24 @@ const Utilities = (function () {
             expUrl.match(/\/maps\/search\/([^/@?]+)/i) ||
             expUrl.match(/[?&](?:q|query)=([^&]+)/i);
           if (expPlaceMatch && expPlaceMatch[1]) {
-            try {
-              const cand = decodeURIComponent(expPlaceMatch[1]).replace(/\+/g, ' ').trim();
-              if (cand && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(cand) && !parseDmsPair(cand)) {
-                expPlace = cand;
+            const cand = decodeUrlSegment(expPlaceMatch[1]);
+            if (cand && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(cand) && !parseDmsPair(cand)) {
+              expPlace = cand;
+            }
+          }
+          // Also extract Plus Code directly from the expanded URL path if not already in expPlace
+          if (!extractPlusCode(expPlace)) {
+            const urlPathPlusMatch = expUrl.match(/\/maps\/(?:place|search)\/([A-Z0-9]{4,8}%2B[A-Z0-9]{2,4})/i);
+            if (urlPathPlusMatch) {
+              const decodedPlus = decodeUrlSegment(urlPathPlusMatch[1]);
+              if (extractPlusCode(decodedPlus)) {
+                expPlace = decodedPlus + (expPlace ? ' ' + expPlace : '');
               }
-            } catch (e) {}
+            }
           }
 
           if (expCoords) {
-            const bestName = labelHint || expTitle || expPlace || `Map Pin (${expCoords.lat.toFixed(4)}, ${expCoords.lng.toFixed(4)})`;
+            const bestName = normalizeIndiaPlaceQuery(labelHint || expPlace || expTitle) || labelHint || expPlace || expTitle || `Map Pin (${expCoords.lat.toFixed(4)}, ${expCoords.lng.toFixed(4)})`;
             return {
               lat: expCoords.lat,
               lng: expCoords.lng,
@@ -811,29 +989,97 @@ const Utilities = (function () {
       }
 
       const geoQueries = Array.from(new Set([labelHint, expPlace, expTitle].map(s => (s || '').trim()).filter(s => s.length >= 2)));
+      const plusCode = extractPlusCode(labelHint) || extractPlusCode(expPlace) || extractPlusCode(expTitle) || extractPlusCode(text);
+      const preferredTitleRaw = labelHint || (extractPlusCode(expPlace) ? expPlace : (expTitle || expPlace));
+
+      // Direct full 8+ char Plus Code needs no network lookup at all
+      if (plusCode && plusCode.indexOf('+') >= 8) {
+        const directOlc = decodeFullPlusCode(plusCode);
+        if (directOlc) {
+          const cleanName = normalizeIndiaPlaceQuery(preferredTitleRaw) || `Plus Code ${plusCode}`;
+          return {
+            lat: directOlc.lat,
+            lng: directOlc.lng,
+            name: cleanName,
+            fullName: `Plus Code ${plusCode}: ${directOlc.lat.toFixed(5)}, ${directOlc.lng.toFixed(5)}`,
+            isMapLink: true
+          };
+        }
+      }
+
       for (const gq of geoQueries) {
         const results = await searchPlace(gq);
         if (results && results.length > 0) {
           const geo = results[0];
+          // Recover short Plus Code (e.g. 8XW4+5J in Google Maps share URLs) around the geocoded locality!
+          if (plusCode) {
+            const olcPt = recoverPlusCode(plusCode, geo.lat, geo.lng);
+            if (olcPt) {
+              const cleanTitle = normalizeIndiaPlaceQuery(preferredTitleRaw) || geo.name;
+              return {
+                lat: olcPt.lat,
+                lng: olcPt.lng,
+                name: cleanTitle,
+                fullName: `Plus Code ${plusCode}: ${olcPt.lat.toFixed(5)}, ${olcPt.lng.toFixed(5)}`,
+                isMapLink: true
+              };
+            }
+          }
           // If native plugin extracted an HTML coordinate inside the SAME town (< 6 km from geocoded match), keep that exact pin;
           // otherwise reject htmlFallbackCoords (Google's IP-centroid near user's own location!) and use the geocoded match.
           if (htmlFallbackCoords && haversine(geo.lat, geo.lng, htmlFallbackCoords.lat, htmlFallbackCoords.lng) <= 6.0) {
             return {
               lat: htmlFallbackCoords.lat,
               lng: htmlFallbackCoords.lng,
-              name: labelHint || expTitle || expPlace || geo.name,
+              name: normalizeIndiaPlaceQuery(preferredTitleRaw) || geo.name,
               fullName: `Google Maps Pin: ${htmlFallbackCoords.lat.toFixed(5)}, ${htmlFallbackCoords.lng.toFixed(5)}`,
               isMapLink: true
             };
           }
           return {
             ...geo,
-            name: labelHint || geo.name || expTitle || expPlace,
+            name: normalizeIndiaPlaceQuery(labelHint) || geo.name || normalizeIndiaPlaceQuery(expPlace || expTitle),
             isMapLink: true
           };
         }
       }
       return null;
+    }
+
+    // 3b. Direct Plus Code anywhere in text input (e.g. "8XW4+5J KMCT, Manassery, Kerala")
+    const directPlus = extractPlusCode(text);
+    if (directPlus) {
+      if (directPlus.indexOf('+') >= 8) {
+        const directOlc = decodeFullPlusCode(directPlus);
+        if (directOlc) {
+          const cleanName = normalizeIndiaPlaceQuery(text) || `Plus Code ${directPlus}`;
+          return {
+            lat: directOlc.lat,
+            lng: directOlc.lng,
+            name: cleanName,
+            fullName: `Plus Code ${directPlus}: ${directOlc.lat.toFixed(5)}, ${directOlc.lng.toFixed(5)}`,
+            isMapLink: true
+          };
+        }
+      } else {
+        const localityResults = await searchPlace(normalizeIndiaPlaceQuery(text));
+        const ref = (localityResults && localityResults.length > 0)
+          ? localityResults[0]
+          : (window.MapEngine && window.MapEngine.getUserCoords ? window.MapEngine.getUserCoords() : null);
+        if (ref && typeof ref.lat === 'number' && typeof ref.lng === 'number') {
+          const olcPt = recoverPlusCode(directPlus, ref.lat, ref.lng);
+          if (olcPt) {
+            const cleanName = normalizeIndiaPlaceQuery(text) || `Plus Code ${directPlus}`;
+            return {
+              lat: olcPt.lat,
+              lng: olcPt.lng,
+              name: cleanName,
+              fullName: `Plus Code ${directPlus}: ${olcPt.lat.toFixed(5)}, ${olcPt.lng.toFixed(5)}`,
+              isMapLink: true
+            };
+          }
+        }
+      }
     }
 
     // 4. Inline coordinates inside freeform text (e.g. "Pin 10.9760, 76.2254" or "10.9760, 76.2254 (Shop)")

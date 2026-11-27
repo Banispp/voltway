@@ -2104,6 +2104,9 @@ const MapEngine = (function () {
 
   async function showDroppedPinAtCoords(lat, lng) {
     if (!map) return;
+    const hasActiveRoute = Boolean(window.RouteEngine && typeof window.RouteEngine.getActiveRoute === 'function' && window.RouteEngine.getActiveRoute());
+    const isDriving = Boolean(window.DriveEngine && typeof window.DriveEngine.isActive === 'function' && window.DriveEngine.isActive());
+    if (hasActiveRoute || isDriving) return;
     clearDroppedPin();
     clearSearchPin();
 

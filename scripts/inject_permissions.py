@@ -243,12 +243,16 @@ public class VoltWayNativePlugin extends Plugin {
                 double[] coords = extractCoords(finalUrl);
 
                 if (coords == null && finalUrl != null && isAllowedGoogleHost(new URL(finalUrl).getHost())) {
-                    HttpResult htmlRes = fetchWithDohFallback(finalUrl, true, 4500);
-                    if (htmlRes != null && htmlRes.body != null) {
-                        coords = extractCoordsFromHtml(htmlRes.body);
-                        if (placeTitle == null || placeTitle.isEmpty()) {
-                            placeTitle = extractTitleFromHtml(htmlRes.body);
+                    try {
+                        HttpResult htmlRes = fetchWithDohFallback(finalUrl, true, 4500);
+                        if (htmlRes != null && htmlRes.body != null) {
+                            coords = extractCoordsFromHtml(htmlRes.body);
+                            if (placeTitle == null || placeTitle.isEmpty()) {
+                                placeTitle = extractTitleFromHtml(htmlRes.body);
+                            }
                         }
+                    } catch (Exception ignoredHtmlErr) {
+                        // Keep finalUrl and placeTitle even when HTML body times out on slow connections!
                     }
                 }
 
@@ -280,7 +284,9 @@ public class VoltWayNativePlugin extends Plugin {
         if (host == null) return false;
         String h = host.toLowerCase(Locale.US);
         return h.equals("goo.gl") || h.endsWith(".goo.gl")
+            || h.equals("maps.app.goo.gl")
             || h.equals("g.co") || h.endsWith(".g.co")
+            || h.equals("share.google") || h.endsWith(".share.google")
             || h.matches("^(?:[a-z0-9-]+\\.)*google\\.(?:com|[a-z]{2}|com?\\.[a-z]{2})$");
     }
 
@@ -298,7 +304,7 @@ public class VoltWayNativePlugin extends Plugin {
                 return current;
             }
 
-            HttpResult res = fetchWithDohFallback(current, false, 2400);
+            HttpResult res = fetchWithDohFallback(current, false, 2600);
             if (res == null || res.location == null || res.location.isEmpty()) {
                 return current;
             }
@@ -321,9 +327,25 @@ public class VoltWayNativePlugin extends Plugin {
     private HttpResult fetchWithDohFallback(String urlStr, boolean wantBody, int timeoutMs) throws IOException {
         URL u = new URL(urlStr);
         String host = u.getHost();
+        boolean isShortHost = host != null && (host.equalsIgnoreCase("maps.app.goo.gl") || host.equalsIgnoreCase("goo.gl") || host.equalsIgnoreCase("g.co") || host.equalsIgnoreCase("share.google"));
+        // For short link hosts on Jio/carrier networks where system DNS getaddrinfo() can block >15s ignoring connectTimeout,
+        // resolve via IPv4 DoH first and fall back to direct HttpURLConnection only if DoH fails.
+        if (isShortHost && !DOH_IP_CACHE.containsKey(host)) {
+            String dohIp = resolveIpv4ViaDoh(host);
+            if (dohIp != null) {
+                DOH_IP_CACHE.put(host, dohIp);
+                try {
+                    return fetchDirectToIp(u, dohIp, wantBody, timeoutMs);
+                } catch (IOException dohConnErr) {
+                    DOH_IP_CACHE.remove(host);
+                    return fetchDirect(u, wantBody, timeoutMs);
+                }
+            }
+        }
+        int directTimeout = isShortHost ? Math.min(timeoutMs, 1000) : timeoutMs;
         if (!DOH_IP_CACHE.containsKey(host)) {
             try {
-                return fetchDirect(u, wantBody, timeoutMs);
+                return fetchDirect(u, wantBody, directTimeout);
             } catch (IOException directErr) {
                 String dohIp = resolveIpv4ViaDoh(host);
                 if (dohIp == null) throw directErr;
@@ -374,6 +396,7 @@ public class VoltWayNativePlugin extends Plugin {
             return null;
         }
         String[] endpoints = new String[] {
+            "https://8.8.8.8/resolve?name=" + encoded + "&type=A",
             "https://dns.google/resolve?name=" + encoded + "&type=A",
             "https://cloudflare-dns.com/dns-query?name=" + encoded + "&type=A"
         };
@@ -449,7 +472,7 @@ public class VoltWayNativePlugin extends Plugin {
             out.write(req.getBytes(StandardCharsets.US_ASCII));
             out.flush();
 
-            byte[] rawBytes = readStreamBytesLimited(ssl.getInputStream(), wantBody ? 512 * 1024 : 16384);
+            byte[] rawBytes = readHttpResponseBytes(ssl.getInputStream(), wantBody, wantBody ? 512 * 1024 : 16384);
             int splitIdx = findHeaderEnd(rawBytes);
             int headerLen = splitIdx >= 0 ? splitIdx : rawBytes.length;
             String headerBlock = new String(rawBytes, 0, headerLen, StandardCharsets.US_ASCII);
@@ -520,6 +543,30 @@ public class VoltWayNativePlugin extends Plugin {
         return out.toByteArray();
     }
 
+    private byte[] readHttpResponseBytes(InputStream is, boolean wantBody, int maxBytes) throws IOException {
+        if (is == null) return new byte[0];
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buf = new byte[4096];
+        int total = 0;
+        int n;
+        try {
+            while ((n = is.read(buf)) != -1) {
+                int take = Math.min(n, maxBytes - total);
+                bos.write(buf, 0, take);
+                total += take;
+                if (!wantBody && findHeaderEnd(bos.toByteArray()) >= 0) {
+                    break;
+                }
+                if (total >= maxBytes) break;
+            }
+        } catch (IOException readErr) {
+            if (findHeaderEnd(bos.toByteArray()) < 0) {
+                throw readErr;
+            }
+        }
+        return bos.toByteArray();
+    }
+
     private byte[] readStreamBytesLimited(InputStream is, int maxBytes) throws IOException {
         if (is == null) return new byte[0];
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -544,7 +591,8 @@ public class VoltWayNativePlugin extends Plugin {
         Matcher m = Pattern.compile("/maps/(?:place|search)/([^/@?]+)").matcher(url);
         if (m.find()) {
             try {
-                String name = URLDecoder.decode(m.group(1), "UTF-8").replace('+', ' ').trim();
+                // URLDecoder.decode already converts unencoded '+' to ' ' AND keeps '%2B' as literal '+' (needed for Plus Codes like 8XW4+5J)
+                String name = URLDecoder.decode(m.group(1), "UTF-8").trim();
                 if (!name.matches("^-?\\d+\\.\\d+\\s*,\\s*-?\\d+\\.\\d+$")) {
                     return name;
                 }

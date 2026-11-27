@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.50. Tap v5.50 pill anytime to reload.');
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.51. Tap v5.51 pill anytime to reload.');
               }
             };
           };
@@ -538,7 +538,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!rawText || !window.Utilities) return { imported: false, expanded: expandedHint };
     let expanded = expandedHint;
     const rawTrimmed = rawText.trim();
-    const shortMatch = rawTrimmed.match(/(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps)\/[^\s]*/i);
+    const shortMatch = rawTrimmed.match(/(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|share\.google)\/[^\s]*/i);
     if (!expanded && shortMatch) {
       const normalizedShort = /^https?:\/\//i.test(shortMatch[0]) ? shortMatch[0] : `https://${shortMatch[0]}`;
       expanded = await window.Utilities.unshortenUrl(normalizedShort);
@@ -631,12 +631,12 @@ document.addEventListener('DOMContentLoaded', () => {
         : (/https?:\/\/|geo:|goo\.gl|maps\.app/i.test(q) || /-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+/.test(q));
 
       if (isLinkOrCoords) {
-        if (/https?:\/\/|goo\.gl|maps\.app/i.test(q)) {
+        if (/https?:\/\/|goo\.gl|maps\.app|share\.google/i.test(q)) {
           showItems([{ isStatusNotice: true, name: '🔗 Reading Google Maps link...', fullName: 'Extracting location pin' }]);
         }
         debounceTimer = setTimeout(async () => {
           let expandedHint = null;
-          if (q.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps/i.test(q)) {
+          if (q.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps|share\.google/i.test(q)) {
             const dirRes = await tryImportGoogleDirectionsUrl(q);
             expandedHint = dirRes.expanded;
             if (dirRes.imported) {
@@ -680,12 +680,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 showItems([resolvedWithLabel]);
               }
             } else {
+              const hasNativeResolver = Boolean(
+                window.Capacitor &&
+                window.Capacitor.Plugins &&
+                window.Capacitor.Plugins.VoltWayNative &&
+                typeof window.Capacitor.Plugins.VoltWayNative.resolveMapUrl === 'function'
+              );
               showItems([{
                 isStatusNotice: true,
-                name: '⚠️ Could not extract coordinates from this short link',
-                fullName: navigator.onLine
-                  ? 'Use VoltWay Android APK or paste Google Maps Coordinates (e.g. 10.5276, 76.2144)'
-                  : 'Connect to internet to open short Google Maps links'
+                name: hasNativeResolver
+                  ? '⚠️ Short link timed out (slow network or invalid link)'
+                  : '⚠️ Update APK or paste Place Name / Coordinates',
+                fullName: !navigator.onLine
+                  ? 'Connect to internet to open short Google Maps links'
+                  : (hasNativeResolver
+                      ? 'Retry, or copy Place Name + Address from Google Maps Share (e.g. Mukkam, 673582) or paste lat,lng'
+                      : 'Install v5.51+ APK for Jio DoH link opening, or paste Place Name / Coordinates (11.3454, 75.9565)')
               }]);
             }
           }
@@ -765,7 +775,7 @@ document.addEventListener('DOMContentLoaded', () => {
           showItems([{ isStatusNotice: true, name: '🔗 Finding location...', fullName: 'Resolving input' }]);
           try {
             let expandedHint = null;
-            if (q.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps/i.test(q)) {
+            if (q.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps|share\.google/i.test(q)) {
               const dirRes = await tryImportGoogleDirectionsUrl(q);
               expandedHint = dirRes.expanded;
               if (dirRes.imported) {
