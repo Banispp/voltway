@@ -433,12 +433,35 @@ const Utilities = (function () {
               url: target,
               headers: { 'User-Agent': ua, 'Accept': 'text/html,application/xhtml+xml' }
             });
-            const finalUrl = (resp && resp.url && resp.url !== target && resp.url !== trimmed) ? resp.url : '';
+            // resp.url may equal original target (Capacitor limitation) — also check headers.location
+            const headerLoc = (resp && resp.headers && (resp.headers['location'] || resp.headers['Location'])) || '';
+            const finalUrl = (resp && resp.url && resp.url !== target && resp.url !== trimmed)
+              ? resp.url
+              : (headerLoc && headerLoc.includes('google') ? headerLoc : '');
             const bodyStr = (resp && typeof resp.data === 'string') ? resp.data : '';
-            const info = extractBestMapInfoFromHtmlOrUrl(finalUrl, bodyStr);
+
+            // Also scan HTML body for redirect targets (Google consent / app-redirect pages)
+            let resolvedFromBody = '';
+            if (bodyStr && !finalUrl) {
+              // <meta http-equiv="refresh" content="0;url=...">
+              const metaM = bodyStr.match(/http-equiv=["']refresh["'][^>]*content=["'][^"']*url=([^"'\s>]+)/i);
+              if (metaM) resolvedFromBody = metaM[1].replace(/&amp;/g, '&');
+              // window.location = "..." or location.href = "..."
+              if (!resolvedFromBody) {
+                const locM = bodyStr.match(/(?:window\.location|location\.href)\s*=\s*["'](https?:\/\/[^"']+google[^"']+maps[^"']+)/i);
+                if (locM) resolvedFromBody = locM[1];
+              }
+              // JS redirect: "https://www.google.com/maps/..." inside a script block
+              if (!resolvedFromBody) {
+                const scriptM = bodyStr.match(/"(https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^"\\]+)"/i);
+                if (scriptM) resolvedFromBody = scriptM[1].replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
+              }
+            }
+
+            const urlToUse = finalUrl || resolvedFromBody || '';
+            const info = extractBestMapInfoFromHtmlOrUrl(urlToUse, bodyStr);
             if (info.coords || (info.url && info.url.includes('google.'))) {
-              const result = info.url || trimmed;
-              shortUrlCache.set(trimmed, info.url ? { ...info } : result);
+              shortUrlCache.set(trimmed, info.url ? { ...info } : (urlToUse || trimmed));
               return shortUrlCache.get(trimmed);
             }
           } catch (err) {}

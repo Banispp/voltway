@@ -67,13 +67,17 @@ else:
 
 main_activity_path = os.path.join('android', 'app', 'src', 'main', 'java', 'com', 'voltway', 'evroute', 'MainActivity.java')
 if os.path.exists(main_activity_path):
-    # NOTE: This is a plain string written verbatim to MainActivity.java.
-    # Keep Java escape sequences minimal — no dynamic string embedding in evaluateJavascript.
+    # Strategy:
+    # - addJavascriptInterface after super.onCreate() so bridge is ready before page JS runs
+    # - Cold launch (onCreate): store text, notifyWeb=false — JS retry poll picks it up via consumePendingShare()
+    # - Warm launch (onNewIntent): encode text as Base64, inject via evaluateJavascript as window._voltWayB64
+    #   JS decodes with atob() — NO escaping issues at all.
     main_activity_java = (
         'package com.voltway.evroute;\n'
         '\n'
         'import android.content.Intent;\n'
         'import android.os.Bundle;\n'
+        'import android.util.Base64;\n'
         'import android.webkit.JavascriptInterface;\n'
         'import android.webkit.WebView;\n'
         'import com.getcapacitor.BridgeActivity;\n'
@@ -93,12 +97,13 @@ if os.path.exists(main_activity_path):
         '    @Override\n'
         '    public void onCreate(Bundle savedInstanceState) {\n'
         '        super.onCreate(savedInstanceState);\n'
-        '        // addJavascriptInterface right after super.onCreate() — WebView exists now.\n'
-        '        // JS loaded after this point can call window.VoltWayAndroidShare.consumePendingShare().\n'
+        '        // addJavascriptInterface right after super.onCreate() — WebView exists.\n'
+        '        // JS page loads asynchronously after this, so bridge is available.\n'
         '        WebView webView = getBridge() != null ? getBridge().getWebView() : null;\n'
         '        if (webView != null) {\n'
         '            webView.addJavascriptInterface(new VoltWayShareBridge(), "VoltWayAndroidShare");\n'
         '        }\n'
+        '        // Store intent text — JS retry poll will call consumePendingShare().\n'
         '        captureShareIntent(getIntent(), false);\n'
         '    }\n'
         '\n'
@@ -133,10 +138,15 @@ if os.path.exists(main_activity_path):
         '        if (extracted == null || extracted.isEmpty()) return;\n'
         '        pendingShareText = extracted;\n'
         '        if (notifyWeb && getBridge() != null && getBridge().getWebView() != null) {\n'
+        '            // Encode as Base64 to avoid ALL JS string escaping issues.\n'
+        '            final String b64 = Base64.encodeToString(\n'
+        '                extracted.getBytes(java.nio.charset.StandardCharsets.UTF_8),\n'
+        '                Base64.NO_WRAP\n'
+        '            );\n'
         '            final WebView wv = getBridge().getWebView();\n'
-        '            // Trigger JS poll — pendingShareText stored; consumePendingShare() will return it.\n'
         '            wv.post(() -> wv.evaluateJavascript(\n'
-        '                "if(window.checkIncomingNativeShare)window.checkIncomingNativeShare();",\n'
+        '                "window._voltWayB64=\'" + b64 + "\';"\n'
+        '                + "if(window.checkIncomingNativeShare)window.checkIncomingNativeShare();",\n'
         '                null\n'
         '            ));\n'
         '        }\n'
@@ -145,6 +155,6 @@ if os.path.exists(main_activity_path):
     )
     with open(main_activity_path, 'w', encoding='utf-8') as f:
         f.write(main_activity_java)
-    print('[VoltWay Build] Updated MainActivity.java with Android Share & geo: intent bridge cleanly!')
+    print('[VoltWay Build] Updated MainActivity.java with Base64 share push & Android Share intent bridge!')
 else:
     print(f'[VoltWay Build] MainActivity.java not found at {main_activity_path}')

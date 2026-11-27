@@ -2491,14 +2491,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.checkIncomingNativeShare = function () {
     try {
-      // Check native-pushed global first (evaluateJavascript cold/warm launch)
+      // 1. Base64 push from warm-launch evaluateJavascript (most reliable — no escape issues)
+      if (window._voltWayB64 && window._voltWayB64.trim()) {
+        const b64 = window._voltWayB64;
+        window._voltWayB64 = null;
+        try {
+          const text = decodeURIComponent(escape(atob(b64)));
+          if (text && text.trim()) { handleVoltwayIncomingShare(text.trim()); return true; }
+        } catch (e2) {}
+      }
+      // 2. Plain text global (legacy evaluateJavascript push)
       if (window.pendingShareText && window.pendingShareText.trim()) {
         const _t = window.pendingShareText;
         window.pendingShareText = null;
         handleVoltwayIncomingShare(_t.trim());
         return true;
       }
-      // Then check addJavascriptInterface bridge (may not be ready on cold launch)
+      // 3. addJavascriptInterface bridge (cold launch — available after onCreate injects it)
       if (window.VoltWayAndroidShare && typeof window.VoltWayAndroidShare.consumePendingShare === 'function') {
         const shared = window.VoltWayAndroidShare.consumePendingShare();
         if (shared && shared.trim()) {
