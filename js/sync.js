@@ -259,7 +259,7 @@ const SyncEngine = (function () {
       for (const remoteRepoUrl of remoteUrls) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 7000);
+          const timeoutId = setTimeout(() => controller.abort(), 20000);
           const resp = await fetch(remoteRepoUrl, { cache: 'no-store', signal: controller.signal });
           clearTimeout(timeoutId);
           if (resp.ok) {

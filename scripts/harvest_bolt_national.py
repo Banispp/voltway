@@ -74,7 +74,7 @@ def is_verified_2w_slow(cid, model_id):
 def build_grid_cells():
     print("[1/3] Fetching national overview at Zoom 8 across India...", flush=True)
     overview_url = 'https://api.bolt.earth/discovery/v1/chargers/clusters?lat_bottom=8.0&lng_left=68.0&lat_top=36.0&lng_right=95.0&zoom=8'
-    overview_items = query_url(overview_url)
+    overview_items = query_url(overview_url) or []
     print(f"Found {len(overview_items)} national cluster points.", flush=True)
 
     coords = []

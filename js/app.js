@@ -715,7 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(runLookup, 10);
     });
 
-    inputEl.addEventListener('keydown', (e) => {
+    inputEl.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter') {
         const firstReal = Array.from(dropdownEl.querySelectorAll('.dropdown-item')).find(el => {
           const t = el.querySelector('.item-title');
@@ -724,6 +724,34 @@ document.addEventListener('DOMContentLoaded', () => {
         if (firstReal) {
           e.preventDefault();
           firstReal.click();
+          return;
+        }
+        const q = inputEl.value.trim();
+        if (q.length >= 2 && !q.toLowerCase().includes('current location') && window.Utilities) {
+          e.preventDefault();
+          clearTimeout(debounceTimer);
+          showItems([{ isStatusNotice: true, name: '🔗 Finding location...', fullName: 'Resolving input' }]);
+          try {
+            let expandedHint = null;
+            if (q.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps/i.test(q)) {
+              const dirRes = await tryImportGoogleDirectionsUrl(q);
+              expandedHint = dirRes.expanded;
+              if (dirRes.imported) {
+                dropdownEl.classList.remove('visible');
+                return;
+              }
+            }
+            const resolved = await window.Utilities.resolveLocationInput(q, expandedHint);
+            if (inputEl.value.trim() !== q) return;
+            if (resolved) {
+              inputEl.value = resolved.name;
+              dropdownEl.classList.remove('visible');
+              if (openDropdownEl === dropdownEl) openDropdownEl = null;
+              if (options.onSelect) options.onSelect({ ...resolved, isCharger: false, isMapLink: true });
+            } else {
+              showItems([{ isStatusNotice: true, name: '⚠️ Location not found', fullName: 'Check spelling or paste coordinates' }]);
+            }
+          } catch (err) {}
         }
       }
     });
@@ -742,12 +770,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   attachLocationAutocomplete(searchInput, searchDropdown, {
     includeChargers: true,
+    onClearSelection: () => {
+      if (window.MapEngine && typeof window.MapEngine.clearSearchPin === 'function') {
+        window.MapEngine.clearSearchPin();
+      }
+    },
     onSelect: (item) => {
       if (item.isCharger && window.MapEngine) {
         window.MapEngine.focusCharger(item);
       } else if (window.MapEngine && window.MapEngine.getMap()) {
         const z = item.isMapLink ? 15 : 13;
         window.MapEngine.getMap().flyTo([item.lat, item.lng], z, { animate: true, duration: 0.5 });
+        if (typeof window.MapEngine.showSearchPin === 'function') {
+          window.MapEngine.showSearchPin(item);
+        }
       }
     }
   });
@@ -1091,7 +1127,10 @@ document.addEventListener('DOMContentLoaded', () => {
     destCoords = null;
     if (destInput) destInput.value = '';
     if (intermediateStopsList) intermediateStopsList.innerHTML = '';
-    if (window.MapEngine) window.MapEngine.renderChargers();
+    if (window.MapEngine) {
+      if (typeof window.MapEngine.clearSearchPin === 'function') window.MapEngine.clearSearchPin();
+      window.MapEngine.renderChargers();
+    }
   }
 
   if (btnClearRoute) {
