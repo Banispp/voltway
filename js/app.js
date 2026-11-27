@@ -294,7 +294,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- 5. Battery Dashboard & Charge Time Estimator ----------
   const vehicleSelect = document.getElementById('vehicle-preset-select');
   const vehicleConnInfo = document.getElementById('vehicle-connector-info');
-  const modesContainer = document.getElementById('riding-modes-container');
   const batteryNumber = document.getElementById('battery-number');
   const batterySlider = document.getElementById('battery-slider');
   const efficiencyInput = document.getElementById('efficiency-input');
@@ -354,26 +353,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function renderRidingModeButtons(batState) {
-    if (!modesContainer || !batState || !batState.vehicleDetails) return;
-    const modes = batState.vehicleDetails.modes || {};
-    modesContainer.innerHTML = '';
-
-    Object.entries(modes).forEach(([modeKey, modeEff]) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      const isSelected = !batState.isCustomEfficiency && batState.ridingMode === modeKey;
-      btn.className = `btn-mode${isSelected ? ' active' : ''}`;
-      btn.dataset.mode = modeKey;
-      btn.textContent = modeKey;
-      btn.title = `${modeKey} Mode (${modeEff} km/1%)`;
-      btn.addEventListener('click', () => {
-        if (window.BatteryEngine) window.BatteryEngine.setRidingMode(modeKey);
-      });
-      modesContainer.appendChild(btn);
-    });
-  }
-
   let latestRoutePayload = null;
   let lastBatterySig = null;
   let batteryReconcileTimer = null;
@@ -386,7 +365,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (vehicleConnInfo && batState.vehicleDetails) {
       vehicleConnInfo.textContent = getConnectorDescription(batState.vehicleDetails.connectorType);
     }
-    renderRidingModeButtons(batState);
 
     if (batterySlider) batterySlider.value = String(batState.currentBatteryPct);
     if (batteryNumber && document.activeElement !== batteryNumber) {
@@ -558,9 +536,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!rawText || !window.Utilities) return { imported: false, expanded: expandedHint };
     let expanded = expandedHint;
     const rawTrimmed = rawText.trim();
-    const shortMatch = rawTrimmed.match(/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps)[^\s]*/i);
+    const shortMatch = rawTrimmed.match(/(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps)\/[^\s]*/i);
     if (!expanded && shortMatch) {
-      expanded = await window.Utilities.unshortenUrl(shortMatch[0]);
+      const normalizedShort = /^https?:\/\//i.test(shortMatch[0]) ? shortMatch[0] : `https://${shortMatch[0]}`;
+      expanded = await window.Utilities.unshortenUrl(normalizedShort);
     }
     const dir = window.Utilities.parseGoogleMapsDirectionsUrl(expanded || rawTrimmed);
     if (!dir) return { imported: false, expanded };
@@ -655,7 +634,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         debounceTimer = setTimeout(async () => {
           let expandedHint = null;
-          if (q.includes('/maps/dir/') || q.includes('goo.gl')) {
+          if (q.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps/i.test(q)) {
             const dirRes = await tryImportGoogleDirectionsUrl(q);
             expandedHint = dirRes.expanded;
             if (dirRes.imported) {
@@ -734,6 +713,19 @@ document.addEventListener('DOMContentLoaded', () => {
     inputEl.addEventListener('paste', () => {
       if (options.onClearSelection) options.onClearSelection();
       setTimeout(runLookup, 10);
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const firstReal = Array.from(dropdownEl.querySelectorAll('.dropdown-item')).find(el => {
+          const t = el.querySelector('.item-title');
+          return t && !t.textContent.startsWith('🔗') && !t.textContent.startsWith('⚠️');
+        });
+        if (firstReal) {
+          e.preventDefault();
+          firstReal.click();
+        }
+      }
     });
 
     inputEl.addEventListener('focus', () => {
@@ -1291,7 +1283,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (unsafeNode) {
         statusBanner.className = 'status-banner status-critical';
-        statusBanner.textContent = `Range Alert: Leg arrival at ~${unsafeNode.arrivalSoC}% SoC. Add a charging stop or switch to ECO mode.`;
+        statusBanner.textContent = `Range Alert: Leg arrival at ~${unsafeNode.arrivalSoC}% SoC. Add a charging stop or adjust efficiency.`;
       } else if (warnNode) {
         statusBanner.className = 'status-banner status-warning';
         statusBanner.textContent = `Reserve Notice: Leg arrives at ~${warnNode.arrivalSoC}% (below ${batState.safetyReservePct}% buffer).`;
@@ -2436,17 +2428,31 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---------- 13. Google Maps Share-Target & Native Android Intent Handler ----------
+  let _lastSharePayload = '';
+  let _lastShareTs = 0;
+
   async function handleVoltwayIncomingShare(rawShareText) {
     const cleaned = String(rawShareText || '').trim();
     if (!cleaned || !window.Utilities) return false;
+    const now = Date.now();
+    if (cleaned === _lastSharePayload && now - _lastShareTs < 2000) {
+      return true;
+    }
+    _lastSharePayload = cleaned;
+    _lastShareTs = now;
 
     activateTab('route', true);
+    if (destInput) {
+      destInput.value = cleaned;
+      destCoords = null;
+      try { destInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    }
     if (window.SyncEngine) {
-      window.SyncEngine.showAutoUpdateToast('📍 Opening shared Google Maps location...');
+      window.SyncEngine.showAutoUpdateToast('📍 Reading shared Google Maps location...');
     }
 
     let expandedHint = null;
-    if (cleaned.includes('/maps/dir/') || cleaned.includes('goo.gl') || cleaned.includes('maps.app')) {
+    if (cleaned.includes('/maps/dir/') || /goo\.gl|maps\.app|g\.co\/maps/i.test(cleaned)) {
       const dirRes = await tryImportGoogleDirectionsUrl(cleaned);
       expandedHint = dirRes.expanded;
       if (dirRes.imported) {
@@ -2464,68 +2470,31 @@ document.addEventListener('DOMContentLoaded', () => {
         m.flyTo([destCoords.lat, destCoords.lng], 15, { animate: true, duration: 0.6 });
       }
       if (window.SyncEngine) {
-        window.SyncEngine.showAutoUpdateToast(`🏁 Destination set: ${destCoords.name} (Tap Plan EV Route)`);
+        window.SyncEngine.showAutoUpdateToast(`🏁 Destination set: ${destCoords.name} (Tap Plan 2W Route)`);
       }
       return true;
     }
 
-    if (destInput) {
-      destInput.value = cleaned;
-      destCoords = null;
-    }
     if (window.SyncEngine) {
-      window.SyncEngine.showAutoUpdateToast('⚠️ Could not read shared pin — check internet or paste full link');
+      window.SyncEngine.showAutoUpdateToast('⚠️ Could not read shared pin — check internet or paste coordinates');
     }
     return false;
   }
 
   window.handleVoltwayIncomingShare = handleVoltwayIncomingShare;
-
-  // Native Android may set window.pendingShareText directly via evaluateJavascript
-  // before the JS bridge object is ready (warm-launch path).
-  if (window.pendingShareText && window.pendingShareText.trim()) {
-    const _pt = window.pendingShareText;
-    window.pendingShareText = null;
-    setTimeout(() => handleVoltwayIncomingShare(_pt.trim()), 50);
-  }
-
-  window.checkIncomingNativeShare = function () {
+  window.checkIncomingNativeShare = async function () {
     try {
-      // 1. Base64 push from warm-launch evaluateJavascript (most reliable — no escape issues)
-      if (window._voltWayB64 && window._voltWayB64.trim()) {
-        const b64 = window._voltWayB64;
-        window._voltWayB64 = null;
-        try {
-          const text = decodeURIComponent(escape(atob(b64)));
-          if (text && text.trim()) { handleVoltwayIncomingShare(text.trim()); return true; }
-        } catch (e2) {}
-      }
-      // 2. Plain text global (legacy evaluateJavascript push)
-      if (window.pendingShareText && window.pendingShareText.trim()) {
-        const _t = window.pendingShareText;
-        window.pendingShareText = null;
-        handleVoltwayIncomingShare(_t.trim());
-        return true;
-      }
-      // 3. addJavascriptInterface bridge (cold launch — available after onCreate injects it)
-      if (window.VoltWayAndroidShare && typeof window.VoltWayAndroidShare.consumePendingShare === 'function') {
-        const shared = window.VoltWayAndroidShare.consumePendingShare();
-        if (shared && shared.trim()) {
-          handleVoltwayIncomingShare(shared.trim());
+      const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
+      if (nativePlugin && typeof nativePlugin.consumePendingShare === 'function') {
+        const res = await nativePlugin.consumePendingShare();
+        if (res && res.text && res.text.trim()) {
+          handleVoltwayIncomingShare(res.text.trim());
           return true;
         }
       }
     } catch (e) {}
     return false;
   };
-
-  // Retry polling: bridge may not be injected yet on cold launch (addJavascriptInterface runs after page load)
-  let _shareRetries = 0;
-  const _sharePollId = setInterval(() => {
-    _shareRetries++;
-    if (_shareRetries > 15) { clearInterval(_sharePollId); return; } // stop after ~3s
-    if (window.checkIncomingNativeShare()) clearInterval(_sharePollId);
-  }, 200);
 
   // Web PWA share_target (?text=...&url=...&title=...) & shortcut (?tab=..., ?action=sos)
   (function handleUrlLaunchParams() {
@@ -2558,8 +2527,20 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {}
   })();
 
-  // Cold-launch check: also run once synchronously in case bridge was already injected
   window.checkIncomingNativeShare();
+
+  const voltwayNative = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
+  if (voltwayNative && typeof voltwayNative.addListener === 'function') {
+    voltwayNative.addListener('shareReceived', (data) => {
+      if (data && data.text && data.text.trim()) {
+        // Consume pending buffer too so a resume check doesn't re-read the same intent
+        if (typeof voltwayNative.consumePendingShare === 'function') {
+          voltwayNative.consumePendingShare().catch(() => {});
+        }
+        handleVoltwayIncomingShare(data.text.trim());
+      }
+    });
+  }
 
   document.addEventListener('backbutton', (e) => handleHardwareBack(e, false), false);
   if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App && typeof window.Capacitor.Plugins.App.addListener === 'function') {

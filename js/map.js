@@ -751,20 +751,6 @@ const MapEngine = (function () {
       networkName = 'Bolt.Earth';
     }
 
-    const batteryState = window.BatteryEngine ? window.BatteryEngine.getState() : { efficiency: 0.85, currentBatteryPct: 85, targetChargePct: 80 };
-    const targetLimit = batteryState.targetChargePct ?? 80;
-    const curBat = batteryState.currentBatteryPct ?? 85;
-    const startPct = curBat < targetLimit ? Math.max(0, curBat) : Math.min(20, Math.max(5, targetLimit - 15));
-    const gainPct = Math.max(5, targetLimit - startPct);
-    const estMins = window.Utilities
-      ? window.Utilities.computeChargingDuration(gainPct, startPct, isFast, charger.power_kw, batteryState.vehicleDetails)
-      : (isFast ? 35 : 180);
-    const estTimeText = window.Utilities ? window.Utilities.formatMinutes(estMins) : `${estMins}m`;
-
-    const compat = window.BatteryEngine && typeof window.BatteryEngine.isChargerCompatible === 'function'
-      ? window.BatteryEngine.isChargerCompatible(charger)
-      : { compatible: true, direct: isFast, reason: charger.connector || '2W Compatible' };
-
     const waypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
     const baseId = charger.originalId || charger.id;
     const isInRoute = waypoints.some(w => String(w.originalId || w.id) === String(baseId));
@@ -783,12 +769,6 @@ const MapEngine = (function () {
 
     const cleanTitle = esc((charger.name || '2W Charger').replace(/\s*\(Ather Gun[^)]*\)/gi, '').trim());
     const safeAddr = esc(charger.address || '');
-    const safeConnector = esc(charger.connector || (isFast ? '2W Fast DC' : '15A AC Socket'));
-    const safeCompatReason = esc(compat.reason);
-    const powerBadge = charger.power_kw ? `${charger.power_kw} kW` : (isFast ? '3.0 kW' : '1.5 kW');
-    const verifiedBadge = charger.verified !== false
-      ? '<span style="color:#00e676;">✓ Verified 2W</span>'
-      : '<span style="color:#ffb703;">⚠ Metadata Unverified</span>';
 
     const stopHeaderBadge = stopIndex !== null
       ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`
@@ -863,23 +843,10 @@ const MapEngine = (function () {
       <div class="popup-card">
         <div class="popup-header">
           ${stopHeaderBadge}
-          <span class="popup-power-tag ${isFast ? 'is-fast' : 'is-slow'}">${isFast ? '⚡ Fast' : '🔌 15A'} • ${powerBadge}</span>
         </div>
 
         <div class="popup-title">${cleanTitle}</div>
         ${routeDistanceHtml}
-
-        <div class="popup-compat-banner ${compat.compatible ? 'compat-ok' : 'compat-warn'}">
-          ${compat.compatible ? '✅' : '⚠️'} ${safeCompatReason}
-        </div>
-
-        <div class="popup-meta-box">
-          <div class="popup-connector-line">🔌 ${safeConnector}</div>
-          <div class="popup-meta-sub">
-            <span>${verifiedBadge}</span>
-            <span>⏱️ ~${estTimeText} (${startPct}→${batteryState.targetChargePct ?? 80}%)</span>
-          </div>
-        </div>
 
         ${safeAddr ? `<div class="popup-address">📍 ${safeAddr}</div>` : ''}
         ${venueHints}

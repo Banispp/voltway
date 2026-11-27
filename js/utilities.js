@@ -350,6 +350,9 @@ const Utilities = (function () {
     if (searchCoordMatch) return { lat: parseFloat(searchCoordMatch[1]), lng: parseFloat(searchCoordMatch[2]) };
     const protoMatch = urlStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
     if (protoMatch) return { lat: parseFloat(protoMatch[1]), lng: parseFloat(protoMatch[2]) };
+    // Google Maps place/preview embeds protobuf !2d<lng>!3d<lat> (both literal and %21-encoded)
+    const proto2d3d = urlStr.match(/(?:!|%21)2d(-?\d+\.\d+)(?:!|%21)3d(-?\d+\.\d+)/i);
+    if (proto2d3d) return { lat: parseFloat(proto2d3d[2]), lng: parseFloat(proto2d3d[1]) };
     const protoLngLat = urlStr.match(/!2d(-?\d+\.\d+)!1d(-?\d+\.\d+)/);
     if (protoLngLat) return { lat: parseFloat(protoLngLat[2]), lng: parseFloat(protoLngLat[1]) };
     const centerMatch = urlStr.match(/center=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i);
@@ -376,38 +379,49 @@ const Utilities = (function () {
     const out = { url: resolvedUrl || '', title: '', coords: null };
     if (resolvedUrl) {
       out.coords = extractFromUrlString(resolvedUrl);
+      const urlPlaceM = resolvedUrl.match(/\/maps\/(?:place|search)\/([^/@?]+)/i);
+      if (urlPlaceM && urlPlaceM[1]) {
+        try {
+          const decoded = decodeURIComponent(urlPlaceM[1]).replace(/\+/g, ' ').trim();
+          if (decoded && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(decoded)) {
+            out.title = decoded;
+          }
+        } catch (e) {}
+      }
     }
     if (htmlBody && typeof htmlBody === 'string') {
-      // 1. Find embedded full maps URL in HTML (most reliable)
-      const mapsUrlMatch = htmlBody.match(/https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^\s"'<>\\]+/i);
-      if (!out.url && mapsUrlMatch) out.url = mapsUrlMatch[0].replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
-      if (!out.coords && mapsUrlMatch) out.coords = extractFromUrlString(out.url);
+      // 1. Try coordinate formats across full HTML body first (center=, !2d!3d, @lat,lng)
+      if (!out.coords) out.coords = extractFromUrlString(htmlBody);
 
-      // 2. APP_INITIALIZATION_STATE — Google Maps JS embeds coords as [[lat,lng]] in this global
+      // 2. APP_INITIALIZATION_STATE=[[[scale, LNG, LAT], ...]] — Google embeds LNG first, LAT second
       if (!out.coords) {
-        // Pattern: ,lat,lng, inside APP_INITIALIZATION_STATE where lat/lng are India-range floats
-        const appStateM = htmlBody.match(/APP_INITIALIZATION_STATE\s*=\s*\[+[^\]]*?(-?\d{1,2}\.\d{4,}),(-?\d{2,3}\.\d{4,})/);
+        const appStateM = htmlBody.match(/APP_INITIALIZATION_STATE\s*=\s*\[\[\[[^,\]]+,(-?\d{1,3}\.\d{3,}),(-?\d{1,2}\.\d{3,})/);
         if (appStateM) {
-          const lat = parseFloat(appStateM[1]);
-          const lng = parseFloat(appStateM[2]);
-          if (lat >= 6 && lat <= 38 && lng >= 68 && lng <= 98) {
-            out.coords = { lat, lng };
+          const first = parseFloat(appStateM[1]);
+          const second = parseFloat(appStateM[2]);
+          if (second >= -90 && second <= 90 && first >= -180 && first <= 180) {
+            out.coords = { lat: second, lng: first };
           }
         }
       }
 
-      // 3. Any @lat,lng or ?q=lat,lng in the HTML body
-      if (!out.coords) out.coords = extractFromUrlString(htmlBody);
+      // 3. Fallback embedded maps URL in HTML
+      if (!out.url) {
+        const mapsUrlMatch = htmlBody.match(/https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^\s"'<>\\]+/i);
+        if (mapsUrlMatch) {
+          out.url = mapsUrlMatch[0].replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
+          if (!out.coords) out.coords = extractFromUrlString(out.url);
+        }
+      }
 
-      // 4. og:title / <title> for place name
-      out.title = extractPlaceTitleFromHtml(htmlBody);
+      if (!out.title) out.title = extractPlaceTitleFromHtml(htmlBody);
     }
     return out;
   }
 
   /**
-   * Resolves short Google Maps URLs using native CapacitorHttp (Android)
-   * or local serve.py endpoint when running locally. Cached to avoid duplicate calls.
+   * Resolves short Google Maps URLs using native VoltWayNative plugin (with DoH fallback),
+   * CapacitorHttp fallback, or local serve.py endpoint. Cached to avoid duplicate calls.
    */
   async function unshortenUrl(shortUrl) {
     if (!shortUrl) return null;
@@ -420,59 +434,53 @@ const Utilities = (function () {
       .replace(/([?&])g_st=[^&]*&?/i, '$1')
       .replace(/[?&]$/, '');
 
-    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
-      const candidateUrls = cleanedUrl !== trimmed ? [cleanedUrl, trimmed] : [trimmed];
-      const uas = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36'
-      ];
-      for (const target of candidateUrls) {
-        for (const ua of uas) {
-          try {
-            const resp = await window.Capacitor.Plugins.CapacitorHttp.get({
-              url: target,
-              headers: { 'User-Agent': ua, 'Accept': 'text/html,application/xhtml+xml' }
-            });
-            // resp.url may equal original target (Capacitor limitation) — also check headers.location
-            const headerLoc = (resp && resp.headers && (resp.headers['location'] || resp.headers['Location'])) || '';
-            const finalUrl = (resp && resp.url && resp.url !== target && resp.url !== trimmed)
-              ? resp.url
-              : (headerLoc && headerLoc.includes('google') ? headerLoc : '');
-            const bodyStr = (resp && typeof resp.data === 'string') ? resp.data : '';
-
-            // Also scan HTML body for redirect targets (Google consent / app-redirect pages)
-            let resolvedFromBody = '';
-            if (bodyStr && !finalUrl) {
-              // <meta http-equiv="refresh" content="0;url=...">
-              const metaM = bodyStr.match(/http-equiv=["']refresh["'][^>]*content=["'][^"']*url=([^"'\s>]+)/i);
-              if (metaM) resolvedFromBody = metaM[1].replace(/&amp;/g, '&');
-              // window.location = "..." or location.href = "..."
-              if (!resolvedFromBody) {
-                const locM = bodyStr.match(/(?:window\.location|location\.href)\s*=\s*["'](https?:\/\/[^"']+google[^"']+maps[^"']+)/i);
-                if (locM) resolvedFromBody = locM[1];
-              }
-              // JS redirect: "https://www.google.com/maps/..." inside a script block
-              if (!resolvedFromBody) {
-                const scriptM = bodyStr.match(/"(https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^"\\]+)"/i);
-                if (scriptM) resolvedFromBody = scriptM[1].replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
-              }
-            }
-
-            const urlToUse = finalUrl || resolvedFromBody || '';
-            const info = extractBestMapInfoFromHtmlOrUrl(urlToUse, bodyStr);
-            if (info.coords || (info.url && info.url.includes('google.'))) {
-              shortUrlCache.set(trimmed, info.url ? { ...info } : (urlToUse || trimmed));
-              return shortUrlCache.get(trimmed);
-            }
-          } catch (err) {}
+    // 1. Primary on Android APK: native Java resolver (handles Jio DNS timeouts via DoH + extracts HTML coords)
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative &&
+        typeof window.Capacitor.Plugins.VoltWayNative.resolveMapUrl === 'function') {
+      try {
+        const res = await window.Capacitor.Plugins.VoltWayNative.resolveMapUrl({ url: cleanedUrl });
+        if (res && res.success) {
+          const coords = (typeof res.lat === 'number' && typeof res.lng === 'number' && !isNaN(res.lat) && !isNaN(res.lng))
+            ? { lat: res.lat, lng: res.lng }
+            : (res.url ? extractFromUrlString(res.url) : null);
+          if (coords || (res.url && res.url.includes('google.'))) {
+            const info = { url: res.url || cleanedUrl, title: res.title || '', coords };
+            shortUrlCache.set(trimmed, info);
+            return info;
+          }
         }
-      }
+      } catch (err) {}
+    }
+
+    // 2. Secondary on Android APK: CapacitorHttp with strict 3s timeout (single fast check)
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
+      try {
+        const resp = await window.Capacitor.Plugins.CapacitorHttp.get({
+          url: cleanedUrl,
+          connectTimeout: 3000,
+          readTimeout: 3000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml'
+          }
+        });
+        const headerLoc = (resp && resp.headers && (resp.headers['location'] || resp.headers['Location'])) || '';
+        const finalUrl = (resp && resp.url && resp.url !== cleanedUrl && resp.url !== trimmed)
+          ? resp.url
+          : (headerLoc && headerLoc.includes('google') ? headerLoc : '');
+        const bodyStr = (resp && typeof resp.data === 'string') ? resp.data : '';
+        const info = extractBestMapInfoFromHtmlOrUrl(finalUrl, bodyStr);
+        if (info.coords || (info.url && info.url.includes('google.'))) {
+          shortUrlCache.set(trimmed, info);
+          return info;
+        }
+      } catch (err) {}
     }
 
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 2500);
+        const timer = setTimeout(() => controller.abort(), 3000);
         const resp = await fetch(`/api/resolve-maps-url?url=${encodeURIComponent(cleanedUrl)}`, { signal: controller.signal });
         clearTimeout(timer);
         if (resp.ok) {
@@ -487,7 +495,7 @@ const Utilities = (function () {
 
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2000);
+      const timer = setTimeout(() => controller.abort(), 2500);
       const resp = await fetch(cleanedUrl, { redirect: 'follow', signal: controller.signal });
       clearTimeout(timer);
       if (resp && resp.url && resp.url !== cleanedUrl && resp.url.includes('google.com/maps')) {
@@ -638,8 +646,8 @@ const Utilities = (function () {
               isMapLink: true
             };
           }
-          if (expPlace) {
-            const results = await searchPlace(expPlace);
+          if (expPlace || expTitle) {
+            const results = await searchPlace(expPlace || expTitle);
             if (results && results.length > 0) return { ...results[0], isMapLink: true };
           }
           if (expTitle) {
