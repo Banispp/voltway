@@ -67,83 +67,82 @@ else:
 
 main_activity_path = os.path.join('android', 'app', 'src', 'main', 'java', 'com', 'voltway', 'evroute', 'MainActivity.java')
 if os.path.exists(main_activity_path):
-    main_activity_java = """package com.voltway.evroute;
-
-import android.content.Intent;
-import android.os.Bundle;
-import android.webkit.JavascriptInterface;
-import android.webkit.WebView;
-import com.getcapacitor.BridgeActivity;
-
-public class MainActivity extends BridgeActivity {
-    private volatile String pendingShareText = null;
-
-    public class VoltWayShareBridge {
-        @JavascriptInterface
-        public String consumePendingShare() {
-            String val = pendingShareText;
-            pendingShareText = null;
-            return val != null ? val : "";
-        }
-    }
-
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        // Capture intent BEFORE super.onCreate() so it is available during app init
-        captureShareIntent(getIntent(), false);
-        super.onCreate(savedInstanceState);
-        // addJavascriptInterface after super.onCreate() — WebView exists now.
-        // The interface is active for all JS loaded after this point.
-        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
-        if (webView != null) {
-            webView.addJavascriptInterface(new VoltWayShareBridge(), "VoltWayAndroidShare");
-        }
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        captureShareIntent(intent, true);
-    }
-
-    private void captureShareIntent(Intent intent, boolean notifyWeb) {
-        if (intent == null) return;
-        String action = intent.getAction();
-        String extracted = null;
-        if (Intent.ACTION_SEND.equals(action)) {
-            String txt = intent.getStringExtra(Intent.EXTRA_TEXT);
-            String subj = intent.getStringExtra(Intent.EXTRA_SUBJECT);
-            if (txt != null && !txt.trim().isEmpty()) {
-                if (subj != null && !subj.trim().isEmpty() && !txt.contains(subj.trim())) {
-                    extracted = subj.trim() + "\\n" + txt.trim();
-                } else {
-                    extracted = txt.trim();
-                }
-            } else if (subj != null && !subj.trim().isEmpty()) {
-                extracted = subj.trim();
-            }
-        } else if (Intent.ACTION_VIEW.equals(action) && intent.getData() != null) {
-            if ("geo".equalsIgnoreCase(intent.getScheme())) {
-                extracted = intent.getDataString();
-            }
-        }
-        if (extracted == null || extracted.isEmpty()) return;
-        pendingShareText = extracted;
-        if (notifyWeb && getBridge() != null && getBridge().getWebView() != null) {
-            final String sharePayload = extracted.replace("\\\\", "\\\\\\\\").replace("\"", "\\\\\"").replace("\\n", "\\\\n");
-            final WebView wv = getBridge().getWebView();
-            // Push text directly — do NOT rely on consumePendingShare() for warm launches
-            wv.post(() -> wv.evaluateJavascript(
-                "(function(){var t=\\"" + sharePayload + "\\";pendingShareText=t;" +
-                "if(window.handleVoltwayIncomingShare){window.handleVoltwayIncomingShare(t)}" +
-                "else if(window.checkIncomingNativeShare){window.checkIncomingNativeShare()}})()",
-                null
-            ));
-        }
-    }
-}
-"""
+    # NOTE: This is a plain string written verbatim to MainActivity.java.
+    # Keep Java escape sequences minimal — no dynamic string embedding in evaluateJavascript.
+    main_activity_java = (
+        'package com.voltway.evroute;\n'
+        '\n'
+        'import android.content.Intent;\n'
+        'import android.os.Bundle;\n'
+        'import android.webkit.JavascriptInterface;\n'
+        'import android.webkit.WebView;\n'
+        'import com.getcapacitor.BridgeActivity;\n'
+        '\n'
+        'public class MainActivity extends BridgeActivity {\n'
+        '    private volatile String pendingShareText = null;\n'
+        '\n'
+        '    public class VoltWayShareBridge {\n'
+        '        @JavascriptInterface\n'
+        '        public String consumePendingShare() {\n'
+        '            String val = pendingShareText;\n'
+        '            pendingShareText = null;\n'
+        '            return val != null ? val : "";\n'
+        '        }\n'
+        '    }\n'
+        '\n'
+        '    @Override\n'
+        '    public void onCreate(Bundle savedInstanceState) {\n'
+        '        super.onCreate(savedInstanceState);\n'
+        '        // addJavascriptInterface right after super.onCreate() — WebView exists now.\n'
+        '        // JS loaded after this point can call window.VoltWayAndroidShare.consumePendingShare().\n'
+        '        WebView webView = getBridge() != null ? getBridge().getWebView() : null;\n'
+        '        if (webView != null) {\n'
+        '            webView.addJavascriptInterface(new VoltWayShareBridge(), "VoltWayAndroidShare");\n'
+        '        }\n'
+        '        captureShareIntent(getIntent(), false);\n'
+        '    }\n'
+        '\n'
+        '    @Override\n'
+        '    protected void onNewIntent(Intent intent) {\n'
+        '        super.onNewIntent(intent);\n'
+        '        setIntent(intent);\n'
+        '        captureShareIntent(intent, true);\n'
+        '    }\n'
+        '\n'
+        '    private void captureShareIntent(Intent intent, boolean notifyWeb) {\n'
+        '        if (intent == null) return;\n'
+        '        String action = intent.getAction();\n'
+        '        String extracted = null;\n'
+        '        if (Intent.ACTION_SEND.equals(action)) {\n'
+        '            String txt = intent.getStringExtra(Intent.EXTRA_TEXT);\n'
+        '            String subj = intent.getStringExtra(Intent.EXTRA_SUBJECT);\n'
+        '            if (txt != null && !txt.trim().isEmpty()) {\n'
+        '                if (subj != null && !subj.trim().isEmpty() && !txt.contains(subj.trim())) {\n'
+        '                    extracted = subj.trim() + "\\n" + txt.trim();\n'
+        '                } else {\n'
+        '                    extracted = txt.trim();\n'
+        '                }\n'
+        '            } else if (subj != null && !subj.trim().isEmpty()) {\n'
+        '                extracted = subj.trim();\n'
+        '            }\n'
+        '        } else if (Intent.ACTION_VIEW.equals(action) && intent.getData() != null) {\n'
+        '            if ("geo".equalsIgnoreCase(intent.getScheme())) {\n'
+        '                extracted = intent.getDataString();\n'
+        '            }\n'
+        '        }\n'
+        '        if (extracted == null || extracted.isEmpty()) return;\n'
+        '        pendingShareText = extracted;\n'
+        '        if (notifyWeb && getBridge() != null && getBridge().getWebView() != null) {\n'
+        '            final WebView wv = getBridge().getWebView();\n'
+        '            // Trigger JS poll — pendingShareText stored; consumePendingShare() will return it.\n'
+        '            wv.post(() -> wv.evaluateJavascript(\n'
+        '                "if(window.checkIncomingNativeShare)window.checkIncomingNativeShare();",\n'
+        '                null\n'
+        '            ));\n'
+        '        }\n'
+        '    }\n'
+        '}\n'
+    )
     with open(main_activity_path, 'w', encoding='utf-8') as f:
         f.write(main_activity_java)
     print('[VoltWay Build] Updated MainActivity.java with Android Share & geo: intent bridge cleanly!')
