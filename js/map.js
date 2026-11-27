@@ -102,6 +102,13 @@ const MapEngine = (function () {
       zoomControl: false,
       attributionControl: false,
       preferCanvas: true,
+      zoomAnimation: true,
+      zoomAnimationThreshold: 8,
+      markerZoomAnimation: true,
+      wheelDebounceTime: 40,
+      wheelPxPerZoomLevel: 75,
+      inertia: true,
+      inertiaDeceleration: 2400,
       rotate: true,
       touchRotate: true,
       rotateControl: false,
@@ -132,9 +139,11 @@ const MapEngine = (function () {
           disableClusteringAtZoom: 13,
           maxClusterRadius: function (z) {
             if (isCorridorClusterMode) return 28;
-            if (z >= 12) return 38;
-            if (z >= 10) return 48;
-            return 58;
+            if (z <= 5) return 96;
+            if (z <= 7) return 78;
+            if (z <= 9) return 60;
+            if (z <= 11) return 44;
+            return 32;
           },
           iconCreateFunction: createClusterBadgeIcon
         }).addTo(map)
@@ -142,8 +151,25 @@ const MapEngine = (function () {
     routeLayer = L.layerGroup().addTo(map);
     waypointsLayer = L.layerGroup().addTo(map);
 
+    let hadZoomAnimForMove = false;
+    map.on('zoomanim', () => { hadZoomAnimForMove = true; });
     map.on('moveend', onMapMoveEnd);
-    map.on('zoomend', onMapMoveEnd);
+    map.on('zoomend', () => {
+      const wasAnim = hadZoomAnimForMove;
+      hadZoomAnimForMove = false;
+      if (!wasAnim && markersLayer && typeof markersLayer._processQueue === 'function') {
+        try { markersLayer._processQueue(); } catch (e) {}
+        if (markersLayer._queueTimeout) {
+          clearTimeout(markersLayer._queueTimeout);
+          markersLayer._queueTimeout = null;
+        }
+        markersLayer._inZoomAnimation = 0;
+        if (map && map._mapPane) {
+          map._mapPane.className = map._mapPane.className.replace(/\bleaflet-cluster-anim\b/g, '').trim();
+        }
+      }
+      onMapMoveEnd();
+    });
 
     function handleUserManualInteraction() {
       isAutoFollow = false;
@@ -275,20 +301,19 @@ const MapEngine = (function () {
 
   function createClusterBadgeIcon(cluster) {
     const count = cluster.getChildCount();
-    let display = String(count);
+    const display = count >= 10000
+      ? `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`
+      : String(count);
+
     let sizePx = 34;
     let sizeCls = 'cluster-xs';
-
-    if (count > 200) {
-      display = '200+';
-      sizePx = 46;
+    if (count >= 1000) {
+      sizePx = 50;
       sizeCls = 'cluster-xl';
-    } else if (count > 100) {
-      display = '100+';
+    } else if (count >= 100) {
       sizePx = 44;
       sizeCls = 'cluster-lg';
     } else if (count >= 50) {
-      display = '50+';
       sizePx = 40;
       sizeCls = 'cluster-md';
     } else if (count >= 10) {
@@ -304,17 +329,17 @@ const MapEngine = (function () {
     });
   }
 
-  function getBrandLogoSvg(network, size = 18) {
+  function getBrandLogoSvg(network, size = 19) {
     if (network === 'ATHER_GRID') {
-      // Ather geometric chamfered delta chevron emblem
-      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.4 3.5h5.2L20.8 19h-4L12 7.4 7.2 19h-4L9.4 3.5z"/><path d="M12 12.2l3.1 6.8H8.9L12 12.2z"/></svg>`;
+      // Official Ather Energy logo 'A' glyph (media.atherenergy.com/Ather-logo-black.svg)
+      return `<svg width="${size}" height="${size}" viewBox="-4 -3 70 46" fill="currentColor" aria-hidden="true"><path d="M51.3996 40H61.6996C62.0996 40 62.3996 39.5 62.0996 39.2L36.6996 0.499989C36.5996 0.399989 36.3996 0.299988 36.2996 0.299988H26.3996C26.1996 0.299988 26.0996 0.399989 25.9996 0.499989L0.199555 39.2C-0.000445217 39.5 0.199554 40 0.599554 40H10.6996C10.8996 40 10.9996 39.9 11.0996 39.8L15.9996 32.3C16.0996 32.2 16.2996 32.1 16.3996 32.1H45.5996C45.7996 32.1 45.8996 32.2 45.9996 32.3L50.8996 39.8C51.0996 39.9 51.1996 40 51.3996 40ZM22.0996 23L30.6996 9.79999C30.8996 9.49999 31.3996 9.49999 31.5996 9.79999L40.0996 23C40.2996 23.3 40.0996 23.8 39.6996 23.8H22.4996C22.0996 23.8 21.8996 23.4 22.0996 23Z"/></svg>`;
     }
     if (network === 'VIDA_GRID') {
-      // Hero VIDA split twin-wing V-crest emblem
-      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.4 5.2h4.6l4.1 10.1 1.3 4.2H10L3.4 5.2z"/><path d="M13.1 13.2L16.3 5.2h4.3L14.5 19.5l-1.4-6.3z"/></svg>`;
+      // Official Hero VIDA wings emblem (vidaworld.com/.../vida-white-logo-img.svg)
+      return `<svg width="${size}" height="${size}" viewBox="95 -2 31 29" fill="currentColor" aria-hidden="true"><path d="M102.601 14.5565V12.9418C102.601 12.6793 102.741 12.4353 102.967 12.3028L109.458 8.53763C109.761 8.36264 109.948 8.0365 109.948 7.68385V0.493013C109.948 0.113849 109.539 -0.122133 109.215 0.0661225L98.1948 6.45887C97.8914 6.63386 97.7041 6.96 97.7041 7.30999V24.3352C97.7041 24.6083 97.9231 24.8284 98.1948 24.8284H102.07C102.413 24.8284 102.751 24.7382 103.049 24.5632L123.509 12.6899C123.813 12.5149 124 12.1887 124 11.8361V3.41761C124 3.03844 123.591 2.80246 123.267 2.99072L102.97 14.7686C102.807 14.8641 102.603 14.7448 102.603 14.5565"/></svg>`;
     }
-    // Bolt.Earth hexagonal electric-bolt emblem
-    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.2L20.2 7v10L12 21.8 3.8 17V7L12 2.2zm0 2.3L5.8 8.1v7.8L12 19.5l6.2-3.6V8.1L12 4.5z"/><path d="M13.1 6.4L8.2 12.8h3.4l-1.1 5 5.3-6.6h-3.4l.7-4.8z"/></svg>`;
+    // Official Bolt.Earth ring + bolt emblem (media.bolt.earth/images/logo.svg)
+    return `<svg width="${size}" height="${size}" viewBox="8 1 53 53" fill="currentColor" aria-hidden="true"><path d="M32.1234 12.9298L25.8125 29.9537H32.4352L26.9957 43.9875L44.2821 23.6421L36.7739 23.6561L44.8431 12.9023L32.1234 12.9298V12.9298Z"/><path d="M58.9805 27.1157C58.9805 13.4831 47.929 2.46606 34.3309 2.46606C20.7328 2.46606 9.69531 13.5041 9.69531 27.1157V27.2958C9.69531 40.8524 20.6983 51.8765 34.2548 51.8765C40.8776 51.8765 46.8914 49.2468 51.3061 44.9841C56.0326 40.4927 58.9805 34.1473 58.9805 27.1163V27.1157ZM19.6805 41.8766C15.7846 37.9806 13.6462 32.8114 13.6462 27.3029C13.6462 21.7944 15.7916 16.6251 19.6805 12.7292C23.5765 8.83323 28.7598 6.69487 34.2542 6.69487C39.7486 6.69487 44.932 8.84026 48.8279 12.7292C52.7238 16.6251 54.8622 21.7944 54.8622 27.3029C54.8622 32.8114 52.7168 37.9806 48.8279 41.8766C44.932 45.7725 39.7627 47.9109 34.2542 47.9109C28.7457 47.9109 23.5694 45.7655 19.6805 41.8766Z"/></svg>`;
   }
 
   const _iconCache = {};
@@ -500,8 +525,21 @@ const MapEngine = (function () {
     }
     lastDatasetKey = datasetKey;
 
-    if (typeof markersLayer.clearLayers === 'function') {
-      markersLayer.clearLayers();
+    if (markersLayer) {
+      if (typeof markersLayer._processQueue === 'function' && Array.isArray(markersLayer._queue) && markersLayer._queue.length > 0) {
+        try { markersLayer._processQueue(); } catch (e) {}
+      }
+      if (markersLayer._queueTimeout) {
+        clearTimeout(markersLayer._queueTimeout);
+        markersLayer._queueTimeout = null;
+      }
+      markersLayer._inZoomAnimation = 0;
+      if (map && map._mapPane) {
+        map._mapPane.className = map._mapPane.className.replace(/\bleaflet-cluster-anim\b/g, '').trim();
+      }
+      if (typeof markersLayer.clearLayers === 'function') {
+        markersLayer.clearLayers();
+      }
     }
     markerMap.clear();
 
@@ -799,6 +837,9 @@ const MapEngine = (function () {
       localStorage.setItem('voltway_state_filter', activeStateFilter);
     } catch (e) {}
 
+    // Update dataset synchronously before starting animated flyTo so cluster animations never collide with layer rebuild
+    _executeFastRender();
+
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     if (!activeRoute && map) {
       if (activeStateFilter === 'kerala') map.flyTo([10.0246, 76.3079], 10, { animate: true, duration: 0.45 });
@@ -806,7 +847,6 @@ const MapEngine = (function () {
       else if (activeStateFilter === 'tamil_nadu') map.flyTo([11.0168, 76.9558], 10, { animate: true, duration: 0.45 });
       else if (activeStateFilter === 'all') map.flyTo([11.5, 77.0], 8, { animate: true, duration: 0.45 });
     }
-    renderChargers();
   }
 
   function createRouteBadgeMarker(route, idx, isSelected, primaryDuration) {

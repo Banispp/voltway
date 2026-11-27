@@ -872,8 +872,8 @@ body.nav-active .btn-nav-compass {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .pin-label {
@@ -949,7 +949,7 @@ body.nav-active .btn-nav-compass {
   background: #ffffff;
   color: #059669;
   font-weight: 800;
-  font-size: 0.86rem;
+  font-size: 0.85rem;
   letter-spacing: -0.02em;
   display: flex;
   align-items: center;
@@ -958,18 +958,21 @@ body.nav-active .btn-nav-compass {
   border: 1.5px solid rgba(255, 255, 255, 0.96);
   cursor: pointer;
   user-select: none;
-  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease;
-  animation: voltwayClusterPop 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
 }
 
 .voltway-cluster-pill.cluster-md {
-  font-size: 0.83rem;
+  font-size: 0.82rem;
 }
 
-.voltway-cluster-pill.cluster-lg,
-.voltway-cluster-pill.cluster-xl {
-  font-size: 0.80rem;
+.voltway-cluster-pill.cluster-lg {
+  font-size: 0.78rem;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.38), 0 0 0 2px rgba(16, 185, 129, 0.38);
+}
+
+.voltway-cluster-pill.cluster-xl {
+  font-size: 0.74rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.42), 0 0 0 2px rgba(16, 185, 129, 0.45);
 }
 
 .voltway-cluster-pill:hover,
@@ -978,14 +981,16 @@ body.nav-active .btn-nav-compass {
   box-shadow: 0 5px 16px rgba(0, 230, 118, 0.35), 0 0 0 2px rgba(16, 185, 129, 0.55);
 }
 
-.leaflet-cluster-anim .leaflet-marker-icon,
-.leaflet-cluster-anim .leaflet-marker-shadow {
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease !important;
+.leaflet-zoom-anim .leaflet-zoom-animated {
+  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  will-change: transform;
 }
 
-@keyframes voltwayClusterPop {
-  0% { transform: scale(0.72); opacity: 0.45; }
-  100% { transform: scale(1); opacity: 1; }
+.leaflet-cluster-anim .leaflet-marker-icon,
+.leaflet-cluster-anim .leaflet-marker-shadow {
+  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease-out !important;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 
 /* Highlighted Route Stops */
