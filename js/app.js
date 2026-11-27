@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.53 — Tap here or v5.53 to reload!', refreshAppInPlace);
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.54 — Tap here or v5.54 to reload!', refreshAppInPlace);
               }
             };
           };

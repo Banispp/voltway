@@ -400,7 +400,7 @@ const Utilities = (function () {
           readTimeout: timeoutMs,
           headers: {
             'Accept': 'application/json',
-            'User-Agent': 'VoltWay2W/5.53 (https://banispp.github.io/voltway/)'
+            'User-Agent': 'VoltWay2W/5.54 (https://banispp.github.io/voltway/)'
           }
         });
         if (resp && resp.status >= 200 && resp.status < 300) {

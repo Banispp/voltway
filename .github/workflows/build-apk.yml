@@ -78,8 +78,8 @@ jobs:
         if: github.ref == 'refs/heads/master'
         with:
           tag_name: v5.51-release
-          name: "VoltWay 2W Android APK v5.51 (Verified 9,418 2W DB, Search Pin, Direct Share & DoH Resolver)"
-          body: "VoltWay 2W v5.51: 9,418 verified 2W stations across India, native Google Maps Share Intent receiver with Jio-DNS-bypass DoH resolver, Search map pin with Set as Destination, Enter key fast location resolution, uncluttered charger popup, and battery range optimizer."
+          name: "VoltWay 2W Android APK v5.54 (Plus Code, Jio DoH/WebView Share & Android Geocoder)"
+          body: "VoltWay 2W v5.54: Google Maps Share/Paste Plus Code recovery, Jio DoH + Chromium WebView fallback, Android OS Geocoder + Nominatim UA fix, instant in-app reload, and pre-route tap-to-navigate lock."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:

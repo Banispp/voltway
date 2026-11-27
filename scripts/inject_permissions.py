@@ -283,10 +283,10 @@ public class VoltWayNativePlugin extends Plugin {
     @PluginMethod
     public void getAppInfo(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("pluginBuild", "v5.55-geo");
+        ret.put("pluginBuild", "v5.54-geo");
         try {
             PackageInfo pInfo = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
-            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.53");
+            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.54");
             ret.put("lastUpdateTime", pInfo.lastUpdateTime);
             if (Build.VERSION.SDK_INT >= 28) {
                 ret.put("versionCode", pInfo.getLongVersionCode());
@@ -357,7 +357,7 @@ public class VoltWayNativePlugin extends Plugin {
                         c = (HttpURLConnection) new URL(uStr).openConnection();
                         c.setConnectTimeout(5500);
                         c.setReadTimeout(5500);
-                        c.setRequestProperty("User-Agent", "VoltWay2W-Android/5.53");
+                        c.setRequestProperty("User-Agent", "VoltWay2W-Android/5.54");
                         c.setRequestProperty("Accept", "application/json");
                         if (c.getResponseCode() == 200) {
                             String body = readStreamLimited(c.getInputStream(), 128 * 1024);
@@ -415,7 +415,7 @@ public class VoltWayNativePlugin extends Plugin {
                     conn.setInstanceFollowRedirects(false);
                     conn.setConnectTimeout(15000);
                     conn.setReadTimeout(45000);
-                    conn.setRequestProperty("User-Agent", "VoltWay-Android/5.52");
+                    conn.setRequestProperty("User-Agent", "VoltWay-Android/5.54");
                     int code = conn.getResponseCode();
                     if (code >= 300 && code < 400) {
                         String loc = conn.getHeaderField("Location");

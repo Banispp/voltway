@@ -2182,7 +2182,7 @@ const MapEngine = (function () {
         const ctrl = new AbortController();
         const tid = setTimeout(() => ctrl.abort(), 2500);
         const resp = await fetch(revUrl, {
-          headers: { 'Accept': 'application/json', 'User-Agent': 'VoltWay2W/5.51' },
+          headers: { 'Accept': 'application/json', 'User-Agent': 'VoltWay2W/5.54' },
           signal: ctrl.signal
         });
         clearTimeout(tid);
