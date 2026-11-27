@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.51. Tap v5.51 pill anytime to reload.');
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.52. Tap v5.52 pill anytime to update.');
               }
             };
           };
@@ -34,24 +34,122 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const LATEST_APK_FALLBACK = 'https://github.com/Banispp/voltway/releases/download/v5.51-release/app-debug.apk';
+
+  async function clearAppWebCaches() {
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch (e) {}
+  }
+
+  async function fetchLatestApkReleaseInfo() {
+    try {
+      const resp = await fetch('https://api.github.com/repos/Banispp/voltway/releases/latest', { cache: 'no-store' });
+      if (resp.ok) {
+        const rel = await resp.json();
+        const apkAsset = (rel.assets || []).find(a => a && a.name && a.name.endsWith('.apk'));
+        return {
+          url: (apkAsset && apkAsset.browser_download_url) || LATEST_APK_FALLBACK,
+          updatedAtMs: apkAsset && apkAsset.updated_at ? Date.parse(apkAsset.updated_at) : 0,
+          tag: rel.tag_name || 'v5.52'
+        };
+      }
+    } catch (e) {}
+    return { url: LATEST_APK_FALLBACK, updatedAtMs: 0, tag: 'v5.52' };
+  }
+
+  async function triggerApkAutoUpdate(downloadUrl) {
+    const url = downloadUrl || LATEST_APK_FALLBACK;
+    const native = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
+    if (native && typeof native.downloadAndInstallApk === 'function') {
+      if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('📥 Downloading VoltWay APK update in app...');
+      try {
+        const res = await native.downloadAndInstallApk({ url });
+        if (res && res.success) {
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('📦 Opening Android installer — tap Update/Install!');
+          return true;
+        }
+      } catch (e) {}
+    }
+    if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('📥 Opening APK download...');
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppLauncher && typeof window.Capacitor.Plugins.AppLauncher.openUrl === 'function') {
+      await window.Capacitor.Plugins.AppLauncher.openUrl({ url }).catch(() => window.open(url, '_system'));
+    } else {
+      window.open(url, '_system');
+    }
+    return true;
+  }
+
   const btnForceRefresh = document.getElementById('btn-force-refresh');
   if (btnForceRefresh) {
     btnForceRefresh.addEventListener('click', async () => {
-      try {
-        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔄 Updating app to latest version (keeping your EV settings)...');
-        if ('caches' in window) {
-          const keys = await caches.keys();
-          await Promise.all(keys.map(k => caches.delete(k)));
+      const isNative = Boolean(
+        window.Capacitor &&
+        ((typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) ||
+          (window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative))
+      );
+
+      if (isNative) {
+        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔍 Checking for VoltWay app + web updates...');
+        await clearAppWebCaches();
+        const native = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
+        const rel = await fetchLatestApkReleaseInfo();
+        let shouldInstallApk = true;
+        if (native && typeof native.downloadAndInstallApk === 'function' && typeof native.getAppInfo === 'function' && rel.updatedAtMs > 0) {
+          try {
+            const info = await native.getAppInfo();
+            if (info && info.lastUpdateTime > 0 && rel.updatedAtMs <= info.lastUpdateTime + 120000) {
+              shouldInstallApk = false;
+            }
+          } catch (e) {}
         }
-        if ('serviceWorker' in navigator) {
-          const regs = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(regs.map(r => r.unregister()));
+        if (shouldInstallApk) {
+          await triggerApkAutoUpdate(rel.url);
+          return;
         }
-      } catch (e) {}
+        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('✅ APK is latest! Reloading web UI...');
+        setTimeout(() => { window.location.reload(true); }, 350);
+        return;
+      }
+
+      if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔄 Updating app to latest version (keeping your EV settings)...');
+      await clearAppWebCaches();
       setTimeout(() => {
         window.location.reload(true);
       }, 400);
     });
+
+    // Silently check on Android launch if a newer APK build exists on GitHub Releases
+    if (navigator.onLine && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative) {
+      setTimeout(async () => {
+        try {
+          const native = window.Capacitor.Plugins.VoltWayNative;
+          const rel = await fetchLatestApkReleaseInfo();
+          let updateAvailable = false;
+          if (typeof native.getAppInfo === 'function' && rel.updatedAtMs > 0) {
+            const info = await native.getAppInfo();
+            if (info && info.lastUpdateTime > 0 && rel.updatedAtMs > info.lastUpdateTime + 120000) {
+              updateAvailable = true;
+            }
+          } else if (typeof native.downloadAndInstallApk !== 'function') {
+            updateAvailable = true;
+          }
+          if (updateAvailable) {
+            btnForceRefresh.textContent = 'v5.52 ↑';
+            if (window.SyncEngine) {
+              window.SyncEngine.showAutoUpdateToast('🆕 New VoltWay APK ready! Tap "v5.52 ↑" at top right to auto-update.');
+            }
+          }
+        } catch (e) {}
+      }, 2800);
+    }
   }
 
   // ---------- 2. Offline / Online Awareness ----------
@@ -604,7 +702,9 @@ document.addEventListener('DOMContentLoaded', () => {
         div.addEventListener('click', (e) => {
           e.stopPropagation();
           if (item.actionUrl) {
-            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppLauncher) {
+            if (item.actionUrl.endsWith('.apk') && typeof triggerApkAutoUpdate === 'function') {
+              triggerApkAutoUpdate(item.actionUrl);
+            } else if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppLauncher) {
               window.Capacitor.Plugins.AppLauncher.openUrl({ url: item.actionUrl }).catch(() => window.open(item.actionUrl, '_system'));
             } else {
               window.open(item.actionUrl, '_system');

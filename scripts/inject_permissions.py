@@ -13,12 +13,53 @@ if os.path.exists(manifest_path):
         '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
         '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
         '<uses-permission android:name="android.permission.WAKE_LOCK" />',
+        '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
         '<uses-feature android:name="android.hardware.location.gps" android:required="false" />',
     ]
 
     missing_perms = [p for p in required_perms if p.split('"')[1] not in content]
     if missing_perms:
         content = content.replace('<application', '    ' + '\n    '.join(missing_perms) + '\n\n    <application')
+
+    if 'androidx.core.content.FileProvider' not in content:
+        provider_block = (
+            '        <provider\n'
+            '            android:name="androidx.core.content.FileProvider"\n'
+            '            android:authorities="${applicationId}.fileprovider"\n'
+            '            android:exported="false"\n'
+            '            android:grantUriPermissions="true">\n'
+            '            <meta-data\n'
+            '                android:name="android.support.FILE_PROVIDER_PATHS"\n'
+            '                android:resource="@xml/file_paths" />\n'
+            '        </provider>\n    </application>'
+        )
+        content = content.replace('</application>', provider_block)
+
+    res_xml_dir = os.path.join('android', 'app', 'src', 'main', 'res', 'xml')
+    os.makedirs(res_xml_dir, exist_ok=True)
+    file_paths_xml = os.path.join(res_xml_dir, 'file_paths.xml')
+    if os.path.exists(file_paths_xml):
+        with open(file_paths_xml, 'r', encoding='utf-8') as f:
+            fp_content = f.read()
+        add_paths = ''
+        if 'voltway_apk_cache' not in fp_content:
+            add_paths += '    <cache-path name="voltway_apk_cache" path="." />\n'
+        if 'voltway_apk_files' not in fp_content:
+            add_paths += '    <files-path name="voltway_apk_files" path="." />\n'
+        if add_paths and '</paths>' in fp_content:
+            fp_content = fp_content.replace('</paths>', add_paths + '</paths>')
+            with open(file_paths_xml, 'w', encoding='utf-8') as f:
+                f.write(fp_content)
+    else:
+        with open(file_paths_xml, 'w', encoding='utf-8') as f:
+            f.write(
+                '<?xml version="1.0" encoding="utf-8"?>\n'
+                '<paths xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                '    <external-path name="my_images" path="." />\n'
+                '    <cache-path name="voltway_apk_cache" path="." />\n'
+                '    <files-path name="voltway_apk_files" path="." />\n'
+                '</paths>\n'
+            )
 
     if '<queries' not in content:
         queries_block = (
@@ -90,13 +131,18 @@ public class MainActivity extends BridgeActivity {
 
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.net.Uri;
 import android.os.Build;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -224,6 +270,113 @@ public class VoltWayNativePlugin extends Plugin {
         pendingShareText = null;
         ret.put("text", val != null ? val : "");
         call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getAppInfo(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("pluginBuild", "v5.53-doh");
+        try {
+            PackageInfo pInfo = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.52");
+            ret.put("lastUpdateTime", pInfo.lastUpdateTime);
+            if (Build.VERSION.SDK_INT >= 28) {
+                ret.put("versionCode", pInfo.getLongVersionCode());
+            } else {
+                ret.put("versionCode", (long) pInfo.versionCode);
+            }
+        } catch (Exception e) {
+            ret.put("lastUpdateTime", 0L);
+        }
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void downloadAndInstallApk(PluginCall call) {
+        final String apkUrl = call.getString("url", "https://github.com/Banispp/voltway/releases/download/v5.51-release/app-debug.apk");
+        executor.execute(() -> {
+            JSObject ret = new JSObject();
+            HttpURLConnection conn = null;
+            InputStream is = null;
+            FileOutputStream fos = null;
+            try {
+                String currentUrl = apkUrl;
+                for (int hop = 0; hop < 6; hop++) {
+                    URL u = new URL(currentUrl);
+                    if (!"https".equalsIgnoreCase(u.getProtocol()) && !"http".equalsIgnoreCase(u.getProtocol())) {
+                        throw new IOException("Invalid APK URL scheme");
+                    }
+                    conn = (HttpURLConnection) u.openConnection();
+                    conn.setInstanceFollowRedirects(false);
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(45000);
+                    conn.setRequestProperty("User-Agent", "VoltWay-Android/5.52");
+                    int code = conn.getResponseCode();
+                    if (code >= 300 && code < 400) {
+                        String loc = conn.getHeaderField("Location");
+                        conn.disconnect();
+                        conn = null;
+                        if (loc == null || loc.isEmpty()) throw new IOException("Empty redirect location");
+                        if (loc.startsWith("/")) {
+                            loc = u.getProtocol() + "://" + u.getAuthority() + loc;
+                        }
+                        currentUrl = loc;
+                        continue;
+                    }
+                    if (code < 200 || code >= 300) {
+                        throw new IOException("Download HTTP " + code);
+                    }
+                    break;
+                }
+                if (conn == null) throw new IOException("Too many redirects");
+
+                File updateDir = new File(getContext().getCacheDir(), "voltway_apk");
+                if (!updateDir.exists()) updateDir.mkdirs();
+                File apkFile = new File(updateDir, "voltway-update.apk");
+                if (apkFile.exists()) apkFile.delete();
+
+                is = conn.getInputStream();
+                fos = new FileOutputStream(apkFile);
+                byte[] buf = new byte[16384];
+                int n;
+                long total = 0;
+                while ((n = is.read(buf)) != -1) {
+                    fos.write(buf, 0, n);
+                    total += n;
+                }
+                fos.flush();
+                fos.close();
+                fos = null;
+                is.close();
+                is = null;
+
+                if (total < 500000L) {
+                    throw new IOException("Downloaded APK too small (" + total + " bytes)");
+                }
+
+                Uri apkUri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apkFile);
+                Intent installIntent = new Intent(Intent.ACTION_VIEW);
+                installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                if (getActivity() != null) {
+                    getActivity().runOnUiThread(() -> getActivity().startActivity(installIntent));
+                } else {
+                    getContext().startActivity(installIntent);
+                }
+                ret.put("success", true);
+                ret.put("bytes", total);
+                call.resolve(ret);
+            } catch (Exception e) {
+                ret.put("success", false);
+                ret.put("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                call.resolve(ret);
+            } finally {
+                try { if (fos != null) fos.close(); } catch (Exception ignored) {}
+                try { if (is != null) is.close(); } catch (Exception ignored) {}
+                if (conn != null) conn.disconnect();
+            }
+        });
     }
 
     @PluginMethod
