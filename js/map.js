@@ -304,27 +304,34 @@ const MapEngine = (function () {
     });
   }
 
+  function getBrandLogoSvg(network, size = 18) {
+    if (network === 'ATHER_GRID') {
+      // Ather geometric chamfered delta chevron emblem
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9.4 3.5h5.2L20.8 19h-4L12 7.4 7.2 19h-4L9.4 3.5z"/><path d="M12 12.2l3.1 6.8H8.9L12 12.2z"/></svg>`;
+    }
+    if (network === 'VIDA_GRID') {
+      // Hero VIDA split twin-wing V-crest emblem
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.4 5.2h4.6l4.1 10.1 1.3 4.2H10L3.4 5.2z"/><path d="M13.1 13.2L16.3 5.2h4.3L14.5 19.5l-1.4-6.3z"/></svg>`;
+    }
+    // Bolt.Earth hexagonal electric-bolt emblem
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.2L20.2 7v10L12 21.8 3.8 17V7L12 2.2zm0 2.3L5.8 8.1v7.8L12 19.5l6.2-3.6V8.1L12 4.5z"/><path d="M13.1 6.4L8.2 12.8h3.4l-1.1 5 5.3-6.6h-3.4l.7-4.8z"/></svg>`;
+  }
+
   const _iconCache = {};
   function createPinIcon(charger) {
     const key = `${charger.network}_${charger.type}`;
     if (_iconCache[key]) return _iconCache[key];
 
     let pinClass = 'pin-ather';
-    let iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-2 8 11-13h-8l3-7z"/></svg>';
-    let label = 'Ather Fast';
+    const iconSvg = getBrandLogoSvg(charger.network, 17);
+    let label = 'Ather Grid';
 
     if (charger.network === 'VIDA_GRID') {
       pinClass = 'pin-vida-fast';
-      label = 'Vida Fast';
+      label = 'Vida Grid';
     } else if (charger.network === 'BOLT_EARTH') {
-      if (charger.type === 'FAST') {
-        pinClass = 'pin-bolt-fast';
-        label = 'Bolt Fast';
-      } else {
-        pinClass = 'pin-bolt-slow';
-        iconSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 7V3h-2v4h-4V3H8v4a6 6 0 0 0 5 5.91V19h-2v2h6v-2h-2v-6.09A6 6 0 0 0 16 7z"/></svg>';
-        label = '15A Socket';
-      }
+      label = 'Bolt.Earth';
+      pinClass = charger.type === 'FAST' ? 'pin-bolt-fast' : 'pin-bolt-slow';
     }
 
     const html = `
@@ -339,8 +346,8 @@ const MapEngine = (function () {
     const icon = L.divIcon({
       className: 'custom-pin-container',
       html,
-      iconSize: [52, 48],
-      iconAnchor: [26, 38],
+      iconSize: [64, 50],
+      iconAnchor: [32, 39],
       popupAnchor: [0, -36]
     });
     _iconCache[key] = icon;
@@ -348,24 +355,22 @@ const MapEngine = (function () {
   }
 
   function createHighlightedStopPinIcon(wp, idx, customBadgeText = null) {
-    const isFast = wp.type === 'FAST' || wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID';
     let brandColor = '#00E676';
     let brandGlow = 'rgba(0, 230, 118, 0.55)';
-    let networkTag = 'Ather Fast';
+    let networkTag = 'Ather Grid';
 
     if (wp.network === 'VIDA_GRID') {
       brandColor = '#FF5722';
       brandGlow = 'rgba(255, 87, 34, 0.55)';
-      networkTag = 'Vida Fast';
+      networkTag = 'Vida Grid';
     } else if (wp.network === 'BOLT_EARTH') {
+      networkTag = 'Bolt.Earth';
       if (wp.type === 'FAST') {
         brandColor = '#FF9100';
         brandGlow = 'rgba(255, 145, 0, 0.55)';
-        networkTag = 'Bolt Fast';
       } else {
         brandColor = '#00B0FF';
         brandGlow = 'rgba(0, 176, 255, 0.55)';
-        networkTag = 'Bolt 15A';
       }
     }
 
@@ -373,11 +378,14 @@ const MapEngine = (function () {
     if (cleanName.length > 18) cleanName = cleanName.substring(0, 16) + '…';
 
     const badgeLabel = customBadgeText || `STOP ${idx + 1}`;
+    const brandIconHtml = (wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID' || wp.network === 'BOLT_EARTH')
+      ? getBrandLogoSvg(wp.network, 15)
+      : '📍';
     const html = `
       <div class="highlight-stop-container" style="--brand-color: ${brandColor}; --brand-glow: ${brandGlow};">
         <div class="beacon-pulse-ring"></div>
         <div class="highlight-stop-pin">
-          <div class="stop-badge-icon">${isFast ? '⚡' : '🔌'}</div>
+          <div class="stop-badge-icon">${brandIconHtml}</div>
           <span class="stop-badge-text">${esc(badgeLabel)}</span>
         </div>
         <div class="highlight-stop-label">
@@ -563,16 +571,16 @@ const MapEngine = (function () {
     const isFast = charger.type === 'FAST';
 
     let networkBadgeClass = 'badge-bolt-slow';
-    let networkName = 'Bolt 15A';
+    let networkName = 'Bolt.Earth';
     if (isAther) {
       networkBadgeClass = 'badge-ather';
       networkName = 'Ather Grid';
     } else if (isVida) {
       networkBadgeClass = 'badge-vida-fast';
-      networkName = 'VIDA Grid';
+      networkName = 'Vida Grid';
     } else if (isFast) {
       networkBadgeClass = 'badge-bolt-fast';
-      networkName = 'Bolt Fast';
+      networkName = 'Bolt.Earth';
     }
 
     const batteryState = window.BatteryEngine ? window.BatteryEngine.getState() : { efficiency: 0.85, currentBatteryPct: 85, targetChargePct: 80 };

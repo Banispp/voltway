@@ -857,8 +857,8 @@ body.nav-active .btn-nav-compass {
 }
 
 .pin-badge {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -872,8 +872,8 @@ body.nav-active .btn-nav-compass {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .pin-label {
