@@ -1128,9 +1128,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.RouteEngine) window.RouteEngine.clearRoute();
     destCoords = null;
     if (destInput) destInput.value = '';
+    if (searchInput) searchInput.value = '';
+    if (searchDropdown) {
+      searchDropdown.innerHTML = '';
+      searchDropdown.classList.remove('visible');
+    }
     if (intermediateStopsList) intermediateStopsList.innerHTML = '';
     if (window.MapEngine) {
       if (typeof window.MapEngine.clearSearchPin === 'function') window.MapEngine.clearSearchPin();
+      if (typeof window.MapEngine.clearDroppedPin === 'function') window.MapEngine.clearDroppedPin();
       window.MapEngine.renderChargers();
     }
   }
@@ -1585,6 +1591,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (originInput) originInput.value = originCoords.name;
     }
   };
+
+  window.getPlannerOrigin = () => originCoords;
 
   let prevRenderedRouteId = null;
   if (window.RouteEngine) {
@@ -2509,9 +2517,22 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.MapEngine && window.MapEngine.getMap()) {
         const m = window.MapEngine.getMap();
         m.flyTo([destCoords.lat, destCoords.lng], 15, { animate: true, duration: 0.6 });
+        if (typeof window.MapEngine.showSearchPin === 'function') {
+          window.MapEngine.showSearchPin(resolved);
+        }
       }
       if (window.SyncEngine) {
-        window.SyncEngine.showAutoUpdateToast(`🏁 Destination set: ${destCoords.name} (Tap Plan 2W Route)`);
+        window.SyncEngine.showAutoUpdateToast(`⚡ Routing to: ${destCoords.name}...`);
+      }
+
+      // Auto-calculate route immediately from GPS origin
+      if (!originCoords && originInput && !originInput.value) {
+        originInput.value = 'Current Location (GPS)';
+      }
+      if (btnPlanRoute) {
+        setTimeout(() => {
+          btnPlanRoute.click();
+        }, 300);
       }
       return true;
     }

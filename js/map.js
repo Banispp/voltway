@@ -21,6 +21,7 @@ const MapEngine = (function () {
   let traversedMainLine = null;
   let recenterTimer = null;
   let searchPinMarker = null;
+  let droppedPinMarker = null;
 
   // Live GPS & Orientation state
   let watchId = null;
@@ -334,9 +335,21 @@ const MapEngine = (function () {
       setTimeout(() => { isUserRotating = false; }, 350);
     });
 
-    map.on('click', () => {
+    map.on('click', (e) => {
       if (window.innerWidth <= 768 && typeof window.collapseBottomSheet === 'function') {
         window.collapseBottomSheet();
+      }
+      if (isUserRotating || isUserInteracting) return;
+      if (activePopupChargerId) {
+        activePopupChargerId = null;
+        return;
+      }
+      const target = e.originalEvent ? e.originalEvent.target : null;
+      if (target && (target.closest('.leaflet-marker-icon') || target.closest('.leaflet-popup') || target.closest('.btn-header-action') || target.closest('.map-control-btn') || target.closest('.brand-header'))) {
+        return;
+      }
+      if (e && e.latlng && typeof e.latlng.lat === 'number' && typeof e.latlng.lng === 'number') {
+        showDroppedPinAtCoords(e.latlng.lat, e.latlng.lng);
       }
     });
 
@@ -1968,19 +1981,52 @@ const MapEngine = (function () {
     searchPinMarker = null;
   }
 
+  function clearDroppedPin() {
+    if (droppedPinMarker && map) {
+      try { map.removeLayer(droppedPinMarker); } catch (e) {}
+    }
+    droppedPinMarker = null;
+  }
+
+  function handleRouteDirectToCoords(lat, lng, name) {
+    if (map) map.closePopup();
+    clearDroppedPin();
+    clearSearchPin();
+
+    const destName = name || `Pin (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+    if (typeof window.setPlannerDest === 'function') {
+      window.setPlannerDest({ lat, lng, name: destName });
+    }
+
+    const curOrigin = (typeof window.getPlannerOrigin === 'function') ? window.getPlannerOrigin() : null;
+    if (!curOrigin || !curOrigin.lat) {
+      if (userCoords && window.setPlannerOrigin) {
+        window.setPlannerOrigin({ lat: userCoords.lat, lng: userCoords.lng, name: 'Current Location (GPS)' });
+      } else if (map && window.setPlannerOrigin) {
+        const center = map.getCenter();
+        window.setPlannerOrigin({ lat: center.lat, lng: center.lng, name: 'Map Center' });
+      }
+    }
+
+    if (window.activateTabSilently) window.activateTabSilently('route');
+    const btnPlan = document.getElementById('btn-plan-route');
+    if (btnPlan) setTimeout(() => btnPlan.click(), 250);
+  }
+
   function showSearchPin(item) {
     if (!map || !item || typeof item.lat !== 'number' || typeof item.lng !== 'number') return;
     clearSearchPin();
+    clearDroppedPin();
 
     const pinIcon = L.divIcon({
       className: 'voltway-search-pin-icon',
-      html: '<div style="background: #ef4444; width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(239,68,68,0.5); border: 2px solid #fff;"><span style="transform: rotate(45deg); font-size: 14px;">📍</span></div>',
-      iconSize: [28, 28],
-      iconAnchor: [14, 28],
-      popupAnchor: [0, -28]
+      html: '<div style="background: #ef4444; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(239,68,68,0.55); border: 2.5px solid #fff;"><span style="transform: rotate(45deg); font-size: 15px;">📍</span></div>',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+      popupAnchor: [0, -30]
     });
 
-    searchPinMarker = L.marker([item.lat, item.lng], { icon: pinIcon, zIndexOffset: 1000 }).addTo(map);
+    searchPinMarker = L.marker([item.lat, item.lng], { icon: pinIcon, zIndexOffset: 1200 }).addTo(map);
 
     searchPinMarker.bindPopup(() => {
       const card = document.createElement('div');
@@ -1989,19 +2035,28 @@ const MapEngine = (function () {
       const safeFull = esc(item.fullName || `${item.lat.toFixed(5)}, ${item.lng.toFixed(5)}`);
       card.innerHTML = `
         <div class="popup-header">
-          <span class="popup-badge" style="background: #38bdf8; color: #000; font-weight: 800; padding: 2px 6px; font-size: 0.62rem;">📍 SEARCHED PIN</span>
+          <span class="popup-badge" style="background: #38bdf8; color: #000; font-weight: 800; padding: 2px 6px; font-size: 0.62rem;">📍 SEARCHED LOCATION</span>
         </div>
         <div class="popup-title">${safeName}</div>
         <div class="popup-address">${safeFull}</div>
-        <div class="popup-actions" style="margin-top: 8px;">
-          <button type="button" class="btn-popup-nav btn-direct-inapp-route js-search-pin-dest" style="min-height: 38px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; width: 100%;">
+        <div class="popup-actions" style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+          <button type="button" class="btn-popup-nav btn-direct-inapp-route js-search-pin-route" style="min-height: 38px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; width: 100%;">
+            ⚡ Route Here
+          </button>
+          <button type="button" class="btn-sm btn-nav js-search-pin-dest" style="min-height: 34px;">
             🏁 Set as Destination
           </button>
         </div>
       `;
-      const btn = card.querySelector('.js-search-pin-dest');
-      if (btn) {
-        btn.addEventListener('click', () => {
+      const btnRoute = card.querySelector('.js-search-pin-route');
+      if (btnRoute) {
+        btnRoute.addEventListener('click', () => {
+          handleRouteDirectToCoords(item.lat, item.lng, item.name || 'Location');
+        });
+      }
+      const btnDest = card.querySelector('.js-search-pin-dest');
+      if (btnDest) {
+        btnDest.addEventListener('click', () => {
           if (typeof window.setPlannerDest === 'function') {
             window.setPlannerDest({ lat: item.lat, lng: item.lng, name: item.name || 'Location' });
           }
@@ -2009,13 +2064,116 @@ const MapEngine = (function () {
         });
       }
       return card;
-    }, { maxWidth: 270, className: 'charger-popup' });
+    }, { maxWidth: 280, className: 'charger-popup' });
 
     setTimeout(() => {
       if (searchPinMarker && map && map.hasLayer(searchPinMarker)) {
         searchPinMarker.openPopup();
       }
-    }, 320);
+    }, 280);
+  }
+
+  async function showDroppedPinAtCoords(lat, lng) {
+    if (!map) return;
+    clearDroppedPin();
+    clearSearchPin();
+
+    const pinIcon = L.divIcon({
+      className: 'voltway-dropped-pin-icon',
+      html: '<div style="background: #ef4444; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(239,68,68,0.55); border: 2.5px solid #fff;"><span style="transform: rotate(45deg); font-size: 15px;">📍</span></div>',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+      popupAnchor: [0, -30]
+    });
+
+    droppedPinMarker = L.marker([lat, lng], { icon: pinIcon, zIndexOffset: 1200 }).addTo(map);
+
+    let pinName = `Pin (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+    let pinAddress = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+    const createPopupCard = () => {
+      const card = document.createElement('div');
+      card.className = 'popup-card';
+      card.innerHTML = `
+        <div class="popup-header">
+          <span class="popup-badge" style="background: #ef4444; color: #fff; font-weight: 800; padding: 2px 6px; font-size: 0.62rem;">📍 DROPPED PIN</span>
+        </div>
+        <div class="popup-title js-dropped-title">${esc(pinName)}</div>
+        <div class="popup-address js-dropped-addr">${esc(pinAddress)}</div>
+        <div class="popup-actions" style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+          <button type="button" class="btn-popup-nav btn-direct-inapp-route js-route-to-dropped" style="min-height: 38px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff; width: 100%;">
+            ⚡ Route Here
+          </button>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" class="btn-sm btn-nav js-set-dest-dropped" style="flex: 1; min-height: 34px;">
+              🏁 Set as Dest
+            </button>
+            <button type="button" class="btn-sm btn-add-stop js-add-stop-dropped" style="flex: 1; min-height: 34px;">
+              ➕ Add Stop
+            </button>
+          </div>
+        </div>
+      `;
+
+      card.querySelector('.js-route-to-dropped').addEventListener('click', () => {
+        handleRouteDirectToCoords(lat, lng, pinName);
+      });
+      card.querySelector('.js-set-dest-dropped').addEventListener('click', () => {
+        if (typeof window.setPlannerDest === 'function') {
+          window.setPlannerDest({ lat, lng, name: pinName });
+        }
+        if (map) map.closePopup();
+      });
+      card.querySelector('.js-add-stop-dropped').addEventListener('click', () => {
+        if (window.RouteEngine && typeof window.RouteEngine.addWaypoint === 'function') {
+          const sid = `pin_${Date.now()}`;
+          window.RouteEngine.addWaypoint({ id: sid, originalId: sid, lat, lng, name: pinName });
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast(`📍 Added Stop: ${pinName}`);
+        }
+        if (map) map.closePopup();
+      });
+
+      return card;
+    };
+
+    droppedPinMarker.bindPopup(createPopupCard, { maxWidth: 280, className: 'charger-popup' });
+    setTimeout(() => {
+      if (droppedPinMarker && map && map.hasLayer(droppedPinMarker)) {
+        droppedPinMarker.openPopup();
+      }
+    }, 280);
+
+    // Asynchronously reverse geocode to fetch real street / city name
+    if (navigator.onLine) {
+      try {
+        const revUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 2500);
+        const resp = await fetch(revUrl, {
+          headers: { 'Accept': 'application/json', 'User-Agent': 'VoltWay2W/5.51' },
+          signal: ctrl.signal
+        });
+        clearTimeout(tid);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.display_name) {
+            const parts = data.display_name.split(',').map(s => s.trim());
+            pinName = parts.slice(0, 2).join(', ');
+            pinAddress = parts.slice(2, 5).join(', ');
+            if (droppedPinMarker && map && map.hasLayer(droppedPinMarker)) {
+              const popup = droppedPinMarker.getPopup();
+              const el = popup ? popup.getElement() : null;
+              if (el) {
+                const titleEl = el.querySelector('.js-dropped-title');
+                const addrEl = el.querySelector('.js-dropped-addr');
+                if (titleEl) titleEl.textContent = pinName;
+                if (addrEl) addrEl.textContent = pinAddress;
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
   }
 
   function getLoadedNetworkCounts() {
@@ -2053,6 +2211,9 @@ const MapEngine = (function () {
     handleFocusChargerById,
     showSearchPin,
     clearSearchPin,
+    showDroppedPinAtCoords,
+    clearDroppedPin,
+    handleRouteDirectToCoords,
     isPopupOpen: () => Boolean(activePopupChargerId),
     getUserCoords: () => userCoords,
     getLastGpsFixAgeMs: () => (lastGpsFixTime ? Date.now() - lastGpsFixTime : Infinity),
