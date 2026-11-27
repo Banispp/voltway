@@ -556,10 +556,10 @@ public class VoltWayNativePlugin extends Plugin {
     private double[] extractCoords(String text) {
         if (text == null || text.isEmpty()) return null;
         String[] patterns = new String[] {
-            "@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)",
-            "[?&](?:q|daddr|saddr|ll|query)=(?:loc:)?(-?\\d+\\.\\d+)(?:,|%2C|\\s)+(-?\\d+\\.\\d+)",
+            "[?&](?:q|daddr|saddr|ll|query)=(?:loc:)?(-?\\d+\\.\\d+)(?:,|%2C|\\s|\\+)+(-?\\d+\\.\\d+)",
             "/maps/(?:search|place)/(-?\\d+\\.\\d+)(?:,|%2C|\\+)+\\s*(-?\\d+\\.\\d+)",
-            "!3d(-?\\d+\\.\\d+)!4d(-?\\d+\\.\\d+)",
+            "(?:!|%21)3d(-?\\d+\\.\\d+)(?:!|%21)4d(-?\\d+\\.\\d+)",
+            "@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)",
             "center=(-?\\d+\\.\\d+)(?:%2C|,)(-?\\d+\\.\\d+)"
         };
         for (String p : patterns) {
@@ -584,13 +584,21 @@ public class VoltWayNativePlugin extends Plugin {
     }
 
     private double[] extractCoordsFromHtml(String html) {
-        double[] c = extractCoords(html);
-        if (c != null) return c;
-        // APP_INITIALIZATION_STATE=[[[scale, LNG, LAT], ...]]
-        Matcher appM = Pattern.compile("APP_INITIALIZATION_STATE\\s*=\\s*\\[\\[\\[[^,\\]]+,(-?\\d{1,3}\\.\\d{3,}),(-?\\d{1,2}\\.\\d{3,})").matcher(html);
-        if (appM.find()) {
-            double lng = Double.parseDouble(appM.group(1));
-            double lat = Double.parseDouble(appM.group(2));
+        if (html == null || html.isEmpty()) return null;
+        // ONLY extract explicit pin protobuf markers or staticmap markers= from HTML.
+        // Never use center=, !2d!3d, or APP_INITIALIZATION_STATE (Google puts IP-centroid near user's own location there).
+        Matcher pinM = Pattern.compile("(?:!|%21)8m2(?:!|%21)3d(-?\\d+\\.\\d+)(?:!|%21)4d(-?\\d+\\.\\d+)|(?:!|%21)3d(-?\\d+\\.\\d+)(?:!|%21)4d(-?\\d+\\.\\d+)", Pattern.CASE_INSENSITIVE).matcher(html);
+        if (pinM.find()) {
+            double lat = Double.parseDouble(pinM.group(1) != null ? pinM.group(1) : pinM.group(3));
+            double lng = Double.parseDouble(pinM.group(2) != null ? pinM.group(2) : pinM.group(4));
+            if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                return new double[] { lat, lng };
+            }
+        }
+        Matcher smM = Pattern.compile("staticmap\\?[^\"'<>]*markers=[^\"'<>]*?(-?\\d+\\.\\d+)(?:%2C|,)(-?\\d+\\.\\d+)", Pattern.CASE_INSENSITIVE).matcher(html);
+        if (smM.find()) {
+            double lat = Double.parseDouble(smM.group(1));
+            double lng = Double.parseDouble(smM.group(2));
             if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
                 return new double[] { lat, lng };
             }

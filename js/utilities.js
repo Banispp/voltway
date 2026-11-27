@@ -205,6 +205,47 @@ const Utilities = (function () {
     { name: 'Perumbavoor', fullName: 'Perumbavoor, Ernakulam, Kerala, India', lat: 10.1118, lng: 76.4754 },
     { name: 'Pala', fullName: 'Pala, Kottayam, Kerala, India', lat: 9.7118, lng: 76.6835 },
     { name: 'Changanassery', fullName: 'Changanassery, Kottayam, Kerala, India', lat: 9.4447, lng: 76.5383 },
+    { name: 'Mukkam', fullName: 'Mukkam, Kozhikode, Kerala, India', lat: 11.3210, lng: 75.9950 },
+    { name: 'Thamarassery', fullName: 'Thamarassery, Kozhikode, Kerala, India', lat: 11.4141, lng: 75.9369 },
+    { name: 'Koduvally', fullName: 'Koduvally, Kozhikode, Kerala, India', lat: 11.3591, lng: 75.9144 },
+    { name: 'Koyilandy (Quilandy)', fullName: 'Koyilandy, Kozhikode, Kerala, India', lat: 11.4426, lng: 75.6976 },
+    { name: 'Balussery', fullName: 'Balussery, Kozhikode, Kerala, India', lat: 11.4472, lng: 75.8256 },
+    { name: 'Ramanattukara', fullName: 'Ramanattukara, Kozhikode, Kerala, India', lat: 11.1795, lng: 75.8644 },
+    { name: 'Kondotty', fullName: 'Kondotty, Malappuram, Kerala, India', lat: 11.1456, lng: 75.9639 },
+    { name: 'Karipur (CCJ Airport)', fullName: 'Calicut International Airport, Karipur, Malappuram, Kerala, India', lat: 11.1368, lng: 75.9553 },
+    { name: 'Wandoor', fullName: 'Wandoor, Malappuram, Kerala, India', lat: 11.1955, lng: 76.2360 },
+    { name: 'Edakkara', fullName: 'Edakkara, Malappuram, Kerala, India', lat: 11.3592, lng: 76.3046 },
+    { name: 'Edappal', fullName: 'Edappal, Malappuram, Kerala, India', lat: 10.7858, lng: 76.0063 },
+    { name: 'Kuttippuram', fullName: 'Kuttippuram, Malappuram, Kerala, India', lat: 10.8442, lng: 76.0285 },
+    { name: 'Tanur', fullName: 'Tanur, Malappuram, Kerala, India', lat: 10.9776, lng: 75.8758 },
+    { name: 'Pattambi', fullName: 'Pattambi, Palakkad, Kerala, India', lat: 10.8068, lng: 76.1912 },
+    { name: 'Shornur', fullName: 'Shornur, Palakkad, Kerala, India', lat: 10.7615, lng: 76.2711 },
+    { name: 'Ottapalam', fullName: 'Ottapalam, Palakkad, Kerala, India', lat: 10.7725, lng: 76.3771 },
+    { name: 'Mannarkkad', fullName: 'Mannarkkad, Palakkad, Kerala, India', lat: 10.9926, lng: 76.4622 },
+    { name: 'Wadakkanchery', fullName: 'Wadakkanchery, Thrissur, Kerala, India', lat: 10.6632, lng: 76.2496 },
+    { name: 'Kodungallur', fullName: 'Kodungallur, Thrissur, Kerala, India', lat: 10.2237, lng: 76.1973 },
+    { name: 'Irinjalakuda', fullName: 'Irinjalakuda, Thrissur, Kerala, India', lat: 10.3435, lng: 76.2152 },
+    { name: 'North Paravur', fullName: 'North Paravur, Ernakulam, Kerala, India', lat: 10.1449, lng: 76.2248 },
+    { name: 'Thodupuzha', fullName: 'Thodupuzha, Idukki, Kerala, India', lat: 9.8959, lng: 76.7184 },
+    { name: 'Kattappana', fullName: 'Kattappana, Idukki, Kerala, India', lat: 9.7563, lng: 77.1149 },
+    { name: 'Kumily (Thekkady)', fullName: 'Kumily, Thekkady, Idukki, Kerala, India', lat: 9.6031, lng: 77.1615 },
+    { name: 'Adimali', fullName: 'Adimali, Idukki, Kerala, India', lat: 10.0110, lng: 76.9532 },
+    { name: 'Vagamon', fullName: 'Vagamon, Idukki, Kerala, India', lat: 9.6862, lng: 76.9052 },
+    { name: 'Adoor', fullName: 'Adoor, Pathanamthitta, Kerala, India', lat: 9.1528, lng: 76.7356 },
+    { name: 'Ranni', fullName: 'Ranni, Pathanamthitta, Kerala, India', lat: 9.3863, lng: 76.7859 },
+    { name: 'Chengannur', fullName: 'Chengannur, Alappuzha, Kerala, India', lat: 9.3156, lng: 76.6152 },
+    { name: 'Mavelikara', fullName: 'Mavelikara, Alappuzha, Kerala, India', lat: 9.2458, lng: 76.5446 },
+    { name: 'Haripad', fullName: 'Haripad, Alappuzha, Kerala, India', lat: 9.2775, lng: 76.4631 },
+    { name: 'Kottarakkara', fullName: 'Kottarakkara, Kollam, Kerala, India', lat: 9.0005, lng: 76.7793 },
+    { name: 'Punalur', fullName: 'Punalur, Kollam, Kerala, India', lat: 9.0177, lng: 76.9261 },
+    { name: 'Karunagappally', fullName: 'Karunagappally, Kollam, Kerala, India', lat: 9.0556, lng: 76.5356 },
+    { name: 'Varkala', fullName: 'Varkala, Thiruvananthapuram, Kerala, India', lat: 8.7379, lng: 76.7163 },
+    { name: 'Technopark (Kazhakkoottam)', fullName: 'Technopark, Kazhakkoottam, Thiruvananthapuram, Kerala, India', lat: 8.5562, lng: 76.8816 },
+    { name: 'Taliparamba', fullName: 'Taliparamba, Kannur, Kerala, India', lat: 12.0434, lng: 75.3607 },
+    { name: 'Mattannur', fullName: 'Mattannur, Kannur, Kerala, India', lat: 11.9333, lng: 75.5681 },
+    { name: 'Iritty', fullName: 'Iritty, Kannur, Kerala, India', lat: 11.9814, lng: 75.6730 },
+    { name: 'Nileshwar', fullName: 'Nileshwar, Kasaragod, Kerala, India', lat: 12.2576, lng: 75.1342 },
+    { name: 'Lulu Mall Kochi', fullName: 'LuLu International Shopping Mall, Edappally, Kochi, Kerala, India', lat: 10.0275, lng: 76.3079 },
     // Karnataka
     { name: 'Bengaluru (Bangalore)', fullName: 'Bengaluru, Karnataka, India', lat: 12.9716, lng: 77.5946 },
     { name: 'Indiranagar', fullName: 'Indiranagar, Bengaluru, Karnataka, India', lat: 12.9784, lng: 77.6408 },
@@ -243,9 +284,71 @@ const Utilities = (function () {
     { name: 'Goa (Panaji)', fullName: 'Panaji, Goa, India', lat: 15.4909, lng: 73.8278 }
   ];
 
+  async function queryNominatimRaw(qStr, timeoutMs = 4200) {
+    try {
+      const cleanQ = qStr.trim();
+      const hasCountry = /\bindia\b/i.test(cleanQ);
+      const qParam = hasCountry ? cleanQ : cleanQ;
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(qParam)}&countrycodes=in&limit=8&addressdetails=1&accept-language=en,ml`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const resp = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (resp.ok) {
+        const data = await resp.json();
+        return (data || []).map(item => ({
+          name: item.display_name.split(',')[0],
+          fullName: item.display_name,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon)
+        })).filter(it => !isNaN(it.lat) && !isNaN(it.lng));
+      }
+    } catch (e) {}
+    return [];
+  }
+
+  async function queryPhotonRaw(qStr, timeoutMs = 4200) {
+    try {
+      const encoded = encodeURIComponent(qStr.trim());
+      // bbox biased to India; lat/lon bias to Kerala centre
+      const url = `https://photon.komoot.io/api/?q=${encoded}&limit=8&lat=10.5&lon=76.2&bbox=68.0,8.0,97.0,37.0&lang=en`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const resp = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data.features && data.features.length > 0) {
+          return data.features.map(f => {
+            const props = f.properties || {};
+            const coords = (f.geometry && f.geometry.coordinates) || [0, 0];
+            const name = props.name || props.street || qStr.trim();
+            const locationParts = [
+              name,
+              props.city || props.town || props.village || props.county,
+              props.state,
+              props.country
+            ].filter(Boolean);
+            return {
+              name: name,
+              fullName: locationParts.join(', '),
+              lat: coords[1],
+              lng: coords[0]
+            };
+          }).filter(it => !isNaN(it.lat) && !isNaN(it.lng));
+        }
+      }
+    } catch (e) {}
+    return [];
+  }
+
   async function searchPlace(query) {
     if (!query || query.trim().length < 2) return [];
-    const qLower = query.trim().toLowerCase();
+    const qTrim = query.trim();
+    const qLower = qTrim.toLowerCase();
 
     const localMatches = POPULAR_INDIAN_PLACES.filter(p =>
       p.name.toLowerCase().includes(qLower) || p.fullName.toLowerCase().includes(qLower)
@@ -256,64 +359,60 @@ const Utilities = (function () {
       return localMatches.slice(0, 8);
     }
 
-    let photonResults = [];
-    try {
-      const encoded = encodeURIComponent(query.trim());
-      // bbox biased to India; lat/lon bias to Kerala centre
-      const url = `https://photon.komoot.io/api/?q=${encoded}&limit=8&lat=10.5&lon=76.2&bbox=68.0,8.0,97.0,37.0&lang=en`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
-      const resp = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
+    // Run Photon and Nominatim in parallel with generous 4.2s mobile timeout
+    const [photonSettled, osmSettled] = await Promise.allSettled([
+      queryPhotonRaw(qTrim, 4200),
+      queryNominatimRaw(qTrim, 4200)
+    ]);
 
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data && data.features && data.features.length > 0) {
-          photonResults = data.features.map(f => {
-            const props = f.properties || {};
-            const coords = (f.geometry && f.geometry.coordinates) || [0, 0];
-            const name = props.name || props.street || query.trim();
-            const locationParts = [
-              name,
-              props.city || props.town || props.village || props.county,
-              props.state,
-              props.country
-            ].filter(Boolean);
+    let photonResults = photonSettled.status === 'fulfilled' ? photonSettled.value : [];
+    let osmResults = osmSettled.status === 'fulfilled' ? osmSettled.value : [];
 
-            return {
-              name: name,
-              fullName: locationParts.join(', '),
-              lat: coords[1],
-              lng: coords[0]
-            };
-          });
+    // Progressive fallback if noisy/multi-word/address query returned nothing from both engines
+    if (photonResults.length === 0 && osmResults.length === 0 && qTrim.length >= 5) {
+      const fallbacks = [];
+      const commaParts = qTrim.split(',').map(s => s.trim()).filter(Boolean);
+      if (commaParts.length >= 2) {
+        fallbacks.push(commaParts.slice(1).join(', '));
+        if (commaParts.length >= 3) fallbacks.push(commaParts.slice(-3).join(', '));
+      }
+      const pinMatch = qTrim.match(/\b([1-9]\d{5})\b/);
+      if (pinMatch) {
+        fallbacks.push(`${pinMatch[1]}, India`);
+      }
+      const words = qTrim.replace(/[,]+/g, ' ').split(/\s+/).filter(w => w.length >= 3 && !/^\d+$/.test(w));
+      if (commaParts.length < 2 && words.length >= 3) {
+        fallbacks.push(words.slice(-2).join(' '));
+        fallbacks.push(words[words.length - 1]);
+      } else if (words.length >= 2 && localMatches.length === 0) {
+        // Also check local places against individual significant town words
+        words.forEach(w => {
+          const wl = w.toLowerCase();
+          if (wl.length >= 4 && wl !== 'kerala' && wl !== 'india' && wl !== 'road') {
+            POPULAR_INDIAN_PLACES.forEach(p => {
+              if (p.name.toLowerCase().includes(wl) && !localMatches.includes(p)) {
+                localMatches.push(p);
+              }
+            });
+          }
+        });
+      }
+
+      for (const fb of fallbacks) {
+        if (!fb || fb.length < 3 || fb === qTrim) continue;
+        const [fbP, fbO] = await Promise.allSettled([
+          queryPhotonRaw(fb, 3200),
+          queryNominatimRaw(fb, 3200)
+        ]);
+        const pArr = fbP.status === 'fulfilled' ? fbP.value : [];
+        const oArr = fbO.status === 'fulfilled' ? fbO.value : [];
+        if (pArr.length > 0 || oArr.length > 0) {
+          photonResults = pArr;
+          osmResults = oArr;
+          break;
         }
       }
-    } catch (e) {}
-
-    // Always also query Nominatim (not just as fallback) for better India/Kerala coverage
-    let osmResults = [];
-    try {
-      const encoded = encodeURIComponent(query.trim() + ', India');
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&countrycodes=in&limit=8&addressdetails=1&accept-language=en,ml`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
-      const resp = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (resp.ok) {
-        const data = await resp.json();
-        osmResults = data.map(item => ({
-          name: item.display_name.split(',')[0],
-          fullName: item.display_name,
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon)
-        }));
-      }
-    } catch (e) {}
+    }
 
     // Merge local + Photon + Nominatim (deduplicate by proximity ~3km)
     const combined = [...localMatches];
@@ -334,28 +433,53 @@ const Utilities = (function () {
 
   function hasMapLinkOrCoords(rawText) {
     if (!rawText || typeof rawText !== 'string') return false;
-    return /https?:\/\/|geo:|maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|maps\.google\.com|google\.com\/maps/i.test(rawText) ||
+    return /https?:\/\/|geo:|maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|maps\.google\.[a-z.]+|google\.[a-z.]+\/maps|share\.google/i.test(rawText) ||
       /-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+/.test(rawText) ||
       /\d+[°\s]+\d+['\s]+[\d.]+"?\s*[NS]/i.test(rawText);
+  }
+
+  function parseDmsPair(str) {
+    if (!str || typeof str !== 'string') return null;
+    const dmsMatch = str.match(/(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([NS])\s*[,+\s]+\s*(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([EW])/i);
+    if (!dmsMatch) return null;
+    let lat = parseInt(dmsMatch[1], 10) + parseInt(dmsMatch[2], 10) / 60 + parseFloat(dmsMatch[3]) / 3600;
+    if (dmsMatch[4].toUpperCase() === 'S') lat = -lat;
+    let lng = parseInt(dmsMatch[5], 10) + parseInt(dmsMatch[6], 10) / 60 + parseFloat(dmsMatch[7]) / 3600;
+    if (dmsMatch[8].toUpperCase() === 'W') lng = -lng;
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return {
+        lat: Math.round(lat * 1000000) / 1000000,
+        lng: Math.round(lng * 1000000) / 1000000
+      };
+    }
+    return null;
   }
 
   function extractFromUrlString(urlStr) {
     if (!urlStr || typeof urlStr !== 'string') return null;
     const geoMatch = urlStr.match(/geo:(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/i);
     if (geoMatch) return { lat: parseFloat(geoMatch[1]), lng: parseFloat(geoMatch[2]) };
-    const atMatch = urlStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (atMatch) return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
-    const qMatch = urlStr.match(/[?&](?:q|daddr|saddr|ll|query)=(?:loc:)?(-?\d+\.\d+)(?:,|%2C|\s)+(-?\d+\.\d+)/i);
+    // Exact pin query params & place coordinates BEFORE viewport @lat,lng
+    const qMatch = urlStr.match(/[?&](?:q|daddr|saddr|ll|query)=(?:loc:)?(-?\d+\.\d+)(?:,|%2C|\s|\+)+(-?\d+\.\d+)/i);
     if (qMatch) return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
     const searchCoordMatch = urlStr.match(/\/maps\/(?:search|place)\/(-?\d+\.\d+)(?:,|%2C|\+)+\s*(-?\d+\.\d+)/i);
     if (searchCoordMatch) return { lat: parseFloat(searchCoordMatch[1]), lng: parseFloat(searchCoordMatch[2]) };
-    const protoMatch = urlStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+    // Protobuf !8m2!3d<lat>!4d<lng> or !3d<lat>!4d<lng> is the true placed pin (more accurate than @viewport)
+    const protoMatch = urlStr.match(/(?:!|%21)3d(-?\d+\.\d+)(?:!|%21)4d(-?\d+\.\d+)/i);
     if (protoMatch) return { lat: parseFloat(protoMatch[1]), lng: parseFloat(protoMatch[2]) };
     // Google Maps place/preview embeds protobuf !2d<lng>!3d<lat> (both literal and %21-encoded)
     const proto2d3d = urlStr.match(/(?:!|%21)2d(-?\d+\.\d+)(?:!|%21)3d(-?\d+\.\d+)/i);
     if (proto2d3d) return { lat: parseFloat(proto2d3d[2]), lng: parseFloat(proto2d3d[1]) };
     const protoLngLat = urlStr.match(/!2d(-?\d+\.\d+)!1d(-?\d+\.\d+)/);
     if (protoLngLat) return { lat: parseFloat(protoLngLat[2]), lng: parseFloat(protoLngLat[1]) };
+    // URL-encoded DMS coords inside /maps/place/10%C2%B058'33.6%22N+76%C2%B013'30.0%22E/...
+    try {
+      const decodedUrl = decodeURIComponent(urlStr);
+      const dmsFromUrl = parseDmsPair(decodedUrl);
+      if (dmsFromUrl) return dmsFromUrl;
+    } catch (e) {}
+    const atMatch = urlStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (atMatch) return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
     const centerMatch = urlStr.match(/center=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i);
     if (centerMatch) return { lat: parseFloat(centerMatch[1]), lng: parseFloat(centerMatch[2]) };
     return null;
@@ -377,41 +501,56 @@ const Utilities = (function () {
   }
 
   function extractBestMapInfoFromHtmlOrUrl(resolvedUrl, htmlBody = '') {
-    const out = { url: resolvedUrl || '', title: '', coords: null };
+    const out = { url: resolvedUrl || '', title: '', coords: null, coordsFromUrl: false };
     if (resolvedUrl) {
       out.coords = extractFromUrlString(resolvedUrl);
-      const urlPlaceM = resolvedUrl.match(/\/maps\/(?:place|search)\/([^/@?]+)/i);
+      if (out.coords) out.coordsFromUrl = true;
+      const urlPlaceM = resolvedUrl.match(/\/maps\/(?:place|search)\/([^/@?]+)/i) ||
+        resolvedUrl.match(/[?&](?:q|query)=([^&]+)/i);
       if (urlPlaceM && urlPlaceM[1]) {
         try {
           const decoded = decodeURIComponent(urlPlaceM[1]).replace(/\+/g, ' ').trim();
-          if (decoded && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(decoded)) {
+          if (decoded && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(decoded) && !parseDmsPair(decoded)) {
             out.title = decoded;
           }
         } catch (e) {}
       }
     }
     if (htmlBody && typeof htmlBody === 'string') {
-      // 1. Try coordinate formats across full HTML body first (center=, !2d!3d, @lat,lng)
-      if (!out.coords) out.coords = extractFromUrlString(htmlBody);
-
-      // 2. APP_INITIALIZATION_STATE=[[[scale, LNG, LAT], ...]] — Google embeds LNG first, LAT second
+      // ONLY trust explicit placed pin markers (!8m2!3d!4d, !3d!4d, or staticmap markers=) from HTML.
+      // NEVER extract center=, !2d!3d, or APP_INITIALIZATION_STATE from HTML shell because Google embeds
+      // the viewer's own IP-centroid (wrong common town near user!) when the URL had no pin coords.
       if (!out.coords) {
-        const appStateM = htmlBody.match(/APP_INITIALIZATION_STATE\s*=\s*\[\[\[[^,\]]+,(-?\d{1,3}\.\d{3,}),(-?\d{1,2}\.\d{3,})/);
-        if (appStateM) {
-          const first = parseFloat(appStateM[1]);
-          const second = parseFloat(appStateM[2]);
-          if (second >= -90 && second <= 90 && first >= -180 && first <= 180) {
-            out.coords = { lat: second, lng: first };
+        const pin3d4d = htmlBody.match(/(?:!|%21)8m2(?:!|%21)3d(-?\d+\.\d+)(?:!|%21)4d(-?\d+\.\d+)/i) ||
+          htmlBody.match(/(?:!|%21)3d(-?\d+\.\d+)(?:!|%21)4d(-?\d+\.\d+)/i);
+        if (pin3d4d) {
+          const lat = parseFloat(pin3d4d[1]);
+          const lng = parseFloat(pin3d4d[2]);
+          if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            out.coords = { lat, lng };
+          }
+        }
+      }
+      if (!out.coords) {
+        const markerM = htmlBody.match(/staticmap\?[^"'<>]*markers=[^"'<>]*?(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i);
+        if (markerM) {
+          const lat = parseFloat(markerM[1]);
+          const lng = parseFloat(markerM[2]);
+          if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            out.coords = { lat, lng };
           }
         }
       }
 
-      // 3. Fallback embedded maps URL in HTML
+      // Fallback embedded maps URL in HTML
       if (!out.url) {
         const mapsUrlMatch = htmlBody.match(/https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^\s"'<>\\]+/i);
         if (mapsUrlMatch) {
           out.url = mapsUrlMatch[0].replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
-          if (!out.coords) out.coords = extractFromUrlString(out.url);
+          if (!out.coords) {
+            out.coords = extractFromUrlString(out.url);
+            if (out.coords) out.coordsFromUrl = true;
+          }
         }
       }
 
@@ -441,11 +580,18 @@ const Utilities = (function () {
       try {
         const res = await window.Capacitor.Plugins.VoltWayNative.resolveMapUrl({ url: cleanedUrl });
         if (res && res.success) {
-          const coords = (typeof res.lat === 'number' && typeof res.lng === 'number' && !isNaN(res.lat) && !isNaN(res.lng))
+          const urlCoords = res.url ? extractFromUrlString(res.url) : null;
+          const htmlCoords = (typeof res.lat === 'number' && typeof res.lng === 'number' && !isNaN(res.lat) && !isNaN(res.lng))
             ? { lat: res.lat, lng: res.lng }
-            : (res.url ? extractFromUrlString(res.url) : null);
-          if (coords || (res.url && res.url.includes('google.'))) {
-            const info = { url: res.url || cleanedUrl, title: res.title || '', coords };
+            : null;
+          if (urlCoords || htmlCoords || (res.url && res.url.includes('google.'))) {
+            const info = {
+              url: res.url || cleanedUrl,
+              title: res.title || '',
+              coords: urlCoords || null,
+              htmlFallbackCoords: urlCoords ? null : htmlCoords,
+              coordsFromUrl: Boolean(urlCoords)
+            };
             shortUrlCache.set(trimmed, info);
             return info;
           }
@@ -617,25 +763,39 @@ const Utilities = (function () {
     const placeInUrlMatch = text.match(/\/maps\/place\/([^/@?]+)/i) || text.match(/\/maps\/search\/([^/@?]+)/i);
     if (placeInUrlMatch) {
       const decodedPlace = decodeURIComponent(placeInUrlMatch[1]).replace(/\+/g, ' ').trim();
-      if (decodedPlace) {
-        const results = await searchPlace(decodedPlace);
-        if (results && results.length > 0) return { ...results[0], isMapLink: true };
+      const placeQuery = labelHint || decodedPlace;
+      if (placeQuery) {
+        const results = await searchPlace(placeQuery);
+        if (results && results.length > 0) return { ...results[0], name: labelHint || decodedPlace || results[0].name, isMapLink: true };
       }
     }
 
     // 3. Resolve URL (short link like maps.app.goo.gl/...?g_st=ac) BEFORE falling back to label line text search
-    if (/https?:\/\/|goo\.gl|maps\.app/i.test(text)) {
-      const bareShortMatch = text.match(/(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps)\/[^\s]+/i);
+    if (/https?:\/\/|goo\.gl|maps\.app|share\.google/i.test(text)) {
+      const bareShortMatch = text.match(/(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|share\.google)\/[^\s]+/i);
       const urlMatch = text.match(/https?:\/\/[^\s]+/i);
       const url = urlMatch ? urlMatch[0] : (bareShortMatch ? `https://${bareShortMatch[0]}` : null);
+      let htmlFallbackCoords = null;
+      let expPlace = '';
+      let expTitle = '';
       if (url) {
         const expandedRaw = preExpanded || await unshortenUrl(url);
         if (expandedRaw) {
           const expUrl = typeof expandedRaw === 'object' ? (expandedRaw.url || '') : String(expandedRaw);
-          const expTitle = typeof expandedRaw === 'object' ? (expandedRaw.title || '') : '';
+          expTitle = typeof expandedRaw === 'object' ? (expandedRaw.title || '') : '';
           const expCoords = (typeof expandedRaw === 'object' && expandedRaw.coords) || extractFromUrlString(expUrl);
-          const expPlaceMatch = expUrl.match(/\/maps\/place\/([^/@?]+)/i) || expUrl.match(/\/maps\/search\/([^/@?]+)/i);
-          const expPlace = expPlaceMatch ? decodeURIComponent(expPlaceMatch[1]).replace(/\+/g, ' ').trim() : '';
+          htmlFallbackCoords = (typeof expandedRaw === 'object' && expandedRaw.htmlFallbackCoords) || null;
+          const expPlaceMatch = expUrl.match(/\/maps\/place\/([^/@?]+)/i) ||
+            expUrl.match(/\/maps\/search\/([^/@?]+)/i) ||
+            expUrl.match(/[?&](?:q|query)=([^&]+)/i);
+          if (expPlaceMatch && expPlaceMatch[1]) {
+            try {
+              const cand = decodeURIComponent(expPlaceMatch[1]).replace(/\+/g, ' ').trim();
+              if (cand && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(cand) && !parseDmsPair(cand)) {
+                expPlace = cand;
+              }
+            } catch (e) {}
+          }
 
           if (expCoords) {
             const bestName = labelHint || expTitle || expPlace || `Map Pin (${expCoords.lat.toFixed(4)}, ${expCoords.lng.toFixed(4)})`;
@@ -647,22 +807,50 @@ const Utilities = (function () {
               isMapLink: true
             };
           }
-          if (expPlace || expTitle) {
-            const results = await searchPlace(expPlace || expTitle);
-            if (results && results.length > 0) return { ...results[0], isMapLink: true };
-          }
-          if (expTitle) {
-            const results = await searchPlace(expTitle);
-            if (results && results.length > 0) return { ...results[0], isMapLink: true };
-          }
         }
       }
 
-      if (labelHint) {
-        const results = await searchPlace(labelHint);
-        if (results && results.length > 0) return { ...results[0], isMapLink: true };
+      const geoQueries = Array.from(new Set([labelHint, expPlace, expTitle].map(s => (s || '').trim()).filter(s => s.length >= 2)));
+      for (const gq of geoQueries) {
+        const results = await searchPlace(gq);
+        if (results && results.length > 0) {
+          const geo = results[0];
+          // If native plugin extracted an HTML coordinate inside the SAME town (< 6 km from geocoded match), keep that exact pin;
+          // otherwise reject htmlFallbackCoords (Google's IP-centroid near user's own location!) and use the geocoded match.
+          if (htmlFallbackCoords && haversine(geo.lat, geo.lng, htmlFallbackCoords.lat, htmlFallbackCoords.lng) <= 6.0) {
+            return {
+              lat: htmlFallbackCoords.lat,
+              lng: htmlFallbackCoords.lng,
+              name: labelHint || expTitle || expPlace || geo.name,
+              fullName: `Google Maps Pin: ${htmlFallbackCoords.lat.toFixed(5)}, ${htmlFallbackCoords.lng.toFixed(5)}`,
+              isMapLink: true
+            };
+          }
+          return {
+            ...geo,
+            name: labelHint || geo.name || expTitle || expPlace,
+            isMapLink: true
+          };
+        }
       }
       return null;
+    }
+
+    // 4. Inline coordinates inside freeform text (e.g. "Pin 10.9760, 76.2254" or "10.9760, 76.2254 (Shop)")
+    const inlineCoordMatch = text.match(/(-?\d{1,2}\.\d{3,})\s*[, ]\s*(-?\d{1,3}\.\d{3,})/);
+    if (inlineCoordMatch) {
+      const lat = parseFloat(inlineCoordMatch[1]);
+      const lng = parseFloat(inlineCoordMatch[2]);
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        const cleanLabel = text.replace(inlineCoordMatch[0], '').replace(/[()\-–:|,\s]+/g, ' ').trim();
+        return {
+          lat,
+          lng,
+          name: cleanLabel || `Pin (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+          fullName: `GPS Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          isMapLink: true
+        };
+      }
     }
 
     const searchResults = await searchPlace(text);

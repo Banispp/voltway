@@ -648,7 +648,37 @@ document.addEventListener('DOMContentLoaded', () => {
             const resolved = await window.Utilities.resolveLocationInput(q, expandedHint);
             if (inputEl.value.trim() !== q) return;
             if (resolved) {
-              showItems([{ ...resolved, isCharger: false, isMapLink: true }]);
+              const coordLabel = resolved.isMapLink
+                ? `${resolved.name || 'Shared Pin'} (${resolved.lat.toFixed(4)},${resolved.lng.toFixed(4)})`
+                : (resolved.name || q);
+              const resolvedWithLabel = { ...resolved, name: coordLabel, isCharger: false, isMapLink: true };
+              // Auto-lock coords when a URL/link resolves in destination (or focus pin in search bar)
+              if (inputEl === destInput && options.onSelect) {
+                options.onSelect(resolvedWithLabel);
+                inputEl.value = coordLabel;
+                if (window.MapEngine) {
+                  const m = window.MapEngine.getMap();
+                  if (m) m.flyTo([resolved.lat, resolved.lng], 15, { animate: true, duration: 0.6 });
+                  if (typeof window.MapEngine.showSearchPin === 'function') {
+                    window.MapEngine.showSearchPin(resolvedWithLabel);
+                  }
+                }
+                if (window.SyncEngine) {
+                  window.SyncEngine.showAutoUpdateToast(`📍 Pin set: ${resolved.name || 'Location'} → ${resolved.lat.toFixed(4)}, ${resolved.lng.toFixed(4)}`);
+                }
+                dropdownEl.classList.remove('visible');
+                if (openDropdownEl === dropdownEl) openDropdownEl = null;
+              } else if (inputEl === searchInput && options.onSelect) {
+                inputEl.value = coordLabel;
+                dropdownEl.classList.remove('visible');
+                if (openDropdownEl === dropdownEl) openDropdownEl = null;
+                options.onSelect(resolvedWithLabel);
+                if (window.SyncEngine) {
+                  window.SyncEngine.showAutoUpdateToast(`📍 Found: ${resolved.name || 'Location'} — tap ⚡ Route Here`);
+                }
+              } else {
+                showItems([resolvedWithLabel]);
+              }
             } else {
               showItems([{
                 isStatusNotice: true,
@@ -746,10 +776,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const resolved = await window.Utilities.resolveLocationInput(q, expandedHint);
             if (inputEl.value.trim() !== q) return;
             if (resolved) {
-              inputEl.value = resolved.name;
+              const coordLabel = resolved.isMapLink
+                ? `${resolved.name || 'Location'} (${resolved.lat.toFixed(4)},${resolved.lng.toFixed(4)})`
+                : resolved.name;
+              inputEl.value = coordLabel;
               dropdownEl.classList.remove('visible');
               if (openDropdownEl === dropdownEl) openDropdownEl = null;
-              if (options.onSelect) options.onSelect({ ...resolved, isCharger: false, isMapLink: true });
+              if (options.onSelect) options.onSelect({ ...resolved, name: coordLabel, isCharger: false, isMapLink: true });
             } else {
               showItems([{ isStatusNotice: true, name: '⚠️ Location not found', fullName: 'Check spelling or paste coordinates' }]);
             }
@@ -778,6 +811,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     },
     onSelect: (item) => {
+      if (window.innerWidth <= 768) {
+        setDrawerCollapsed(true);
+      }
       if (item.isCharger && window.MapEngine) {
         window.MapEngine.focusCharger(item);
       } else if (window.MapEngine && window.MapEngine.getMap()) {

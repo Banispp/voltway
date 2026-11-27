@@ -336,32 +336,39 @@ const MapEngine = (function () {
     });
 
     map.on('click', (e) => {
+      const sheet = document.getElementById('bottom-sheet');
+      const wasSheetExpanded = Boolean(window.innerWidth <= 768 && sheet && !sheet.classList.contains('collapsed'));
+      if (window.innerWidth <= 768 && typeof window.collapseBottomSheet === 'function') {
+        window.collapseBottomSheet();
+      }
       // Close open charger popup (first tap dismisses it)
       if (activePopupChargerId) {
         activePopupChargerId = null;
         if (map) map.closePopup();
         return;
       }
+      // Tap-to-navigate ONLY works BEFORE Plan 2W Route (when no active route / drive mode)
+      const hasActiveRoute = Boolean(window.RouteEngine && typeof window.RouteEngine.getActiveRoute === 'function' && window.RouteEngine.getActiveRoute());
+      const isDriving = Boolean(window.DriveEngine && typeof window.DriveEngine.isActive === 'function' && window.DriveEngine.isActive());
+      if (hasActiveRoute || isDriving) return;
       // Skip if map is rotating
       if (isUserRotating) return;
       // Block UI elements from triggering pin drop
       const target = e.originalEvent ? e.originalEvent.target : null;
-      if (target && (target.closest('.leaflet-marker-icon') || target.closest('.leaflet-popup') || target.closest('.btn-header-action') || target.closest('.map-control-btn') || target.closest('.brand-header'))) {
+      if (target && (target.closest('.leaflet-marker-icon') || target.closest('.leaflet-popup') || target.closest('.btn-header-action') || target.closest('.map-control-btn') || target.closest('.brand-header') || target.closest('.map-top-bar') || target.closest('.btn-float-gps') || target.closest('.btn-toggle-fullscreen') || target.closest('.btn-toggle-map-theme'))) {
         return;
       }
       if (e && e.latlng && typeof e.latlng.lat === 'number' && typeof e.latlng.lng === 'number') {
         const tapLat = e.latlng.lat;
         const tapLng = e.latlng.lng;
-        // On mobile: collapse the bottom sheet first, then drop the pin after animation
-        if (window.innerWidth <= 768 && typeof window.collapseBottomSheet === 'function') {
-          window.collapseBottomSheet();
-          // Wait for the sheet collapse animation + map.invalidateSize to settle
-          // before dropping the pin, so isUserInteracting flag resets cleanly
+        if (wasSheetExpanded) {
+          // Wait for sheet collapse + invalidateSize before dropping pin on mobile
           setTimeout(() => {
             isUserInteracting = false;
             showDroppedPinAtCoords(tapLat, tapLng);
-          }, 350);
+          }, 320);
         } else {
+          isUserInteracting = false;
           showDroppedPinAtCoords(tapLat, tapLng);
         }
       }
