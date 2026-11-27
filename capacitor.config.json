@@ -3,7 +3,8 @@
   "appName": "VoltWay 2W",
   "webDir": "www",
   "server": {
-    "androidScheme": "https"
+    "url": "https://banispp.github.io/voltway/",
+    "cleartext": true
   },
   "plugins": {
     "CapacitorHttp": {
