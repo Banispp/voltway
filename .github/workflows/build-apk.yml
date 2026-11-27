@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Listing and removing any previous releases..."
           gh release list --limit 100 --json tagName,databaseId --jq '.[] | "\(.databaseId) \(.tagName)"' | while read -r id tag; do
-            if [ -n "$id" ] && [ "$tag" != "v5.50-release" ]; then
+            if [ -n "$id" ] && [ "$tag" != "v5.51-release" ]; then
               echo "Deleting old release: $tag (id: $id)"
               gh api -X DELETE "repos/${{ github.repository }}/releases/$id" || true
             fi
@@ -65,9 +65,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
-          tag_name: v5.50-release
-          name: "VoltWay 2W Android APK v5.50 (Verified 9,373 2W DB, Valhalla Highway Routing, Persistent Trip)"
-          body: "VoltWay 2W v5.50: 9,373 verified 2W stations, Google-Maps-style natural highway routing, persistent active trip across app close/reopen without background GPS, Turn-by-Turn HUD with destination & next-turn tracking, live battery map/plan sync, and OLED night-ride UI."
+          tag_name: v5.51-release
+          name: "VoltWay 2W Android APK v5.51 (Verified 9,418 2W DB, Search Pin, Direct Share & DoH Resolver)"
+          body: "VoltWay 2W v5.51: 9,418 verified 2W stations across India, native Google Maps Share Intent receiver with Jio-DNS-bypass DoH resolver, Search map pin with Set as Destination, Enter key fast location resolution, uncluttered charger popup, and battery range optimizer."
           files: android/app/build/outputs/apk/debug/app-debug.apk
           overwrite: true
         env:
