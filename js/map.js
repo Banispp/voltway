@@ -55,6 +55,8 @@ const MapEngine = (function () {
   const markerMap = new Map();
   const waypointMarkersMap = new Map();
   let activePopupChargerId = null;
+  let lastDatasetKey = '';
+  let isCorridorClusterMode = false;
 
   let renderRafId = null;
   let moveDebounceTimer = null;
@@ -117,7 +119,26 @@ const MapEngine = (function () {
     } catch (e) {}
     setTileTheme(initialTheme);
 
-    markersLayer = L.layerGroup().addTo(map);
+    markersLayer = (typeof L.markerClusterGroup === 'function')
+      ? L.markerClusterGroup({
+          chunkedLoading: false,
+          animate: true,
+          animateAddingMarkers: false,
+          showCoverageOnHover: false,
+          zoomToBoundsOnClick: true,
+          spiderfyOnMaxZoom: true,
+          spiderfyDistanceMultiplier: 1.45,
+          removeOutsideVisibleBounds: true,
+          disableClusteringAtZoom: 13,
+          maxClusterRadius: function (z) {
+            if (isCorridorClusterMode) return 28;
+            if (z >= 12) return 38;
+            if (z >= 10) return 48;
+            return 58;
+          },
+          iconCreateFunction: createClusterBadgeIcon
+        }).addTo(map)
+      : L.layerGroup().addTo(map);
     routeLayer = L.layerGroup().addTo(map);
     waypointsLayer = L.layerGroup().addTo(map);
 
@@ -252,6 +273,37 @@ const MapEngine = (function () {
     return nextTheme;
   }
 
+  function createClusterBadgeIcon(cluster) {
+    const count = cluster.getChildCount();
+    let display = String(count);
+    let sizePx = 34;
+    let sizeCls = 'cluster-xs';
+
+    if (count > 200) {
+      display = '200+';
+      sizePx = 46;
+      sizeCls = 'cluster-xl';
+    } else if (count > 100) {
+      display = '100+';
+      sizePx = 44;
+      sizeCls = 'cluster-lg';
+    } else if (count >= 50) {
+      display = '50+';
+      sizePx = 40;
+      sizeCls = 'cluster-md';
+    } else if (count >= 10) {
+      sizePx = 38;
+      sizeCls = 'cluster-sm';
+    }
+
+    return L.divIcon({
+      html: `<div class="voltway-cluster-pill ${sizeCls}">${display}</div>`,
+      className: 'voltway-cluster-container',
+      iconSize: L.point(sizePx, sizePx),
+      iconAnchor: L.point(sizePx / 2, sizePx / 2)
+    });
+  }
+
   const _iconCache = {};
   function createPinIcon(charger) {
     const key = `${charger.network}_${charger.type}`;
@@ -378,28 +430,26 @@ const MapEngine = (function () {
   }
 
   function _executeFastRender(chargers = null) {
-    const zoom = map.getZoom();
-    const bounds = map.getBounds().pad(0.18);
-
-    if (!chargers) {
-      chargers = (window.SyncEngine && window.SyncEngine.getChargersInBounds)
-        ? window.SyncEngine.getChargersInBounds(bounds)
-        : (window.SyncEngine ? window.SyncEngine.getChargers() : []);
-    }
+    const isExplicitList = Array.isArray(chargers);
+    const sourceList = isExplicitList
+      ? chargers
+      : (window.SyncEngine ? window.SyncEngine.getChargers() : []);
 
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     const corridorBuffer = window.RouteEngine ? window.RouteEngine.getCorridorBufferKm() : 5;
     const isCorridorActive = Boolean(activeRoute && corridorBuffer !== 'all');
+    isCorridorClusterMode = isCorridorActive;
+
+    const activeRouteWaypoints = (activeRoute && activeRoute.waypoints) || [];
+    const activeWpIds = new Set(activeRouteWaypoints.map(w => w.id));
 
     let visibleChargers = [];
-
-    if (isCorridorActive) {
+    if (isCorridorActive && !isExplicitList) {
       const corridorChargers = (window.RouteEngine && window.RouteEngine.getCorridorChargers()) || [];
-      const inBounds = corridorChargers.filter(c => bounds.contains([c.lat, c.lng]));
-
-      for (let i = 0; i < inBounds.length; i++) {
-        const c = inBounds[i];
+      for (let i = 0; i < corridorChargers.length; i++) {
+        const c = corridorChargers[i];
         if (c.is_2w === false) continue;
+        if (activeWpIds.has(c.id)) continue;
         if (c.network === 'ATHER_GRID' && !filters.atherFast) continue;
         if (c.network === 'VIDA_GRID' && !filters.vidaFast) continue;
         if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) continue;
@@ -407,98 +457,51 @@ const MapEngine = (function () {
         visibleChargers.push(c);
       }
     } else {
-      const activeCandidates = [];
-      for (let i = 0; i < chargers.length; i++) {
-        const c = chargers[i];
+      for (let i = 0; i < sourceList.length; i++) {
+        const c = sourceList[i];
         if (c.is_2w === false) continue;
+        if (activeWpIds.has(c.id)) continue;
         if (activeStateFilter !== 'all' && c.state && c.state !== activeStateFilter) continue;
         if (c.network === 'ATHER_GRID' && !filters.atherFast) continue;
         if (c.network === 'VIDA_GRID' && !filters.vidaFast) continue;
         if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) continue;
         if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) continue;
-        activeCandidates.push(c);
-      }
-
-      const inBounds = activeCandidates.filter(c => bounds.contains([c.lat, c.lng]));
-      const fastInBounds = inBounds.filter(c => c.type === 'FAST' || c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID');
-      const slowInBounds = inBounds.filter(c => c.type !== 'FAST' && c.network !== 'ATHER_GRID' && c.network !== 'VIDA_GRID');
-
-      const sampleInterleavedByNetwork = (list, limit) => {
-        if (list.length <= limit) return list;
-        const buckets = new Map();
-        for (let i = 0; i < list.length; i++) {
-          const net = list[i].network || 'OTHER';
-          if (!buckets.has(net)) buckets.set(net, []);
-          buckets.get(net).push(list[i]);
-        }
-        const keys = Array.from(buckets.keys());
-        const out = [];
-        const cursors = new Map(keys.map(k => [k, 0]));
-        const stride = Math.max(1, Math.floor(list.length / limit));
-        while (out.length < limit) {
-          let progressed = false;
-          for (const k of keys) {
-            const arr = buckets.get(k);
-            const idx = cursors.get(k);
-            if (idx < arr.length) {
-              out.push(arr[idx]);
-              cursors.set(k, idx + stride);
-              progressed = true;
-              if (out.length >= limit) break;
-            }
-          }
-          if (!progressed) break;
-        }
-        return out;
-      };
-
-      if (zoom < 9) {
-        visibleChargers.push(...sampleInterleavedByNetwork(fastInBounds, 240));
-      } else {
-        visibleChargers.push(...sampleInterleavedByNetwork(fastInBounds, 900));
-        if (filters.boltSlow && slowInBounds.length > 0) {
-          const remainingSlots = Math.max(0, 1050 - visibleChargers.length);
-          visibleChargers.push(...slowInBounds.slice(0, remainingSlots));
-        }
+        visibleChargers.push(c);
       }
     }
 
-    const activeWaypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
-    activeWaypoints.forEach(wp => {
-      if (!visibleChargers.some(c => c.id === wp.id)) visibleChargers.push(wp);
-    });
+    const firstId = visibleChargers.length > 0 ? visibleChargers[0].id : '';
+    const lastId = visibleChargers.length > 0 ? visibleChargers[visibleChargers.length - 1].id : '';
+    const datasetKey = isExplicitList
+      ? `explicit_${visibleChargers.length}_${firstId}_${lastId}_${Date.now()}`
+      : [
+          activeStateFilter,
+          filters.atherFast ? 1 : 0,
+          filters.vidaFast ? 1 : 0,
+          filters.boltFast ? 1 : 0,
+          filters.boltSlow ? 1 : 0,
+          isCorridorActive ? `corr_${activeRoute.id || 'r'}_${corridorBuffer}` : 'all',
+          visibleChargers.length,
+          firstId,
+          lastId,
+          Array.from(activeWpIds).sort().join(',')
+        ].join('|');
 
-    if (activePopupChargerId && !visibleChargers.some(c => c.id === activePopupChargerId)) {
-      const activeC = (window.SyncEngine && window.SyncEngine.getChargerById(activePopupChargerId)) ||
-                      chargers.find(c => c.id === activePopupChargerId);
-      if (activeC) visibleChargers.push(activeC);
+    if (datasetKey === lastDatasetKey) {
+      return;
     }
+    lastDatasetKey = datasetKey;
 
-    const activeRouteWaypoints = (activeRoute && activeRoute.waypoints) || [];
-    const activeWpIds = new Set(activeRouteWaypoints.map(w => w.id));
-    const newVisibleIds = new Set(visibleChargers.map(c => c.id));
-
-    for (const [id, marker] of markerMap.entries()) {
-      const c = marker._chargerData;
-      if (c) {
-        if (activeStateFilter !== 'all' && c.state && c.state !== activeStateFilter) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
-        if (c.network === 'ATHER_GRID' && !filters.atherFast) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
-        if (c.network === 'VIDA_GRID' && !filters.vidaFast) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
-        if (c.network === 'BOLT_EARTH' && c.type === 'FAST' && !filters.boltFast) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
-        if (c.network === 'BOLT_EARTH' && c.type === 'SLOW' && !filters.boltSlow) { markersLayer.removeLayer(marker); markerMap.delete(id); continue; }
-      }
-      if (id === activePopupChargerId) continue;
-      if (activeWpIds.has(id) || (isCorridorActive && !newVisibleIds.has(id)) || !bounds.contains(L.latLng((c && c.lat) || marker.getLatLng().lat, (c && c.lng) || marker.getLatLng().lng))) {
-        markersLayer.removeLayer(marker);
-        markerMap.delete(id);
-      }
+    if (typeof markersLayer.clearLayers === 'function') {
+      markersLayer.clearLayers();
     }
+    markerMap.clear();
 
     // Spread co-located overlapping chargers (within ~25m) neatly into a clickable ring without altering true GPS coords
     const displayPosMap = new Map();
-    const ungrouped = visibleChargers.filter(c => !activeWpIds.has(c.id)).sort((a, b) => a.lat - b.lat || a.lng - b.lng);
+    const ungrouped = visibleChargers.slice().sort((a, b) => a.lat - b.lat || a.lng - b.lng);
     const assigned = new Set();
-    const spreadDeg = zoom >= 17 ? 0.00010 : (zoom >= 15 ? 0.00022 : (zoom >= 13 ? 0.00048 : (zoom >= 11 ? 0.0011 : 0.0026)));
+    const spreadDeg = 0.00018;
 
     for (let i = 0; i < ungrouped.length; i++) {
       const base = ungrouped[i];
@@ -527,15 +530,10 @@ const MapEngine = (function () {
       }
     }
 
-    visibleChargers.forEach((charger) => {
-      if (activeWpIds.has(charger.id)) return;
+    const batchMarkers = [];
+    for (let i = 0; i < visibleChargers.length; i++) {
+      const charger = visibleChargers[i];
       const pos = displayPosMap.get(charger.id) || [charger.lat, charger.lng];
-      const existing = markerMap.get(charger.id);
-      if (existing) {
-        existing.setLatLng(pos);
-        return;
-      }
-
       const marker = L.marker(L.latLng(pos[0], pos[1]), { icon: createPinIcon(charger) });
       marker._chargerData = charger;
 
@@ -548,9 +546,15 @@ const MapEngine = (function () {
       marker.on('popupopen', () => { activePopupChargerId = charger.id; });
       marker.on('popupclose', () => { if (activePopupChargerId === charger.id) activePopupChargerId = null; });
 
-      marker.addTo(markersLayer);
       markerMap.set(charger.id, marker);
-    });
+      batchMarkers.push(marker);
+    }
+
+    if (typeof markersLayer.addLayers === 'function') {
+      markersLayer.addLayers(batchMarkers);
+    } else {
+      batchMarkers.forEach(m => m.addTo(markersLayer));
+    }
   }
 
   function createChargerPopupHtml(charger, stopIndex = null) {
@@ -1577,7 +1581,8 @@ const MapEngine = (function () {
       });
       marker.on('popupopen', () => { activePopupChargerId = fullCharger.id; });
       marker.on('popupclose', () => { if (activePopupChargerId === fullCharger.id) activePopupChargerId = null; });
-      marker.addTo(markersLayer);
+      if (typeof markersLayer.addLayer === 'function') markersLayer.addLayer(marker);
+      else marker.addTo(markersLayer);
       markerMap.set(fullCharger.id, marker);
     }
 
@@ -1587,9 +1592,13 @@ const MapEngine = (function () {
       if (wpMarker) {
         wpMarker.openPopup();
       } else if (marker) {
-        marker.openPopup();
+        if (typeof markersLayer.zoomToShowLayer === 'function') {
+          markersLayer.zoomToShowLayer(marker, () => marker.openPopup());
+        } else {
+          marker.openPopup();
+        }
       }
-    }, 450);
+    }, 460);
   }
 
   function handleFocusChargerById(chargerId) {
@@ -1598,10 +1607,31 @@ const MapEngine = (function () {
     activePopupChargerId = c.id;
     renderChargers();
     setTimeout(() => {
-      const m = waypointMarkersMap.get(c.id) || markerMap.get(c.id);
-      if (m) m.openPopup();
-      else focusCharger(c);
+      const wpMarker = waypointMarkersMap.get(c.id);
+      const m = markerMap.get(c.id);
+      if (wpMarker) {
+        wpMarker.openPopup();
+      } else if (m) {
+        if (typeof markersLayer.zoomToShowLayer === 'function') {
+          markersLayer.zoomToShowLayer(m, () => m.openPopup());
+        } else {
+          m.openPopup();
+        }
+      } else {
+        focusCharger(c);
+      }
     }, 60);
+  }
+
+  function getLoadedNetworkCounts() {
+    const counts = { ATHER_GRID: 0, VIDA_GRID: 0, BOLT_EARTH: 0 };
+    if (!markersLayer) return counts;
+    const layers = typeof markersLayer.getLayers === 'function' ? markersLayer.getLayers() : [];
+    for (let i = 0; i < layers.length; i++) {
+      const d = layers[i]._chargerData;
+      if (d && counts[d.network] !== undefined) counts[d.network]++;
+    }
+    return counts;
   }
 
   return {
@@ -1630,6 +1660,7 @@ const MapEngine = (function () {
     getUserCoords: () => userCoords,
     getLastGpsFixAgeMs: () => (lastGpsFixTime ? Date.now() - lastGpsFixTime : Infinity),
     getMap: () => map,
+    getLoadedNetworkCounts,
     getBearing: () => (map && typeof map.getBearing === 'function' ? map.getBearing() : 0),
     setBearing: (deg) => {
       if (map && typeof map.setBearing === 'function') {
