@@ -20,8 +20,26 @@ if os.path.exists(manifest_path):
     if missing_perms:
         content = content.replace('<application', '    ' + '\n    '.join(missing_perms) + '\n\n    <application')
 
+    if '<queries' not in content:
+        queries_block = (
+            '    <queries>\n'
+            '        <package android:name="com.athermobileapp" />\n'
+            '        <package android:name="com.hero.vida" />\n'
+            '        <package android:name="com.revos.bolt.android" />\n'
+            '        <intent>\n'
+            '            <action android:name="android.intent.action.VIEW" />\n'
+            '            <data android:scheme="market" />\n'
+            '        </intent>\n'
+            '        <intent>\n'
+            '            <action android:name="android.intent.action.VIEW" />\n'
+            '            <data android:scheme="https" />\n'
+            '        </intent>\n'
+            '    </queries>\n\n    <application'
+        )
+        content = content.replace('<application', queries_block)
+
     with open(manifest_path, 'w', encoding='utf-8') as f:
         f.write(content)
-    print('[VoltWay Build] Injected GPS & WakeLock permissions into AndroidManifest.xml cleanly!')
+    print('[VoltWay Build] Injected GPS, WakeLock & EV app <queries> into AndroidManifest.xml cleanly!')
 else:
     print(f'[VoltWay Build] AndroidManifest.xml not found at {manifest_path}')

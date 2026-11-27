@@ -885,29 +885,86 @@ const MapEngine = (function () {
   }
 
   function handleOpenOfficialApp(network, chargerId) {
-    const isAndroid = /android/i.test(navigator.userAgent);
-    if (network === 'ATHER_GRID') {
-      if (isAndroid) {
-        window.location.href = 'intent://atherenergy.com/#Intent;package=com.atherenergy.app;scheme=https;end';
-        setTimeout(() => window.open('https://play.google.com/store/apps/details?id=com.atherenergy.app', '_blank'), 1200);
-      } else {
-        window.open('https://play.google.com/store/apps/details?id=com.atherenergy.app', '_blank');
+    const charger = (chargerId && window.SyncEngine && typeof window.SyncEngine.getChargerById === 'function')
+      ? window.SyncEngine.getChargerById(chargerId)
+      : null;
+
+    const appConfig = {
+      ATHER_GRID: {
+        pkg: 'com.athermobileapp',
+        appName: 'Ather',
+        host: 'www.atherenergy.com/grid',
+        scheme: 'https'
+      },
+      VIDA_GRID: {
+        pkg: 'com.hero.vida',
+        appName: 'My VIDA',
+        host: 'www.vidaworld.com/',
+        scheme: 'https'
+      },
+      BOLT_EARTH: {
+        pkg: 'com.revos.bolt.android',
+        appName: 'Bolt.Earth',
+        host: 'bolt.earth/',
+        scheme: 'https'
       }
-    } else if (network === 'VIDA_GRID') {
-      if (isAndroid) {
-        window.location.href = 'intent://vidaworld.com/#Intent;package=com.vida.app;scheme=https;end';
-        setTimeout(() => window.open('https://play.google.com/store/apps/details?id=com.vida.app', '_blank'), 1200);
-      } else {
-        window.open('https://play.google.com/store/apps/details?id=com.vida.app', '_blank');
-      }
-    } else {
-      if (isAndroid) {
-        window.location.href = `intent://bolt.earth/charger/${chargerId}#Intent;package=com.revos.bolt.android;scheme=https;end`;
-        setTimeout(() => window.open('https://play.google.com/store/apps/details?id=com.revos.bolt.android', '_blank'), 1200);
-      } else {
-        window.open('https://play.google.com/store/apps/details?id=com.revos.bolt.android', '_blank');
+    };
+    const cfg = appConfig[network] || appConfig.BOLT_EARTH;
+
+    // Auto-copy Charger ID (Bolt) or Station Name (Ather/VIDA) so user can paste directly inside the app's search
+    let copyText = '';
+    if (network === 'BOLT_EARTH' && chargerId) {
+      copyText = String(chargerId).trim();
+    } else if (charger && charger.name) {
+      copyText = String(charger.name)
+        .replace(/^(?:Vida Grid Fast|Ather Grid Fast|Bolt\.Earth Fast|Bolt\.Earth 15A|Bolt Fast)\s*-\s*/i, '')
+        .replace(/\s*\(Ather Gun[^)]*\)/gi, '')
+        .trim();
+    }
+    if (!copyText && charger && charger.address) {
+      copyText = String(charger.address).split(',')[0].trim();
+    }
+
+    if (copyText) {
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          navigator.clipboard.writeText(copyText).catch(() => {});
+        }
+      } catch (e) {}
+      if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
+        window.SyncEngine.showAutoUpdateToast(`📋 Copied "${copyText}" — Opening ${cfg.appName} (Paste in Search)`);
       }
     }
+
+    const playUrl = `https://play.google.com/store/apps/details?id=${cfg.pkg}`;
+    const launcher = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppLauncher;
+    if (launcher && typeof launcher.openUrl === 'function') {
+      (async () => {
+        try {
+          const check = typeof launcher.canOpenUrl === 'function'
+            ? await launcher.canOpenUrl({ url: cfg.pkg })
+            : { value: true };
+          if (check && check.value) {
+            await launcher.openUrl({ url: cfg.pkg });
+            return;
+          }
+        } catch (e) {}
+        try {
+          await launcher.openUrl({ url: `market://details?id=${cfg.pkg}` });
+          return;
+        } catch (e2) {}
+        window.open(playUrl, '_blank', 'noopener,noreferrer');
+      })();
+      return cfg.pkg;
+    }
+
+    const isAndroid = /android/i.test(navigator.userAgent);
+    if (isAndroid) {
+      window.location.href = `intent://${cfg.host}#Intent;scheme=${cfg.scheme};package=${cfg.pkg};S.browser_fallback_url=${encodeURIComponent(playUrl)};end`;
+    } else {
+      window.open(playUrl, '_blank', 'noopener,noreferrer');
+    }
+    return cfg.pkg;
   }
 
   function handleNavigateToCharger(chargerId) {
