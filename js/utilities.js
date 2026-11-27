@@ -388,12 +388,32 @@ const Utilities = (function () {
       .trim();
   }
 
-  async function queryNominatimRaw(qStr, timeoutMs = 4200) {
+  let lastGeoDiag = '';
+
+  async function fetchJsonWithAppUA(url, timeoutMs = 6000, tag = 'Geo') {
+    const capHttp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+    if (capHttp && typeof capHttp.get === 'function') {
+      try {
+        const resp = await capHttp.get({
+          url,
+          connectTimeout: timeoutMs,
+          readTimeout: timeoutMs,
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'VoltWay2W/5.53 (https://banispp.github.io/voltway/)'
+          }
+        });
+        if (resp && resp.status >= 200 && resp.status < 300) {
+          return typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
+        }
+        lastGeoDiag = `${tag}:${resp ? resp.status : 'empty'}`;
+        return null;
+      } catch (e) {
+        lastGeoDiag = `${tag}:${e && e.message ? e.message.slice(0, 22) : 'err'}`;
+        return null;
+      }
+    }
     try {
-      const cleanQ = qStr.trim();
-      const hasCountry = /\bindia\b/i.test(cleanQ);
-      const qParam = hasCountry ? cleanQ : cleanQ;
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(qParam)}&countrycodes=in&limit=8&addressdetails=1&accept-language=en,ml`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       const resp = await fetch(url, {
@@ -402,8 +422,22 @@ const Utilities = (function () {
       });
       clearTimeout(timeoutId);
       if (resp.ok) {
-        const data = await resp.json();
-        return (data || []).map(item => ({
+        return await resp.json();
+      }
+      lastGeoDiag = `${tag}:${resp.status}`;
+    } catch (e) {
+      lastGeoDiag = `${tag}:${e && e.name ? e.name : 'err'}`;
+    }
+    return null;
+  }
+
+  async function queryNominatimRaw(qStr, timeoutMs = 6000) {
+    try {
+      const cleanQ = qStr.trim();
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanQ)}&countrycodes=in&limit=8&addressdetails=1&accept-language=en,ml`;
+      const data = await fetchJsonWithAppUA(url, timeoutMs, 'Nom');
+      if (Array.isArray(data)) {
+        return data.map(item => ({
           name: item.display_name.split(',')[0],
           fullName: item.display_name,
           lat: parseFloat(item.lat),
@@ -414,36 +448,49 @@ const Utilities = (function () {
     return [];
   }
 
-  async function queryPhotonRaw(qStr, timeoutMs = 4200) {
+  async function queryPhotonRaw(qStr, timeoutMs = 6000) {
     try {
       const encoded = encodeURIComponent(qStr.trim());
       // bbox biased to India; lat/lon bias to Kerala centre
       const url = `https://photon.komoot.io/api/?q=${encoded}&limit=8&lat=10.5&lon=76.2&bbox=68.0,8.0,97.0,37.0&lang=en`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      const resp = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data && data.features && data.features.length > 0) {
-          return data.features.map(f => {
-            const props = f.properties || {};
-            const coords = (f.geometry && f.geometry.coordinates) || [0, 0];
-            const name = props.name || props.street || qStr.trim();
-            const locationParts = [
-              name,
-              props.city || props.town || props.village || props.county,
-              props.state,
-              props.country
-            ].filter(Boolean);
-            return {
-              name: name,
-              fullName: locationParts.join(', '),
-              lat: coords[1],
-              lng: coords[0]
-            };
-          }).filter(it => !isNaN(it.lat) && !isNaN(it.lng));
-        }
+      const data = await fetchJsonWithAppUA(url, timeoutMs, 'Pho');
+      if (data && data.features && data.features.length > 0) {
+        return data.features.map(f => {
+          const props = f.properties || {};
+          const coords = (f.geometry && f.geometry.coordinates) || [0, 0];
+          const name = props.name || props.street || qStr.trim();
+          const locationParts = [
+            name,
+            props.city || props.town || props.village || props.county,
+            props.state,
+            props.country
+          ].filter(Boolean);
+          return {
+            name: name,
+            fullName: locationParts.join(', '),
+            lat: coords[1],
+            lng: coords[0]
+          };
+        }).filter(it => !isNaN(it.lat) && !isNaN(it.lng));
+      }
+    } catch (e) {}
+    return [];
+  }
+
+  async function queryNativeAndroidGeocoder(qStr) {
+    const vn = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
+    if (!vn || typeof vn.geocodePlace !== 'function') return [];
+    try {
+      const res = await vn.geocodePlace({ query: qStr });
+      if (res && res.success && Array.isArray(res.results)) {
+        return res.results
+          .map(it => ({
+            name: it.name || qStr,
+            fullName: it.fullName || it.name || qStr,
+            lat: parseFloat(it.lat),
+            lng: parseFloat(it.lng)
+          }))
+          .filter(it => !isNaN(it.lat) && !isNaN(it.lng));
       }
     } catch (e) {}
     return [];
@@ -454,6 +501,7 @@ const Utilities = (function () {
     const rawTrim = query.trim();
     const qTrim = normalizeIndiaPlaceQuery(rawTrim) || rawTrim;
     const qLower = qTrim.toLowerCase();
+    lastGeoDiag = '';
 
     const localMatches = POPULAR_INDIAN_PLACES.filter(p =>
       p.name.toLowerCase().includes(qLower) || p.fullName.toLowerCase().includes(qLower)
@@ -464,80 +512,100 @@ const Utilities = (function () {
       return localMatches.slice(0, 8);
     }
 
-    // Run Photon and Nominatim in parallel with 5.5s mobile timeout
+    // Run Photon and Nominatim in parallel with 6.5s mobile timeout
     const [photonSettled, osmSettled] = await Promise.allSettled([
-      queryPhotonRaw(qTrim, 5500),
-      queryNominatimRaw(qTrim, 5500)
+      queryPhotonRaw(qTrim, 6500),
+      queryNominatimRaw(qTrim, 6500)
     ]);
 
     let photonResults = photonSettled.status === 'fulfilled' ? photonSettled.value : [];
     let osmResults = osmSettled.status === 'fulfilled' ? osmSettled.value : [];
+    let nativeGeoResults = [];
 
-    // Progressive fallback if noisy/multi-word/address query returned nothing from both engines
+    // Try native Android Play Services Geocoder immediately if both online web geocoders missed
+    if (photonResults.length === 0 && osmResults.length === 0) {
+      nativeGeoResults = await queryNativeAndroidGeocoder(qTrim);
+    }
+
+    // Progressive fallback if noisy/multi-word/address query returned nothing from all engines
     const pinMatch = rawTrim.match(/\b([1-9]\d{5})\b/);
-    if (photonResults.length === 0 && osmResults.length === 0 && qTrim.length >= 4) {
+    const hasPlus = Boolean(extractPlusCode(rawTrim));
+    if (photonResults.length === 0 && osmResults.length === 0 && nativeGeoResults.length === 0 && qTrim.length >= 4) {
       const fallbacks = [];
       const commaParts = qTrim.split(',').map(s => s.trim()).filter(Boolean);
       const stateMatch = qTrim.match(/\b(Kerala|Karnataka|Tamil Nadu|Maharashtra|Goa|Telangana|Andhra Pradesh|Delhi|Gujarat|Rajasthan|Punjab|Haryana|West Bengal|Uttar Pradesh|Madhya Pradesh|Bihar|Odisha|Jharkhand|Assam|Puducherry)\b/i);
       const isKeralaPin = pinMatch && /^6[789]\d{4}$/.test(pinMatch[1]);
       const fallbackState = stateMatch ? stateMatch[1] : (isKeralaPin ? 'Kerala' : 'India');
 
-      if (commaParts.length >= 2) {
-        fallbacks.push(commaParts.slice(1).join(', '));
-        if (commaParts.length >= 3) {
-          const p1Clean = commaParts[1].replace(/\b\d{6}\b/g, '').trim();
-          if (p1Clean) fallbacks.push(`${p1Clean}, ${fallbackState}`);
-          if (commaParts.length >= 4) {
-            const p2Clean = commaParts[2].replace(/\b\d{6}\b/g, '').trim();
-            if (p2Clean && p2Clean.toLowerCase() !== fallbackState.toLowerCase()) {
-              fallbacks.push(`${p2Clean}, ${fallbackState}`);
-            }
+      // When no Plus Code, try Nominatim exact match on `<PlaceName>, <State>` first (e.g. "Adyanpara Waterfall, Kerala")
+      if (!hasPlus && commaParts.length >= 2) {
+        const p0Clean = commaParts[0].replace(/\b\d{6}\b/g, '').trim();
+        if (p0Clean && p0Clean.length >= 3 && !/^\d+$/.test(p0Clean)) {
+          const exactPoiOsm = await queryNominatimRaw(`${p0Clean}, ${fallbackState}`, 4500);
+          if (exactPoiOsm.length > 0) {
+            osmResults = exactPoiOsm;
           }
-          fallbacks.push(commaParts.slice(-3).join(', '));
-        } else {
-          fallbacks.push(commaParts[commaParts.length - 1]);
         }
       }
-      if (pinMatch) {
-        fallbacks.push(`${pinMatch[1]}, India`);
-      }
-      const words = qTrim.replace(/[,]+/g, ' ').split(/\s+/).filter(w => w.length >= 3 && !/^\d+$/.test(w));
-      if (commaParts.length < 2 && words.length >= 3) {
-        fallbacks.push(words.slice(-2).join(' '));
-        fallbacks.push(words[words.length - 1]);
-      } else if (words.length >= 2 && localMatches.length === 0) {
-        // Check local places against individual significant town words
-        words.forEach(w => {
-          const wl = w.toLowerCase();
-          if (wl.length >= 4 && wl !== 'kerala' && wl !== 'india' && wl !== 'road') {
-            POPULAR_INDIAN_PLACES.forEach(p => {
-              if (p.name.toLowerCase().includes(wl) && !localMatches.includes(p)) {
-                localMatches.push(p);
-              }
-            });
-          }
-        });
-      }
 
-      for (const fb of fallbacks) {
-        if (!fb || fb.length < 3 || fb === qTrim) continue;
-        const [fbP, fbO] = await Promise.allSettled([
-          queryPhotonRaw(fb, 3200),
-          queryNominatimRaw(fb, 3200)
-        ]);
-        const pArr = fbP.status === 'fulfilled' ? fbP.value : [];
-        const oArr = fbO.status === 'fulfilled' ? fbO.value : [];
-        if (pArr.length > 0 || oArr.length > 0) {
-          photonResults = pArr;
-          osmResults = oArr;
-          break;
+      if (osmResults.length === 0) {
+        if (commaParts.length >= 2) {
+          fallbacks.push(commaParts.slice(1).join(', '));
+          if (commaParts.length >= 3) {
+            const p1Clean = commaParts[1].replace(/\b\d{6}\b/g, '').trim();
+            if (p1Clean) fallbacks.push(`${p1Clean}, ${fallbackState}`);
+            if (commaParts.length >= 4) {
+              const p2Clean = commaParts[2].replace(/\b\d{6}\b/g, '').trim();
+              if (p2Clean && p2Clean.toLowerCase() !== fallbackState.toLowerCase()) {
+                fallbacks.push(`${p2Clean}, ${fallbackState}`);
+              }
+            }
+            fallbacks.push(commaParts.slice(-3).join(', '));
+          } else {
+            fallbacks.push(commaParts[commaParts.length - 1]);
+          }
+        }
+        if (pinMatch) {
+          fallbacks.push(`${pinMatch[1]}, India`);
+        }
+        const words = qTrim.replace(/[,]+/g, ' ').split(/\s+/).filter(w => w.length >= 3 && !/^\d+$/.test(w));
+        if (commaParts.length < 2 && words.length >= 3) {
+          fallbacks.push(words.slice(-2).join(' '));
+          fallbacks.push(words[words.length - 1]);
+        } else if (words.length >= 2 && localMatches.length === 0) {
+          // Check local places against individual significant town words
+          words.forEach(w => {
+            const wl = w.toLowerCase();
+            if (wl.length >= 4 && wl !== 'kerala' && wl !== 'india' && wl !== 'road') {
+              POPULAR_INDIAN_PLACES.forEach(p => {
+                if (p.name.toLowerCase().includes(wl) && !localMatches.includes(p)) {
+                  localMatches.push(p);
+                }
+              });
+            }
+          });
+        }
+
+        for (const fb of fallbacks) {
+          if (!fb || fb.length < 3 || fb === qTrim) continue;
+          const [fbP, fbO] = await Promise.allSettled([
+            queryPhotonRaw(fb, 4200),
+            queryNominatimRaw(fb, 4200)
+          ]);
+          const pArr = fbP.status === 'fulfilled' ? fbP.value : [];
+          const oArr = fbO.status === 'fulfilled' ? fbO.value : [];
+          if (pArr.length > 0 || oArr.length > 0) {
+            photonResults = pArr;
+            osmResults = oArr;
+            break;
+          }
         }
       }
     }
 
-    // Merge local + Photon + Nominatim (deduplicate by proximity ~3km)
+    // Merge local + native + Photon + Nominatim (deduplicate by proximity ~3km)
     const combined = [...localMatches];
-    const allRemote = [...photonResults, ...osmResults];
+    const allRemote = [...nativeGeoResults, ...photonResults, ...osmResults];
     allRemote.forEach(item => {
       const exists = combined.some(c =>
         Math.abs(c.lat - item.lat) < 0.03 && Math.abs(c.lng - item.lng) < 0.03
@@ -1093,7 +1161,7 @@ const Utilities = (function () {
         }
       }
       if (geoQueries.length > 0 && lastResolveDiag && !lastResolveDiag.detail) {
-        lastResolveDiag.detail = `Geocoder 0 results: ${geoQueries[0].slice(0, 45)}`;
+        lastResolveDiag.detail = `Geocoder 0 (${lastGeoDiag || 'empty'}): ${geoQueries[0].slice(0, 38)}`;
       }
       return null;
     }

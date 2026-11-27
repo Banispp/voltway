@@ -133,12 +133,15 @@ import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.graphics.Bitmap;
+import android.location.Address;
+import android.location.Geocoder;
 import android.net.Uri;
 import android.os.Build;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import java.util.List;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -280,10 +283,10 @@ public class VoltWayNativePlugin extends Plugin {
     @PluginMethod
     public void getAppInfo(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("pluginBuild", "v5.53-doh");
+        ret.put("pluginBuild", "v5.55-geo");
         try {
             PackageInfo pInfo = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
-            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.52");
+            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.53");
             ret.put("lastUpdateTime", pInfo.lastUpdateTime);
             if (Build.VERSION.SDK_INT >= 28) {
                 ret.put("versionCode", pInfo.getLongVersionCode());
@@ -294,6 +297,103 @@ public class VoltWayNativePlugin extends Plugin {
             ret.put("lastUpdateTime", 0L);
         }
         call.resolve(ret);
+    }
+
+    @PluginMethod
+    @SuppressWarnings("deprecation")
+    public void geocodePlace(PluginCall call) {
+        final String query = call.getString("query", "").trim();
+        if (query.length() < 2) {
+            JSObject empty = new JSObject();
+            empty.put("success", false);
+            empty.put("results", new JSONArray());
+            call.resolve(empty);
+            return;
+        }
+        executor.execute(() -> {
+            JSObject ret = new JSObject();
+            JSONArray results = new JSONArray();
+            try {
+                // 1. Try Android OS Geocoder (Google Play Services Geocoder) bounded to India
+                if (Geocoder.isPresent()) {
+                    try {
+                        Geocoder gc = new Geocoder(getContext(), Locale.ENGLISH);
+                        List<Address> addrs = gc.getFromLocationName(query, 5, 6.5, 68.0, 35.5, 97.5);
+                        if (addrs != null) {
+                            for (Address a : addrs) {
+                                if (a != null && a.hasLatitude() && a.hasLongitude()) {
+                                    JSONObject item = new JSONObject();
+                                    String feature = a.getFeatureName();
+                                    String loc = a.getLocality() != null ? a.getLocality() : a.getSubAdminArea();
+                                    String admin = a.getAdminArea();
+                                    StringBuilder full = new StringBuilder();
+                                    for (int li = 0; li <= a.getMaxAddressLineIndex(); li++) {
+                                        String line = a.getAddressLine(li);
+                                        if (line != null && !line.isEmpty()) {
+                                            if (full.length() > 0) full.append(", ");
+                                            full.append(line);
+                                        }
+                                    }
+                                    String displayName = (feature != null && !feature.isEmpty()) ? feature : (loc != null ? loc : query);
+                                    if (loc != null && !displayName.contains(loc)) displayName = displayName + ", " + loc;
+                                    item.put("name", displayName);
+                                    item.put("fullName", full.length() > 0 ? full.toString() : (displayName + (admin != null ? ", " + admin : "")));
+                                    item.put("lat", a.getLatitude());
+                                    item.put("lng", a.getLongitude());
+                                    results.put(item);
+                                }
+                            }
+                        }
+                    } catch (Exception ignoredGc) {}
+                }
+
+                // 2. If OS Geocoder returned empty, query Nominatim directly with proper app User-Agent (avoids Dalvik 403 block)
+                if (results.length() == 0) {
+                    HttpURLConnection c = null;
+                    try {
+                        String uStr = "https://nominatim.openstreetmap.org/search?format=json&q="
+                            + URLEncoder.encode(query, "UTF-8")
+                            + "&countrycodes=in&limit=5&addressdetails=1&accept-language=en,ml";
+                        c = (HttpURLConnection) new URL(uStr).openConnection();
+                        c.setConnectTimeout(5500);
+                        c.setReadTimeout(5500);
+                        c.setRequestProperty("User-Agent", "VoltWay2W-Android/5.53");
+                        c.setRequestProperty("Accept", "application/json");
+                        if (c.getResponseCode() == 200) {
+                            String body = readStreamLimited(c.getInputStream(), 128 * 1024);
+                            JSONArray arr = new JSONArray(body);
+                            for (int i = 0; i < arr.length(); i++) {
+                                JSONObject o = arr.optJSONObject(i);
+                                if (o == null) continue;
+                                double lat = Double.parseDouble(o.optString("lat", "NaN"));
+                                double lng = Double.parseDouble(o.optString("lon", "NaN"));
+                                if (!Double.isNaN(lat) && !Double.isNaN(lng)) {
+                                    String disp = o.optString("display_name", query);
+                                    JSONObject item = new JSONObject();
+                                    item.put("name", disp.split(",")[0].trim());
+                                    item.put("fullName", disp);
+                                    item.put("lat", lat);
+                                    item.put("lng", lng);
+                                    results.put(item);
+                                }
+                            }
+                        }
+                    } catch (Exception ignoredNom) {
+                    } finally {
+                        if (c != null) c.disconnect();
+                    }
+                }
+
+                ret.put("success", results.length() > 0);
+                ret.put("results", results);
+                call.resolve(ret);
+            } catch (Exception e) {
+                ret.put("success", false);
+                ret.put("results", results);
+                ret.put("error", e.getMessage() != null ? e.getMessage() : "geocode failed");
+                call.resolve(ret);
+            }
+        });
     }
 
     @PluginMethod
