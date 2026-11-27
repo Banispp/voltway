@@ -329,35 +329,117 @@ const Utilities = (function () {
     return combined.slice(0, 8);
   }
 
+  const shortUrlCache = new Map();
+
+  function hasMapLinkOrCoords(rawText) {
+    if (!rawText || typeof rawText !== 'string') return false;
+    return /https?:\/\/|geo:|maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|maps\.google\.com|google\.com\/maps/i.test(rawText) ||
+      /-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+/.test(rawText) ||
+      /\d+[°\s]+\d+['\s]+[\d.]+"?\s*[NS]/i.test(rawText);
+  }
+
+  function extractFromUrlString(urlStr) {
+    if (!urlStr || typeof urlStr !== 'string') return null;
+    const geoMatch = urlStr.match(/geo:(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/i);
+    if (geoMatch) return { lat: parseFloat(geoMatch[1]), lng: parseFloat(geoMatch[2]) };
+    const atMatch = urlStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (atMatch) return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+    const qMatch = urlStr.match(/[?&](?:q|daddr|saddr|ll|query)=(?:loc:)?(-?\d+\.\d+)(?:,|%2C|\s)+(-?\d+\.\d+)/i);
+    if (qMatch) return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
+    const searchCoordMatch = urlStr.match(/\/maps\/(?:search|place)\/(-?\d+\.\d+)(?:,|%2C|\+)+\s*(-?\d+\.\d+)/i);
+    if (searchCoordMatch) return { lat: parseFloat(searchCoordMatch[1]), lng: parseFloat(searchCoordMatch[2]) };
+    const protoMatch = urlStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+    if (protoMatch) return { lat: parseFloat(protoMatch[1]), lng: parseFloat(protoMatch[2]) };
+    const protoLngLat = urlStr.match(/!2d(-?\d+\.\d+)!1d(-?\d+\.\d+)/);
+    if (protoLngLat) return { lat: parseFloat(protoLngLat[2]), lng: parseFloat(protoLngLat[1]) };
+    const centerMatch = urlStr.match(/center=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i);
+    if (centerMatch) return { lat: parseFloat(centerMatch[1]), lng: parseFloat(centerMatch[2]) };
+    return null;
+  }
+
+  function extractPlaceTitleFromHtml(html) {
+    if (!html || typeof html !== 'string') return '';
+    const ogMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+    const titleMatch = ogMatch || html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (!titleMatch || !titleMatch[1]) return '';
+    let clean = titleMatch[1]
+      .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+      .replace(/\s*[-–·]\s*Google Maps\s*$/i, '')
+      .split('·')[0]
+      .trim();
+    if (!clean || /^google maps$/i.test(clean) || /^consent/i.test(clean) || clean.length < 2) return '';
+    return clean;
+  }
+
+  function extractBestMapInfoFromHtmlOrUrl(resolvedUrl, htmlBody = '') {
+    const out = { url: resolvedUrl || '', title: '', coords: null };
+    if (resolvedUrl) {
+      out.coords = extractFromUrlString(resolvedUrl);
+    }
+    if (htmlBody && typeof htmlBody === 'string') {
+      const mapsUrlMatch = htmlBody.match(/https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^\s"'<>\\]+/i);
+      if (!out.url && mapsUrlMatch) out.url = mapsUrlMatch[0].replace(/\\u003d/gi, '=').replace(/\\u0026/gi, '&');
+      if (!out.coords && mapsUrlMatch) out.coords = extractFromUrlString(out.url);
+      if (!out.coords) out.coords = extractFromUrlString(htmlBody);
+      out.title = extractPlaceTitleFromHtml(htmlBody);
+    }
+    return out;
+  }
+
   /**
    * Resolves short Google Maps URLs using native CapacitorHttp (Android)
-   * or local serve.py endpoint when running locally. Avoids third-party data proxies.
+   * or local serve.py endpoint when running locally. Cached to avoid duplicate calls.
    */
   async function unshortenUrl(shortUrl) {
-    if (!shortUrl || !navigator.onLine) return null;
+    if (!shortUrl) return null;
+    const trimmed = shortUrl.trim();
+    if (shortUrlCache.has(trimmed)) return shortUrlCache.get(trimmed);
+    if (!navigator.onLine) return null;
+
+    // Strip ?g_st=ac Android app-link hint so servers favor web redirect -> @lat,lng
+    const cleanedUrl = trimmed
+      .replace(/([?&])g_st=[^&]*&?/i, '$1')
+      .replace(/[?&]$/, '');
 
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp) {
-      try {
-        const resp = await window.Capacitor.Plugins.CapacitorHttp.get({
-          url: shortUrl,
-          headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36' }
-        });
-        if (resp && resp.url && resp.url !== shortUrl) return resp.url;
-        if (resp && typeof resp.data === 'string' && resp.data.includes('google.com/maps')) {
-          return resp.data;
+      const candidateUrls = cleanedUrl !== trimmed ? [cleanedUrl, trimmed] : [trimmed];
+      const uas = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36'
+      ];
+      for (const target of candidateUrls) {
+        for (const ua of uas) {
+          try {
+            const resp = await window.Capacitor.Plugins.CapacitorHttp.get({
+              url: target,
+              headers: { 'User-Agent': ua, 'Accept': 'text/html,application/xhtml+xml' }
+            });
+            const finalUrl = (resp && resp.url && resp.url !== target && resp.url !== trimmed) ? resp.url : '';
+            const bodyStr = (resp && typeof resp.data === 'string') ? resp.data : '';
+            const info = extractBestMapInfoFromHtmlOrUrl(finalUrl, bodyStr);
+            if (info.coords || (info.url && info.url.includes('google.'))) {
+              const result = info.url || trimmed;
+              shortUrlCache.set(trimmed, info.url ? { ...info } : result);
+              return shortUrlCache.get(trimmed);
+            }
+          } catch (err) {}
         }
-      } catch (err) {}
+      }
     }
 
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 2500);
-        const resp = await fetch(`/api/resolve-maps-url?url=${encodeURIComponent(shortUrl)}`, { signal: controller.signal });
+        const resp = await fetch(`/api/resolve-maps-url?url=${encodeURIComponent(cleanedUrl)}`, { signal: controller.signal });
         clearTimeout(timer);
         if (resp.ok) {
           const data = await resp.json();
-          if (data.success && data.resolved_url) return data.resolved_url;
+          if (data.success && data.resolved_url) {
+            shortUrlCache.set(trimmed, data.resolved_url);
+            return data.resolved_url;
+          }
         }
       } catch (e) {}
     }
@@ -365,9 +447,10 @@ const Utilities = (function () {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 2000);
-      const resp = await fetch(shortUrl, { redirect: 'follow', signal: controller.signal });
+      const resp = await fetch(cleanedUrl, { redirect: 'follow', signal: controller.signal });
       clearTimeout(timer);
-      if (resp && resp.url && resp.url !== shortUrl && resp.url.includes('google.com/maps')) {
+      if (resp && resp.url && resp.url !== cleanedUrl && resp.url.includes('google.com/maps')) {
+        shortUrlCache.set(trimmed, resp.url);
         return resp.url;
       }
     } catch (e) {}
@@ -375,7 +458,8 @@ const Utilities = (function () {
     return null;
   }
 
-  function parseGoogleMapsDirectionsUrl(url) {
+  function parseGoogleMapsDirectionsUrl(urlOrInfo) {
+    const url = (urlOrInfo && typeof urlOrInfo === 'object') ? urlOrInfo.url : urlOrInfo;
     if (!url || typeof url !== 'string' || !url.includes('/maps/dir/')) return null;
     try {
       const qMatch = url.match(/[?&]origin=([^&]+).*?[?&]destination=([^&]+)/i);
@@ -405,12 +489,12 @@ const Utilities = (function () {
     return null;
   }
 
-  async function resolveLocationInput(rawInput) {
+  async function resolveLocationInput(rawInput, preExpanded = null) {
     if (!rawInput || typeof rawInput !== 'string') return null;
     const text = rawInput.trim();
     if (!text) return null;
 
-    // 1. Direct coordinates ("10.0246, 76.3079")
+    // 1. Direct coordinates ("10.0246, 76.3079") or geo: URI ("geo:10.0246,76.3079?q=Name")
     const coordMatch = text.match(/^(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)$/);
     if (coordMatch) {
       const lat = parseFloat(coordMatch[1]);
@@ -420,7 +504,8 @@ const Utilities = (function () {
           lat,
           lng,
           name: `Pin (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-          fullName: `GPS Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+          fullName: `GPS Coordinates: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          isMapLink: true
         };
       }
     }
@@ -436,31 +521,46 @@ const Utilities = (function () {
         lat: Math.round(lat * 1000000) / 1000000,
         lng: Math.round(lng * 1000000) / 1000000,
         name: `Pin (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
-        fullName: `GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
+        fullName: `GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        isMapLink: true
       };
     }
 
-    const extractFromUrlString = (urlStr) => {
-      const atMatch = urlStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-      if (atMatch) return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
-      const qMatch = urlStr.match(/[?&](?:q|daddr|saddr|ll)=(?:loc:)?(-?\d+\.\d+),(-?\d+\.\d+)/i);
-      if (qMatch) return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
-      const protoMatch = urlStr.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-      if (protoMatch) return { lat: parseFloat(protoMatch[1]), lng: parseFloat(protoMatch[2]) };
-      const protoLngLat = urlStr.match(/!2d(-?\d+\.\d+)!1d(-?\d+\.\d+)/);
-      if (protoLngLat) return { lat: parseFloat(protoLngLat[2]), lng: parseFloat(protoLngLat[1]) };
-      const centerMatch = urlStr.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i) || urlStr.match(/center=(-?\d+\.\d+),(-?\d+\.\d+)/i);
-      if (centerMatch) return { lat: parseFloat(centerMatch[1]), lng: parseFloat(centerMatch[2]) };
-      return null;
-    };
+    const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+    let labelHint = '';
+    for (const line of lines) {
+      const textOnly = line
+        .replace(/https?:\/\/[^\s]+/gi, '')
+        .replace(/geo:[^\s]+/gi, '')
+        .replace(/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps)[^\s]*/gi, '')
+        .replace(/^(?:dropped pin|shared location|near:?|location:?)\s*/i, '')
+        .replace(/[-–:|,\s]+$/, '')
+        .trim();
+      if (textOnly.length >= 2 && !/^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(textOnly)) {
+        labelHint = textOnly;
+        break;
+      }
+    }
+
+    // Extract geo: query name if present (e.g. geo:10.0,76.3?q=10.0,76.3(Ather%20Space))
+    if (!labelHint && /^geo:/i.test(text)) {
+      const parenMatch = text.match(/\(([^)]+)\)/);
+      if (parenMatch && parenMatch[1]) {
+        labelHint = decodeURIComponent(parenMatch[1]).replace(/\+/g, ' ').trim();
+      }
+    }
 
     const directCoords = extractFromUrlString(text);
     if (directCoords) {
+      const placeInDirectUrl = text.match(/\/maps\/place\/([^/@?]+)/i);
+      const urlPlaceLabel = placeInDirectUrl ? decodeURIComponent(placeInDirectUrl[1]).replace(/\+/g, ' ').trim() : '';
+      const display = labelHint || urlPlaceLabel || `Map Pin (${directCoords.lat.toFixed(4)}, ${directCoords.lng.toFixed(4)})`;
       return {
         lat: directCoords.lat,
         lng: directCoords.lng,
-        name: `Map Pin (${directCoords.lat.toFixed(4)}, ${directCoords.lng.toFixed(4)})`,
-        fullName: `Google Maps Pin: ${directCoords.lat.toFixed(5)}, ${directCoords.lng.toFixed(5)}`
+        name: display,
+        fullName: `Google Maps Pin: ${directCoords.lat.toFixed(5)}, ${directCoords.lng.toFixed(5)}`,
+        isMapLink: true
       };
     }
 
@@ -469,43 +569,50 @@ const Utilities = (function () {
       const decodedPlace = decodeURIComponent(placeInUrlMatch[1]).replace(/\+/g, ' ').trim();
       if (decodedPlace) {
         const results = await searchPlace(decodedPlace);
-        if (results && results.length > 0) return results[0];
+        if (results && results.length > 0) return { ...results[0], isMapLink: true };
       }
     }
 
-    if (text.includes('http://') || text.includes('https://') || text.includes('goo.gl')) {
-      const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
-      for (const line of lines) {
-        if (/https?:\/\//i.test(line) || /goo\.gl/i.test(line)) continue;
-        const cleaned = line.replace(/^(?:dropped pin|shared location|near:?|location:?)\s*/i, '').trim();
-        if (cleaned.length >= 2) {
-          const results = await searchPlace(cleaned);
-          if (results && results.length > 0) return results[0];
-        }
-      }
-
+    // 3. Resolve URL (short link like maps.app.goo.gl/...?g_st=ac) BEFORE falling back to label line text search
+    if (/https?:\/\/|goo\.gl|maps\.app/i.test(text)) {
+      const bareShortMatch = text.match(/(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps)\/[^\s]+/i);
       const urlMatch = text.match(/https?:\/\/[^\s]+/i);
-      const url = urlMatch ? urlMatch[0] : null;
+      const url = urlMatch ? urlMatch[0] : (bareShortMatch ? `https://${bareShortMatch[0]}` : null);
       if (url) {
-        const expanded = await unshortenUrl(url);
-        if (expanded) {
-          const expCoords = extractFromUrlString(expanded);
+        const expandedRaw = preExpanded || await unshortenUrl(url);
+        if (expandedRaw) {
+          const expUrl = typeof expandedRaw === 'object' ? (expandedRaw.url || '') : String(expandedRaw);
+          const expTitle = typeof expandedRaw === 'object' ? (expandedRaw.title || '') : '';
+          const expCoords = (typeof expandedRaw === 'object' && expandedRaw.coords) || extractFromUrlString(expUrl);
+          const expPlaceMatch = expUrl.match(/\/maps\/place\/([^/@?]+)/i) || expUrl.match(/\/maps\/search\/([^/@?]+)/i);
+          const expPlace = expPlaceMatch ? decodeURIComponent(expPlaceMatch[1]).replace(/\+/g, ' ').trim() : '';
+
           if (expCoords) {
+            const bestName = labelHint || expTitle || expPlace || `Map Pin (${expCoords.lat.toFixed(4)}, ${expCoords.lng.toFixed(4)})`;
             return {
               lat: expCoords.lat,
               lng: expCoords.lng,
-              name: `Map Pin (${expCoords.lat.toFixed(4)}, ${expCoords.lng.toFixed(4)})`,
-              fullName: `Google Maps Pin: ${expCoords.lat.toFixed(5)}, ${expCoords.lng.toFixed(5)}`
+              name: bestName,
+              fullName: `Google Maps Pin: ${expCoords.lat.toFixed(5)}, ${expCoords.lng.toFixed(5)}`,
+              isMapLink: true
             };
           }
-          const expPlaceMatch = expanded.match(/\/maps\/place\/([^/@?]+)/i) || expanded.match(/\/maps\/search\/([^/@?]+)/i);
-          if (expPlaceMatch) {
-            const placeName = decodeURIComponent(expPlaceMatch[1]).replace(/\+/g, ' ').trim();
-            const results = await searchPlace(placeName);
-            if (results && results.length > 0) return results[0];
+          if (expPlace) {
+            const results = await searchPlace(expPlace);
+            if (results && results.length > 0) return { ...results[0], isMapLink: true };
+          }
+          if (expTitle) {
+            const results = await searchPlace(expTitle);
+            if (results && results.length > 0) return { ...results[0], isMapLink: true };
           }
         }
       }
+
+      if (labelHint) {
+        const results = await searchPlace(labelHint);
+        if (results && results.length > 0) return { ...results[0], isMapLink: true };
+      }
+      return null;
     }
 
     const searchResults = await searchPlace(text);
@@ -590,6 +697,7 @@ const Utilities = (function () {
     formatMinutes,
     searchPlace,
     unshortenUrl,
+    hasMapLinkOrCoords,
     parseGoogleMapsDirectionsUrl,
     resolveLocationInput,
     getLocalPlaces,

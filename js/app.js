@@ -554,15 +554,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const intermediateStopsList = document.getElementById('intermediate-stops-list');
   const btnAddIntermediateStop = document.getElementById('btn-add-intermediate-stop');
 
-  async function tryImportGoogleDirectionsUrl(rawText) {
-    if (!rawText || !window.Utilities) return false;
-    let url = rawText.trim();
-    if (/^https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps)/i.test(url)) {
-      const resolved = await window.Utilities.unshortenUrl(url);
-      if (resolved) url = resolved;
+  async function tryImportGoogleDirectionsUrl(rawText, expandedHint = null) {
+    if (!rawText || !window.Utilities) return { imported: false, expanded: expandedHint };
+    let expanded = expandedHint;
+    const rawTrimmed = rawText.trim();
+    const shortMatch = rawTrimmed.match(/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps)[^\s]*/i);
+    if (!expanded && shortMatch) {
+      expanded = await window.Utilities.unshortenUrl(shortMatch[0]);
     }
-    const dir = window.Utilities.parseGoogleMapsDirectionsUrl(url);
-    if (!dir) return false;
+    const dir = window.Utilities.parseGoogleMapsDirectionsUrl(expanded || rawTrimmed);
+    if (!dir) return { imported: false, expanded };
 
     if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔗 Importing Google Maps directions...');
     const oRes = await window.Utilities.resolveLocationInput(dir.origin);
@@ -582,7 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (wpRes) addIntermediateStopRow({ lat: wpRes.lat, lng: wpRes.lng, name: wpRes.name || wpText });
       }
     }
-    return true;
+    return { imported: true, expanded };
   }
 
   function attachLocationAutocomplete(inputEl, dropdownEl, options = {}) {
@@ -601,7 +602,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const div = document.createElement('div');
         div.className = 'dropdown-item';
 
-        if (item.isCharger) {
+        if (item.isStatusNotice) {
+          div.innerHTML = `
+            <div class="item-title">${esc(item.name)}</div>
+            <div class="item-sub">${esc(item.fullName || '')}</div>
+          `;
+        } else if (item.isCharger) {
           const icon = item.type === 'FAST' ? '⚡' : '🔌';
           div.innerHTML = `
             <div class="item-title">${icon} ${esc(item.name)}</div>
@@ -616,6 +622,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         div.addEventListener('click', (e) => {
           e.stopPropagation();
+          if (item.isStatusNotice) return;
           inputEl.value = item.name;
           dropdownEl.classList.remove('visible');
           if (openDropdownEl === dropdownEl) openDropdownEl = null;
@@ -638,22 +645,40 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      if (/^https?:\/\//i.test(q) || /^-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+$/.test(q)) {
+      const isLinkOrCoords = window.Utilities && typeof window.Utilities.hasMapLinkOrCoords === 'function'
+        ? window.Utilities.hasMapLinkOrCoords(q)
+        : (/https?:\/\/|geo:|goo\.gl|maps\.app/i.test(q) || /-?\d{1,2}\.\d+\s*[, ]\s*-?\d{1,3}\.\d+/.test(q));
+
+      if (isLinkOrCoords) {
+        if (/https?:\/\/|goo\.gl|maps\.app/i.test(q)) {
+          showItems([{ isStatusNotice: true, name: '🔗 Reading Google Maps link...', fullName: 'Extracting location pin' }]);
+        }
         debounceTimer = setTimeout(async () => {
+          let expandedHint = null;
           if (q.includes('/maps/dir/') || q.includes('goo.gl')) {
-            const imported = await tryImportGoogleDirectionsUrl(q);
-            if (imported) {
+            const dirRes = await tryImportGoogleDirectionsUrl(q);
+            expandedHint = dirRes.expanded;
+            if (dirRes.imported) {
               dropdownEl.classList.remove('visible');
               return;
             }
           }
           if (window.Utilities) {
-            const resolved = await window.Utilities.resolveLocationInput(q);
+            const resolved = await window.Utilities.resolveLocationInput(q, expandedHint);
+            if (inputEl.value.trim() !== q) return;
             if (resolved) {
-              showItems([{ ...resolved, isCharger: false }]);
+              showItems([{ ...resolved, isCharger: false, isMapLink: true }]);
+            } else {
+              showItems([{
+                isStatusNotice: true,
+                name: '⚠️ Could not extract coordinates from this short link',
+                fullName: navigator.onLine
+                  ? 'Use VoltWay Android APK or paste Google Maps Coordinates (e.g. 10.5276, 76.2144)'
+                  : 'Connect to internet to open short Google Maps links'
+              }]);
             }
           }
-        }, 220);
+        }, 120);
         return;
       }
 
@@ -706,6 +731,11 @@ document.addEventListener('DOMContentLoaded', () => {
       runLookup();
     });
 
+    inputEl.addEventListener('paste', () => {
+      if (options.onClearSelection) options.onClearSelection();
+      setTimeout(runLookup, 10);
+    });
+
     inputEl.addEventListener('focus', () => {
       const q = inputEl.value.trim();
       if (q.length >= 2 && !q.toLowerCase().includes('current location') && dropdownEl.children.length === 0) {
@@ -724,7 +754,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (item.isCharger && window.MapEngine) {
         window.MapEngine.focusCharger(item);
       } else if (window.MapEngine && window.MapEngine.getMap()) {
-        window.MapEngine.getMap().flyTo([item.lat, item.lng], 13, { animate: true, duration: 0.5 });
+        const z = item.isMapLink ? 15 : 13;
+        window.MapEngine.getMap().flyTo([item.lat, item.lng], z, { animate: true, duration: 0.5 });
       }
     }
   });
@@ -963,6 +994,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const resolved = await window.Utilities.resolveLocationInput(raw);
       if (resolved) {
         originCoords = { lat: resolved.lat, lng: resolved.lng, name: resolved.name || raw };
+        if (originInput && resolved.name) originInput.value = resolved.name;
         return originCoords;
       }
     }
@@ -977,6 +1009,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const resolved = await window.Utilities.resolveLocationInput(raw);
       if (resolved) {
         destCoords = { lat: resolved.lat, lng: resolved.lng, name: resolved.name || raw };
+        if (destInput && resolved.name) destInput.value = resolved.name;
         return destCoords;
       }
     }
@@ -2402,14 +2435,112 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // ---------- 13. Google Maps Share-Target & Native Android Intent Handler ----------
+  async function handleVoltwayIncomingShare(rawShareText) {
+    const cleaned = String(rawShareText || '').trim();
+    if (!cleaned || !window.Utilities) return false;
+
+    activateTab('route', true);
+    if (window.SyncEngine) {
+      window.SyncEngine.showAutoUpdateToast('📍 Opening shared Google Maps location...');
+    }
+
+    let expandedHint = null;
+    if (cleaned.includes('/maps/dir/') || cleaned.includes('goo.gl') || cleaned.includes('maps.app')) {
+      const dirRes = await tryImportGoogleDirectionsUrl(cleaned);
+      expandedHint = dirRes.expanded;
+      if (dirRes.imported) {
+        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🗺️ Imported shared Google Maps route!');
+        return true;
+      }
+    }
+
+    const resolved = await window.Utilities.resolveLocationInput(cleaned, expandedHint);
+    if (resolved && typeof resolved.lat === 'number' && typeof resolved.lng === 'number') {
+      destCoords = { lat: resolved.lat, lng: resolved.lng, name: resolved.name || 'Shared Location' };
+      if (destInput) destInput.value = destCoords.name;
+      if (window.MapEngine && window.MapEngine.getMap()) {
+        const m = window.MapEngine.getMap();
+        m.flyTo([destCoords.lat, destCoords.lng], 15, { animate: true, duration: 0.6 });
+      }
+      if (window.SyncEngine) {
+        window.SyncEngine.showAutoUpdateToast(`🏁 Destination set: ${destCoords.name} (Tap Plan EV Route)`);
+      }
+      return true;
+    }
+
+    if (destInput) {
+      destInput.value = cleaned;
+      destCoords = null;
+    }
+    if (window.SyncEngine) {
+      window.SyncEngine.showAutoUpdateToast('⚠️ Could not read shared pin — check internet or paste full link');
+    }
+    return false;
+  }
+
+  window.handleVoltwayIncomingShare = handleVoltwayIncomingShare;
+  window.checkIncomingNativeShare = function () {
+    try {
+      if (window.VoltWayAndroidShare && typeof window.VoltWayAndroidShare.consumePendingShare === 'function') {
+        const shared = window.VoltWayAndroidShare.consumePendingShare();
+        if (shared && shared.trim()) {
+          handleVoltwayIncomingShare(shared.trim());
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  };
+
+  // Web PWA share_target (?text=...&url=...&title=...) & shortcut (?tab=..., ?action=sos)
+  (function handleUrlLaunchParams() {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const sharedParts = [params.get('title'), params.get('text'), params.get('url')]
+        .map(v => (v ? String(v).trim() : ''))
+        .filter(Boolean);
+      const uniqueParts = Array.from(new Set(sharedParts));
+      const action = params.get('action');
+      const tab = params.get('tab');
+
+      if (uniqueParts.length > 0 || action || tab) {
+        try {
+          window.history.replaceState({}, document.title, window.location.pathname || './');
+        } catch (e) {}
+      }
+
+      if (uniqueParts.length > 0) {
+        const payload = uniqueParts.join('\n');
+        setTimeout(() => handleVoltwayIncomingShare(payload), 150);
+      } else if (action === 'sos') {
+        setTimeout(() => {
+          activateTab('sos', true);
+          runSosScan();
+        }, 150);
+      } else if (tab && ['route', 'battery', 'calculator', 'sos'].includes(tab)) {
+        setTimeout(() => activateTab(tab, true), 120);
+      }
+    } catch (e) {}
+  })();
+
+  window.checkIncomingNativeShare();
+  setTimeout(window.checkIncomingNativeShare, 400);
+
   document.addEventListener('backbutton', (e) => handleHardwareBack(e, false), false);
   if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App && typeof window.Capacitor.Plugins.App.addListener === 'function') {
     window.Capacitor.Plugins.App.addListener('backButton', ({ canGoBack }) => {
       handleHardwareBack(null, canGoBack);
     });
+    window.Capacitor.Plugins.App.addListener('appUrlOpen', ({ url }) => {
+      if (url && /^geo:|google\.com\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url)) {
+        handleVoltwayIncomingShare(url);
+      }
+    });
     window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
-      if (isActive && window.MapEngine) {
-        window.MapEngine.locateUser(false, true);
+      if (isActive) {
+        window.checkIncomingNativeShare();
+        if (window.MapEngine) window.MapEngine.locateUser(false, true);
       }
     });
   }
