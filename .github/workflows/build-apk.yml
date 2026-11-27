@@ -27,20 +27,32 @@ jobs:
           distribution: 'temurin'
           java-version: 17
 
-      - name: Package Web Assets and Build APK with Capacitor
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
+      - name: Prepare Web Assets
         run: |
           mkdir -p www
           cp -r index.html manifest.json sw.js chargers_db.json css js icons www/
+
+      - name: Install Capacitor Dependencies
+        run: |
           npm init -y
-          npm install @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/geolocation@^6 @capacitor/app@^6 @capacitor/app-launcher@^6
+          npm install --no-audit --no-fund @capacitor/core@^6 @capacitor/cli@^6 @capacitor/android@^6 @capacitor/geolocation@^6 @capacitor/app@^6 @capacitor/app-launcher@^6
+
+      - name: Add Android Platform & Sync
+        run: |
           npx cap add android
           npx cap sync android
+
+      - name: Inject Permissions & Native Plugin
+        run: |
           python scripts/inject_permissions.py
+
+      - name: Compile Android Debug APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
