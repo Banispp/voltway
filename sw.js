@@ -1,5 +1,5 @@
-// VoltWay 2W Service Worker - Version 5.54 (Aligned Cache Shell & Bounded Tile Cache)
-const CACHE_NAME = 'voltway-2w-v5-88';
+// VoltWay 2W Service Worker - Version 5.55 (Resilient Cache Shell & Bounded Tile Cache)
+const CACHE_NAME = 'voltway-2w-v5-89';
 const TILE_CACHE_NAME = 'voltway-2w-tiles-v1';
 const MAX_CACHED_TILES = 350;
 
@@ -8,17 +8,17 @@ const ASSETS_TO_CACHE = [
   './index.html',
   './manifest.json',
   './chargers_db.json',
-  './css/MarkerCluster.css?v=5.50',
-  './css/app.css?v=5.50',
-  './js/leaflet-rotate.js?v=5.50',
-  './js/leaflet.markercluster.js?v=5.50',
-  './js/app.js?v=5.50',
-  './js/map.js?v=5.50',
-  './js/router.js?v=5.50',
-  './js/battery.js?v=5.50',
-  './js/navigator.js?v=5.50',
-  './js/sync.js?v=5.50',
-  './js/utilities.js?v=5.50',
+  './css/MarkerCluster.css?v=5.55',
+  './css/app.css?v=5.55',
+  './js/leaflet-rotate.js?v=5.55',
+  './js/leaflet.markercluster.js?v=5.55',
+  './js/app.js?v=5.55',
+  './js/map.js?v=5.55',
+  './js/router.js?v=5.55',
+  './js/battery.js?v=5.55',
+  './js/navigator.js?v=5.55',
+  './js/sync.js?v=5.55',
+  './js/utilities.js?v=5.55',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -109,27 +109,34 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Local App Shell & Chargers DB: Network-First with Offline Cache Fallback
-  event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
-        }
+  // Local App Shell & Chargers DB: Network-First with Offline/Error Cache Fallback
+  event.respondWith((async () => {
+    const matchCached = async () => {
+      const exact = await caches.match(event.request, { ignoreSearch: false });
+      if (exact) return exact;
+      const cleanMatch = await caches.match(event.request, { ignoreSearch: true });
+      if (cleanMatch) return cleanMatch;
+      if (event.request.mode === 'navigate') {
+        return caches.match('./index.html');
+      }
+      return undefined;
+    };
+
+    try {
+      const networkResponse = await fetch(event.request);
+      if (networkResponse && networkResponse.status === 200) {
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
         return networkResponse;
-      })
-      .catch(() => {
-        return caches.match(event.request, { ignoreSearch: false }).then((cachedResponse) => {
-          if (cachedResponse) return cachedResponse;
-          // Secondary fallback ignoring query strings if offline version parameter differs
-          return caches.match(event.request, { ignoreSearch: true }).then((cleanMatch) => {
-            if (cleanMatch) return cleanMatch;
-            if (event.request.mode === 'navigate') {
-              return caches.match('./index.html');
-            }
-          });
-        });
-      })
-  );
+      }
+      if (networkResponse && networkResponse.status >= 500) {
+        const fallback = await matchCached();
+        if (fallback) return fallback;
+      }
+      return networkResponse;
+    } catch (e) {
+      const fallback = await matchCached();
+      return fallback || new Response('', { status: 504 });
+    }
+  })());
 });

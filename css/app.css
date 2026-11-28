@@ -546,19 +546,6 @@ html, body {
   font-size: 0.85rem;
 }
 
-/* Fallback for select if rendered */
-.select-corridor-dropdown {
-  background: #17243b;
-  color: #38bdf8;
-  border: 1.5px solid #0284c7;
-  border-radius: var(--radius-sm);
-  padding: 5px 28px 5px 10px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  outline: none;
-  cursor: pointer;
-}
-
 /* --------------------------------------------------------------------------
    5. CENTRAL MAP VIEWPORT & FLOATING CONTROLS
    -------------------------------------------------------------------------- */
@@ -583,7 +570,7 @@ html, body {
 /* Floating Map Theme Switcher Button (Dark Mode / Normal Daylight Map) */
 .btn-toggle-map-theme {
   position: fixed;
-  top: 204px;
+  top: calc(204px + env(safe-area-inset-top, 0px));
   right: 14px;
   width: 46px;
   height: 46px;
@@ -667,7 +654,7 @@ html, body {
 /* Floating Fullscreen Map Button */
 .btn-toggle-fullscreen {
   position: fixed;
-  top: 258px;
+  top: calc(258px + env(safe-area-inset-top, 0px));
   right: 14px;
   width: 46px;
   height: 46px;
@@ -1227,33 +1214,6 @@ body.nav-active .btn-nav-compass {
   line-height: 1.25;
 }
 
-.popup-compat-banner {
-  padding: 5px 8px;
-  border-radius: 6px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1.3;
-}
-
-.popup-compat-banner.compat-ok {
-  background: rgba(0, 230, 118, 0.12);
-  border: 1px solid rgba(0, 230, 118, 0.35);
-  color: #00e676;
-}
-
-.popup-compat-banner.compat-warn {
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px solid rgba(245, 158, 11, 0.45);
-  color: #fbbf24;
-}
-
-.popup-meta-box {
-  background: rgba(15, 23, 42, 0.85);
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
 .popup-address {
   font-size: 0.72rem;
   color: var(--text-secondary);
@@ -1385,9 +1345,11 @@ body.nav-active .btn-nav-compass {
   transform: translateY(calc(100% - 96px - env(safe-area-inset-bottom, 0px)));
 }
 
-/* Hide floating map buttons when drawer is open */
+/* Hide floating map buttons when drawer or modal is open */
 body.drawer-open #btn-floating-start-nav,
 body.drawer-open .btn-float-gps,
+body.modal-open #btn-floating-start-nav,
+body.modal-open .btn-float-gps,
 body:has(#bottom-sheet:not(.collapsed)) #btn-floating-start-nav,
 body:has(#bottom-sheet:not(.collapsed)) .btn-float-gps,
 body:has(.modal-overlay.open) #btn-floating-start-nav {
@@ -1787,27 +1749,6 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   to { opacity: 1; }
 }
 
-.stop-row-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.stop-badge {
-  font-size: 0.7rem;
-  font-weight: 800;
-  color: #38bdf8;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.stop-row-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .btn-stop-ctrl {
   background: #17243b;
   border: 1px solid var(--border-color);
@@ -1827,15 +1768,6 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
 .btn-stop-ctrl:hover {
   background: #1e3252;
   color: #ffffff;
-}
-
-.btn-stop-delete {
-  color: #f87171;
-}
-
-.btn-stop-delete:hover {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: #ef4444;
 }
 
 /* Route Charger Network Filter Buttons */
@@ -3707,7 +3639,7 @@ body.manual-fullscreen #map {
 }
 
 body.manual-fullscreen .btn-toggle-fullscreen {
-  top: 16px !important;
+  top: calc(16px + env(safe-area-inset-top, 0px)) !important;
   right: 14px !important;
   z-index: 1060 !important;
   border-color: #38bdf8 !important;
@@ -3715,13 +3647,13 @@ body.manual-fullscreen .btn-toggle-fullscreen {
 }
 
 body.manual-fullscreen .btn-toggle-map-theme {
-  top: 68px !important;
+  top: calc(68px + env(safe-area-inset-top, 0px)) !important;
   right: 14px !important;
   z-index: 1060 !important;
 }
 
 body.manual-fullscreen .leaflet-top.leaflet-right {
-  top: 120px !important;
+  top: calc(120px + env(safe-area-inset-top, 0px)) !important;
   right: 14px !important;
   z-index: 1060 !important;
 }
@@ -3784,16 +3716,6 @@ body.nav-active .btn-toggle-map-theme {
     gap: 8px !important;
   }
 
-  .trip-plan-header-summary {
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: 8px !important;
-  }
-
-  .stop-metrics-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: 6px !important;
-  }
-
   .metric-box {
     padding: 10px 8px !important;
   }
@@ -3801,11 +3723,6 @@ body.nav-active .btn-toggle-map-theme {
   .metric-val {
     font-size: 1.15rem !important;
     font-weight: 800 !important;
-  }
-
-  .stop-rec-grid {
-    grid-template-columns: 1fr !important;
-    gap: 8px !important;
   }
 
   .btn-primary-action,
@@ -3933,6 +3850,48 @@ body.nav-active .btn-toggle-map-theme {
   .header-actions {
     gap: 3px;
   }
+
+  .btn-header-action {
+    padding: 4px 7px !important;
+    font-size: 0.7rem !important;
+  }
+
+  .filter-chip {
+    padding: 4px 8px !important;
+    font-size: 0.7rem !important;
+  }
+}
+
+@media (max-height: 520px) {
+  .bottom-sheet {
+    max-height: 78vh;
+  }
+
+  .btn-toggle-map-theme {
+    top: calc(168px + env(safe-area-inset-top, 0px));
+    width: 40px;
+    height: 40px;
+  }
+
+  .btn-toggle-fullscreen {
+    top: calc(214px + env(safe-area-inset-top, 0px));
+    width: 40px;
+    height: 40px;
+  }
+
+  .nav-driving-hud {
+    padding: 4px 10px;
+  }
+
+  .nav-speedometer {
+    width: 52px;
+    height: 52px;
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nav-speed-val {
+    font-size: 1.15rem;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -3979,27 +3938,6 @@ body.nav-active .btn-toggle-map-theme {
 .sync-last-check-val {
   font-weight: 800;
   color: #00e676;
-}
-
-.popup-power-tag {
-  font-size: 0.68rem;
-  font-weight: 800;
-}
-.popup-power-tag.is-fast { color: #00e676; }
-.popup-power-tag.is-slow { color: #38bdf8; }
-
-.popup-connector-line {
-  font-size: 0.7rem;
-  color: #cbd5e1;
-  font-weight: 600;
-}
-
-.popup-meta-sub {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.68rem;
-  color: #94a3b8;
-  margin-top: 3px;
 }
 
 .popup-colocated-box {
@@ -4267,24 +4205,6 @@ body.ui-light-mode .leaflet-popup-tip {
   background: #ffffff !important;
 }
 body.ui-light-mode .popup-title { color: #0f172a; }
-body.ui-light-mode .popup-meta-box {
-  background: #f8fafc;
-  border-color: rgba(15, 23, 42, 0.1);
-}
-body.ui-light-mode .popup-connector-line { color: #334155; }
-body.ui-light-mode .popup-meta-sub { color: #475569; }
-body.ui-light-mode .popup-power-tag.is-fast { color: #047857; }
-body.ui-light-mode .popup-power-tag.is-slow { color: #0369a1; }
-body.ui-light-mode .popup-compat-banner.compat-ok {
-  background: #ecfdf5;
-  border-color: rgba(5, 150, 105, 0.35);
-  color: #047857;
-}
-body.ui-light-mode .popup-compat-banner.compat-warn {
-  background: #fffbeb;
-  border-color: rgba(217, 119, 6, 0.4);
-  color: #b45309;
-}
 body.ui-light-mode .popup-colocated-box {
   background: #f0f9ff;
   border-color: rgba(2, 132, 199, 0.25);
@@ -4350,7 +4270,6 @@ body.ui-light-mode .intermediate-stop-row {
   background: #f8fafc;
   border-color: rgba(15, 23, 42, 0.12);
 }
-body.ui-light-mode .stop-badge { color: #0284c7; }
 body.ui-light-mode .search-area-group {
   border-bottom-color: rgba(15, 23, 42, 0.1);
 }

@@ -339,10 +339,15 @@ const BatteryEngine = (function () {
       };
     }
 
+    const cleanRound1 = (val) => {
+      const r = Math.round(val * 10) / 10;
+      return r === 0 ? 0 : r;
+    };
+
     const eff = state.efficiency > 0 ? state.efficiency : 0.85;
     const batteryNeededPctExact = distanceKm / eff;
-    const batteryNeededPct = Math.round(batteryNeededPctExact * 10) / 10;
-    const batteryAtArrivalPct = Math.round((state.currentBatteryPct - batteryNeededPctExact) * 10) / 10;
+    const batteryNeededPct = cleanRound1(batteryNeededPctExact);
+    const batteryAtArrivalPct = cleanRound1(state.currentBatteryPct - batteryNeededPctExact);
     const usableSpanPct = Math.max(10, state.targetChargePct - state.safetyReservePct);
 
     let status = 'SAFE';
@@ -353,7 +358,7 @@ const BatteryEngine = (function () {
 
     if (batteryAtArrivalPct < 0) {
       status = 'CRITICAL';
-      shortfallKm = Math.round(Math.abs(batteryAtArrivalPct) * eff * 10) / 10;
+      shortfallKm = cleanRound1(Math.abs(batteryAtArrivalPct) * eff);
       stopsNeeded = Math.max(1, Math.ceil((distanceKm - calculateReachableSafeKm()) / (usableSpanPct * eff)));
       statusText = `Range Exceeded! Est. short by ~${shortfallKm} km. Charging stop required.`;
       statusClass = 'status-critical';
@@ -365,7 +370,7 @@ const BatteryEngine = (function () {
     }
 
     return {
-      distanceKm: Math.round(distanceKm * 10) / 10,
+      distanceKm: cleanRound1(distanceKm),
       batteryNeededPct,
       batteryAtArrivalPct,
       status,

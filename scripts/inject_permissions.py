@@ -283,10 +283,10 @@ public class VoltWayNativePlugin extends Plugin {
     @PluginMethod
     public void getAppInfo(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("pluginBuild", "v5.54-geo");
+        ret.put("pluginBuild", "v5.55-geo");
         try {
             PackageInfo pInfo = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
-            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.54");
+            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.55");
             ret.put("lastUpdateTime", pInfo.lastUpdateTime);
             if (Build.VERSION.SDK_INT >= 28) {
                 ret.put("versionCode", pInfo.getLongVersionCode());
@@ -357,7 +357,7 @@ public class VoltWayNativePlugin extends Plugin {
                         c = (HttpURLConnection) new URL(uStr).openConnection();
                         c.setConnectTimeout(5500);
                         c.setReadTimeout(5500);
-                        c.setRequestProperty("User-Agent", "VoltWay2W-Android/5.54");
+                        c.setRequestProperty("User-Agent", "VoltWay2W-Android/5.55");
                         c.setRequestProperty("Accept", "application/json");
                         if (c.getResponseCode() == 200) {
                             String body = readStreamLimited(c.getInputStream(), 128 * 1024);
@@ -396,6 +396,20 @@ public class VoltWayNativePlugin extends Plugin {
         });
     }
 
+    private boolean isTrustedApkHost(String urlStr, int hop) {
+        try {
+            URL u = new URL(urlStr);
+            if (!"https".equalsIgnoreCase(u.getProtocol())) return false;
+            String host = u.getHost() != null ? u.getHost().toLowerCase(Locale.US) : "";
+            if (hop == 0) {
+                return ("github.com".equals(host) && u.getPath() != null && u.getPath().startsWith("/Banispp/voltway/releases/"));
+            }
+            return "github.com".equals(host) || host.endsWith(".githubusercontent.com") || host.endsWith(".github.com");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @PluginMethod
     public void downloadAndInstallApk(PluginCall call) {
         final String apkUrl = call.getString("url", "https://github.com/Banispp/voltway/releases/download/v5.51-release/app-debug.apk");
@@ -405,17 +419,20 @@ public class VoltWayNativePlugin extends Plugin {
             InputStream is = null;
             FileOutputStream fos = null;
             try {
+                if (!isTrustedApkHost(apkUrl, 0)) {
+                    throw new IOException("Untrusted APK download URL");
+                }
                 String currentUrl = apkUrl;
                 for (int hop = 0; hop < 6; hop++) {
                     URL u = new URL(currentUrl);
-                    if (!"https".equalsIgnoreCase(u.getProtocol()) && !"http".equalsIgnoreCase(u.getProtocol())) {
-                        throw new IOException("Invalid APK URL scheme");
+                    if (!isTrustedApkHost(currentUrl, hop)) {
+                        throw new IOException("Untrusted APK redirect host");
                     }
                     conn = (HttpURLConnection) u.openConnection();
                     conn.setInstanceFollowRedirects(false);
                     conn.setConnectTimeout(15000);
                     conn.setReadTimeout(45000);
-                    conn.setRequestProperty("User-Agent", "VoltWay-Android/5.54");
+                    conn.setRequestProperty("User-Agent", "VoltWay-Android/5.55");
                     int code = conn.getResponseCode();
                     if (code >= 300 && code < 400) {
                         String loc = conn.getHeaderField("Location");
@@ -499,7 +516,7 @@ public class VoltWayNativePlugin extends Plugin {
 
         executor.execute(() -> {
             JSObject ret = new JSObject();
-            ret.put("pluginBuild", "v5.54-wv");
+            ret.put("pluginBuild", "v5.55-wv");
             String stage = "init";
             String socketErr = null;
             try {
@@ -627,6 +644,12 @@ public class VoltWayNativePlugin extends Plugin {
                     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                         String u = (request != null && request.getUrl() != null) ? request.getUrl().toString() : null;
                         return tryCapture(u);
+                    }
+
+                    @Override
+                    @SuppressWarnings("deprecation")
+                    public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                        return tryCapture(url);
                     }
 
                     @Override
@@ -863,6 +886,9 @@ public class VoltWayNativePlugin extends Plugin {
     }
 
     private HttpResult fetchDirectToIp(URL u, String ip, boolean wantBody, int timeoutMs) throws IOException {
+        if ("http".equalsIgnoreCase(u.getProtocol())) {
+            return fetchDirect(u, wantBody, timeoutMs);
+        }
         String host = u.getHost();
         int port = u.getPort() > 0 ? u.getPort() : 443;
         String path = u.getFile();

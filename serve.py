@@ -32,8 +32,12 @@ class VoltWayHandler(http.server.SimpleHTTPRequestHandler):
         # API: Resolve Google Maps short links (maps.app.goo.gl / goo.gl/maps)
         if self.path.startswith('/api/resolve-maps-url'):
             parsed_query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            target_url = parsed_query.get('url', [''])[0]
-            if target_url:
+            target_url = parsed_query.get('url', [''])[0].strip()
+            parsed_target = urllib.parse.urlparse(target_url) if target_url else None
+            allowed_hosts = {'maps.app.goo.gl', 'goo.gl', 'g.co', 'share.google'}
+            target_host = (parsed_target.hostname or '').lower() if parsed_target else ''
+            is_google_host = target_host in allowed_hosts or target_host.endswith('.google.com') or target_host.endswith('.google.co.in')
+            if parsed_target and parsed_target.scheme in ('http', 'https') and is_google_host:
                 try:
                     req = urllib.request.Request(
                         target_url,
@@ -52,6 +56,11 @@ class VoltWayHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(json.dumps({'success': False, 'error': str(e), 'url': target_url}).encode('utf-8'))
                     return
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({'success': False, 'error': 'Invalid or disallowed target URL'}).encode('utf-8'))
+            return
 
         # Remove conditional headers from incoming request to prevent SimpleHTTPRequestHandler from sending 304
         if 'If-Modified-Since' in self.headers:
@@ -79,8 +88,7 @@ if __name__ == '__main__':
         print("VoltWay 2W - EV Route Planner Server (Fresh No-Cache)")
         print("=======================================================")
         print(f"App running locally at: http://localhost:{PORT}")
-        print("Serving PWA, Leaflet Maps, and 7,819 2W EV Chargers")
-        print("Live on Local Network: http://192.168.31.230:8080")
+        print("Serving PWA, Leaflet Maps, and chargers_db.json")
         print("=======================================================")
         try:
             httpd.serve_forever()

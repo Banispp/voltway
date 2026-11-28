@@ -15,7 +15,6 @@ const MapEngine = (function () {
   let waypointsLayer = null;
   let userLocationMarker = null;
   let userAccuracyCircle = null;
-  let batteryRangeCircle = null;
   let activeMainLine = null;
   let activeGlowLine = null;
   let traversedMainLine = null;
@@ -68,6 +67,11 @@ const MapEngine = (function () {
   // Rotation Animation & Compass State
   let compassEventType = null;
   let compassHandlerRef = null;
+  let compassPermissionBound = false;
+  let lastOrientationAt = 0;
+  let cachedPuckCone = null;
+  let cachedPuckArrow = null;
+  let cachedNavNeedle = null;
   let targetBearing = 0;
   let currentRenderedBearing = 0;
   let bearingRafId = null;
@@ -809,37 +813,35 @@ const MapEngine = (function () {
       ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`
       : `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
 
-    const safeIdAttr = esc(charger.id || charger.originalId || '');
-
     let stopActionButtons = '';
     if (stopIndex !== null) {
       stopActionButtons = `
         <div class="popup-actions">
-          <button class="btn-popup-waypoint" style="background: rgba(255, 51, 102, 0.18); border: 1px solid var(--color-danger); color: var(--color-danger);" onclick="MapEngine.handleRemoveWaypoint('${safeIdAttr}', ${stopIndex})">
+          <button type="button" class="btn-popup-waypoint js-popup-remove-stop" style="background: rgba(255, 51, 102, 0.18); border: 1px solid var(--color-danger); color: var(--color-danger);">
             ❌ Remove Stop #${stopIndex + 1}
           </button>
-          <button class="btn-popup-nav" onclick="MapEngine.handleNavigateToCharger('${safeIdAttr}')">
+          <button type="button" class="btn-popup-nav js-popup-open-gmaps">
             🗺️ Open in Google Maps
           </button>
         </div>
       `;
     } else {
       const waypointControlHtml = isInRoute
-        ? `<button class="btn-sm btn-remove-stop" style="flex:1; min-height:36px;" onclick="MapEngine.handleRemoveWaypoint('${safeIdAttr}')">❌ Remove Stop</button>`
-        : `<button class="btn-sm btn-add-stop" style="flex:1; min-height:36px;" onclick="MapEngine.handleAddWaypoint('${safeIdAttr}')">➕ Add Stop</button>`;
+        ? `<button type="button" class="btn-sm btn-remove-stop js-popup-remove-stop" style="flex:1; min-height:36px;">❌ Remove Stop</button>`
+        : `<button type="button" class="btn-sm btn-add-stop js-popup-add-stop" style="flex:1; min-height:36px;">➕ Add Stop</button>`;
 
       stopActionButtons = `
         <div class="popup-actions">
-          <button class="btn-popup-nav btn-direct-inapp-route" style="min-height: 38px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff;" onclick="MapEngine.handleRouteDirectToCharger('${safeIdAttr}')">
+          <button type="button" class="btn-popup-nav btn-direct-inapp-route js-popup-route-here" style="min-height: 38px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff;">
             ⚡ Route Here
           </button>
           <div style="display: flex; gap: 6px;">
             ${waypointControlHtml}
-            <button class="btn-sm btn-nav" style="flex: 1; min-height: 36px;" onclick="MapEngine.handleSetAsDest('${safeIdAttr}')">
+            <button type="button" class="btn-sm btn-nav js-popup-set-dest" style="flex: 1; min-height: 36px;">
               🏁 Dest
             </button>
           </div>
-          <button class="btn-sm btn-nav" style="width:100%; min-height: 32px; font-size: 0.7rem;" onclick="MapEngine.handleOpenOfficialApp('${esc(charger.network)}', '${safeIdAttr}')">
+          <button type="button" class="btn-sm btn-nav js-popup-open-official" style="width:100%; min-height: 32px; font-size: 0.7rem;">
             📱 Check Live Status in ${networkName} App
           </button>
         </div>
@@ -850,6 +852,7 @@ const MapEngine = (function () {
       ? window.Utilities.renderAmenitiesHtml(charger.name, charger.address)
       : '';
 
+    let nearby = [];
     let coLocatedHtml = '';
     if (window.SyncEngine && typeof window.SyncEngine.getChargersInBounds === 'function') {
       const box = {
@@ -858,37 +861,58 @@ const MapEngine = (function () {
         west: charger.lng - 0.00045,
         east: charger.lng + 0.00045
       };
-      const nearby = window.SyncEngine.getChargersInBounds(box).filter(c => {
+      nearby = window.SyncEngine.getChargersInBounds(box).filter(c => {
         if (!c || c.id === charger.id || c.is_2w === false) return false;
         if (Math.abs(c.lat - charger.lat) > 0.00038 || Math.abs(c.lng - charger.lng) > 0.00038) return false;
         return c.type === 'FAST' || c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID' || filters.boltSlow;
       }).slice(0, 4);
 
       if (nearby.length > 0) {
-        const btns = nearby.map(o => {
-          const safeJsId = esc(String(o.id).replace(/['"\\]/g, ''));
+        const btns = nearby.map((o, idx) => {
           const badge = o.network === 'ATHER_GRID' ? '⚡Ather' : (o.network === 'VIDA_GRID' ? '⚡VIDA' : (o.type === 'FAST' ? '⚡Bolt' : '🔌15A'));
-          return `<button type="button" class="popup-colocated-btn" onclick="MapEngine.handleFocusChargerById('${safeJsId}')"><span class="popup-colocated-name">${badge} • ${esc((o.name || 'Charger').slice(0, 26))}</span><span class="popup-colocated-go">View ➔</span></button>`;
+          return `<button type="button" class="popup-colocated-btn" data-nearby-idx="${idx}"><span class="popup-colocated-name">${badge} • ${esc((o.name || 'Charger').slice(0, 26))}</span><span class="popup-colocated-go">View ➔</span></button>`;
         }).join('');
         coLocatedHtml = `<div class="popup-colocated-box"><div class="popup-colocated-hdr">📍 ${nearby.length} Other Charger${nearby.length > 1 ? 's' : ''} Right Here:</div>${btns}</div>`;
       }
     }
 
-    return `
-      <div class="popup-card">
-        <div class="popup-header">
-          ${stopHeaderBadge}
-        </div>
-
-        <div class="popup-title">${cleanTitle}</div>
-        ${routeDistanceHtml}
-
-        ${safeAddr ? `<div class="popup-address">📍 ${safeAddr}</div>` : ''}
-        ${venueHints}
-        ${coLocatedHtml}
-        ${stopActionButtons}
+    const card = document.createElement('div');
+    card.className = 'popup-card';
+    card.innerHTML = `
+      <div class="popup-header">
+        ${stopHeaderBadge}
       </div>
+
+      <div class="popup-title">${cleanTitle}</div>
+      ${routeDistanceHtml}
+
+      ${safeAddr ? `<div class="popup-address">📍 ${safeAddr}</div>` : ''}
+      ${venueHints}
+      ${coLocatedHtml}
+      ${stopActionButtons}
     `;
+
+    const chargerId = charger.id || charger.originalId || '';
+    const bindClick = (sel, fn) => {
+      const btn = card.querySelector(sel);
+      if (btn) btn.addEventListener('click', fn);
+    };
+    bindClick('.js-popup-remove-stop', () => handleRemoveWaypoint(chargerId, stopIndex));
+    bindClick('.js-popup-add-stop', () => handleAddWaypoint(chargerId));
+    bindClick('.js-popup-open-gmaps', () => handleNavigateToCharger(chargerId));
+    bindClick('.js-popup-route-here', () => handleRouteDirectToCharger(chargerId));
+    bindClick('.js-popup-set-dest', () => handleSetAsDest(chargerId));
+    bindClick('.js-popup-open-official', () => handleOpenOfficialApp(charger.network, chargerId));
+
+    card.querySelectorAll('.popup-colocated-btn').forEach(btn => {
+      const nIdx = parseInt(btn.dataset.nearbyIdx, 10);
+      const targetCharger = nearby[nIdx];
+      if (targetCharger) {
+        btn.addEventListener('click', () => handleFocusChargerById(targetCharger.id));
+      }
+    });
+
+    return card;
   }
 
   function handleOpenOfficialApp(network, chargerId) {
@@ -1077,7 +1101,6 @@ const MapEngine = (function () {
     traversedMainLine = null;
 
     if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
-      updateBatteryRangeCircle();
       return;
     }
 
@@ -1145,7 +1168,7 @@ const MapEngine = (function () {
       const stopMarker = L.marker([wp.lat, wp.lng], {
         icon: createHighlightedStopPinIcon(wp, idx, `STOP ${idx + 1}`),
         zIndexOffset: 20000 + idx
-      }).bindPopup(createChargerPopupHtml(wp, idx), { maxWidth: 270, className: 'charger-popup' }).addTo(waypointsLayer);
+      }).bindPopup(() => createChargerPopupHtml(wp, idx), { maxWidth: 270, className: 'charger-popup' }).addTo(waypointsLayer);
 
       waypointMarkersMap.set(wp.id, stopMarker);
     });
@@ -1159,8 +1182,6 @@ const MapEngine = (function () {
         <div class="popup-title">${esc(activeRoute.destination.name || 'Destination')}</div>
       </div>
     `).addTo(waypointsLayer);
-
-    updateBatteryRangeCircle();
 
     if (userCoords && lastGpsFixTime > 0) {
       updateProgressAlongRoute(userCoords);
@@ -1238,6 +1259,10 @@ const MapEngine = (function () {
     if (compassHandlerRef) return;
 
     const onOrientation = (e) => {
+      const now = performance.now();
+      if (now - lastOrientationAt < 45) return;
+      lastOrientationAt = now;
+
       // Ignore relative gyro readings without magnetometer absolute reference unless webkitCompassHeading exists
       if (e.webkitCompassHeading == null && e.absolute === false) {
         return;
@@ -1295,10 +1320,12 @@ const MapEngine = (function () {
       window.addEventListener('deviceorientation', compassHandlerRef, { passive: true });
     }
 
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    if (!compassPermissionBound && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      compassPermissionBound = true;
       window.addEventListener('click', () => {
         DeviceOrientationEvent.requestPermission().then(state => {
-          if (state === 'granted' && compassHandlerRef) {
+          if (state === 'granted' && compassHandlerRef && compassEventType !== 'deviceorientationabsolute' && compassEventType !== 'deviceorientation') {
+            compassEventType = 'deviceorientation';
             window.addEventListener('deviceorientation', compassHandlerRef, { passive: true });
           }
         }).catch(() => {});
@@ -1331,18 +1358,24 @@ const MapEngine = (function () {
       rotDeg = Math.round((heading - mapBearing + 360) % 360);
     }
 
-    const navNeedle = document.getElementById('nav-compass-needle');
-    if (navNeedle) navNeedle.style.transform = `rotate(${-mapBearing}deg)`;
+    if (!cachedNavNeedle || !cachedNavNeedle.isConnected) {
+      cachedNavNeedle = document.getElementById('nav-compass-needle');
+    }
+    if (cachedNavNeedle) cachedNavNeedle.style.transform = `rotate(${-mapBearing}deg)`;
 
     if (lastPuckRotDeg !== null && Math.abs((rotDeg - lastPuckRotDeg + 180) % 360 - 180) < 2.5) {
       return;
     }
     lastPuckRotDeg = rotDeg;
 
-    const cone = document.querySelector('.puck-heading-cone');
-    const arrow = document.querySelector('.puck-arrow-icon');
-    if (cone) cone.style.transform = `rotate(${rotDeg}deg)`;
-    if (arrow) arrow.style.transform = `rotate(${rotDeg}deg)`;
+    if (!cachedPuckCone || !cachedPuckCone.isConnected) {
+      cachedPuckCone = document.querySelector('.puck-heading-cone');
+    }
+    if (!cachedPuckArrow || !cachedPuckArrow.isConnected) {
+      cachedPuckArrow = document.querySelector('.puck-arrow-icon');
+    }
+    if (cachedPuckCone) cachedPuckCone.style.transform = `rotate(${rotDeg}deg)`;
+    if (cachedPuckArrow) cachedPuckArrow.style.transform = `rotate(${rotDeg}deg)`;
   }
 
   function startUnifiedMotionLoop() {
@@ -1571,35 +1604,17 @@ const MapEngine = (function () {
     } else {
       userAccuracyCircle.setRadius(safeRadius);
     }
-
-    updateBatteryRangeCircle();
-  }
-
-  function updateBatteryRangeCircle() {
-    if (batteryRangeCircle && map) {
-      map.removeLayer(batteryRangeCircle);
-    }
-    batteryRangeCircle = null;
   }
 
   function refreshBatteryVisuals() {
-    updateBatteryRangeCircle();
     if (!map) return;
 
-    for (const marker of markerMap.values()) {
-      if (marker && marker._chargerData) {
-        marker.setPopupContent(createChargerPopupHtml(marker._chargerData, null));
+    if (activePopupChargerId) {
+      const activeMarker = waypointMarkersMap.get(activePopupChargerId) || markerMap.get(activePopupChargerId);
+      if (activeMarker && activeMarker.isPopupOpen && activeMarker.isPopupOpen() && activeMarker._chargerData) {
+        activeMarker.setPopupContent(createChargerPopupHtml(activeMarker._chargerData, null));
       }
     }
-
-    const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
-    const wps = (activeRoute && activeRoute.waypoints) || [];
-    wps.forEach((wp, idx) => {
-      const m = waypointMarkersMap.get(wp.id);
-      if (m) {
-        m.setPopupContent(createChargerPopupHtml(wp, idx));
-      }
-    });
   }
 
   function updateGpsButtonUi() {
@@ -1678,7 +1693,7 @@ const MapEngine = (function () {
       if (isAutoFollow && map) {
         if (window.DriveEngine && window.DriveEngine.isActive()) {
           let desiredHeading = userHeading;
-          if (window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
+          if (!isNavCompassMode && window.RouteEngine && typeof window.RouteEngine.sliceActiveRouteAtPosition === 'function') {
             const slice = window.RouteEngine.sliceActiveRouteAtPosition(lat, lng);
             if (slice && slice.segmentBearing != null && slice.distanceFromRouteKm <= 0.050) {
               desiredHeading = slice.segmentBearing;
@@ -1686,10 +1701,11 @@ const MapEngine = (function () {
           }
 
           if (typeof map.setBearing === 'function' && desiredHeading != null) {
-            const nextBearing = (360 - desiredHeading + 360) % 360;
+            const nextBearing = isNavCompassMode ? 0 : (360 - desiredHeading + 360) % 360;
             const bDiff = (nextBearing - targetBearing + 180) % 360 - 180;
             if (Math.abs(bDiff) >= 1.5) {
               targetBearing = nextBearing;
+              if (!markerAnimRaf) scheduleBearingAnimation();
             }
           }
 
@@ -1985,22 +2001,24 @@ const MapEngine = (function () {
     const c = window.SyncEngine ? window.SyncEngine.getChargerById(chargerId) : null;
     if (!c) return;
     activePopupChargerId = c.id;
-    renderChargers();
-    setTimeout(() => {
-      const wpMarker = waypointMarkersMap.get(c.id);
-      const m = markerMap.get(c.id);
-      if (wpMarker) {
-        wpMarker.openPopup();
-      } else if (m) {
-        if (typeof markersLayer.zoomToShowLayer === 'function') {
-          markersLayer.zoomToShowLayer(m, () => m.openPopup());
-        } else {
-          m.openPopup();
-        }
+    if (renderRafId) {
+      cancelAnimationFrame(renderRafId);
+      renderRafId = null;
+    }
+    _executeFastRender();
+    const wpMarker = waypointMarkersMap.get(c.id);
+    const m = markerMap.get(c.id);
+    if (wpMarker) {
+      wpMarker.openPopup();
+    } else if (m) {
+      if (typeof markersLayer.zoomToShowLayer === 'function') {
+        markersLayer.zoomToShowLayer(m, () => m.openPopup());
       } else {
-        focusCharger(c);
+        m.openPopup();
       }
-    }, 60);
+    } else {
+      focusCharger(c);
+    }
   }
 
   function clearSearchPin() {
@@ -2229,9 +2247,7 @@ const MapEngine = (function () {
     setStateFilter,
     getStateFilter: () => activeStateFilter,
     renderRoute,
-    updateBatteryRangeCircle,
     refreshBatteryVisuals,
-    getBatteryRangeRadiusM: () => (batteryRangeCircle && map && map.hasLayer(batteryRangeCircle) ? Math.round(batteryRangeCircle.getRadius()) : 0),
     updateProgressAlongRoute,
     recenterCamera,
     locateUser,
@@ -2261,6 +2277,12 @@ const MapEngine = (function () {
     getNavCompassMode: () => isNavCompassMode,
     setNavCompassMode: (active) => {
       isNavCompassMode = Boolean(active);
+      const btn = document.getElementById('btn-nav-compass');
+      if (btn) btn.classList.toggle('compass-active', isNavCompassMode);
+      if (isNavCompassMode && map && typeof map.setBearing === 'function') {
+        targetBearing = 0;
+        scheduleBearingAnimation();
+      }
       updatePuckHeading(userHeading);
     },
     handleNavigateToCharger,

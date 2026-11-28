@@ -183,9 +183,8 @@ const SyncEngine = (function () {
             inMemoryChargers = data.map(validateAndNormalizeCharger).filter(Boolean);
             console.log(`[VoltWay DB] Migrated & loaded ${inMemoryChargers.length} verified 2W chargers from bundle`);
             if (db) {
-              clearAndSaveAllToDB(inMemoryChargers).then(() => {
-                try { localStorage.setItem('voltway_db_schema_version', DB_SCHEMA_TAG); } catch (e) {}
-              });
+              await clearAndSaveAllToDB(inMemoryChargers);
+              try { localStorage.setItem('voltway_db_schema_version', DB_SCHEMA_TAG); } catch (e) {}
             }
           }
         }
@@ -241,8 +240,11 @@ const SyncEngine = (function () {
     });
   }
 
+  let otaSyncPromise = null;
+
   async function checkAndSyncRemoteUpdates(force = false) {
-    if (!navigator.onLine) return { added: 0, removed: 0 };
+    if (!navigator.onLine || isSyncing) return { added: 0, removed: 0 };
+    if (otaSyncPromise) return otaSyncPromise;
 
     const lastSync = localStorage.getItem('voltway_last_sync');
     const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
@@ -250,41 +252,47 @@ const SyncEngine = (function () {
       return { added: 0, removed: 0 };
     }
 
-    try {
-      let remoteChargers = null;
-      const remoteUrls = [
-        'https://raw.githubusercontent.com/Banispp/voltway/master/chargers_db.json?v=' + Date.now(),
-        'https://banispp.github.io/voltway/chargers_db.json?v=' + Date.now()
-      ];
-      for (const remoteRepoUrl of remoteUrls) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 20000);
-          const resp = await fetch(remoteRepoUrl, { cache: 'no-store', signal: controller.signal });
-          clearTimeout(timeoutId);
-          if (resp.ok) {
-            remoteChargers = await resp.json();
-            if (Array.isArray(remoteChargers) && remoteChargers.length > 0) break;
-          }
-        } catch (errRemote) {}
-      }
+    otaSyncPromise = (async () => {
+      try {
+        let remoteChargers = null;
+        const remoteUrls = [
+          'https://raw.githubusercontent.com/Banispp/voltway/master/chargers_db.json?v=' + Date.now(),
+          'https://banispp.github.io/voltway/chargers_db.json?v=' + Date.now()
+        ];
+        for (const remoteRepoUrl of remoteUrls) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
+            const resp = await fetch(remoteRepoUrl, { cache: 'no-store', signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (resp.ok) {
+              remoteChargers = await resp.json();
+              if (Array.isArray(remoteChargers) && remoteChargers.length > 0) break;
+            }
+          } catch (errRemote) {}
+        }
 
-      if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) {
+        if (!Array.isArray(remoteChargers) || remoteChargers.length === 0) {
+          return { added: 0, removed: 0 };
+        }
+
+        const validatedList = remoteChargers.map(validateAndNormalizeCharger).filter(Boolean);
+        if (validatedList.length === 0) return { added: 0, removed: 0 };
+
+        const stats = reconcileChargers(validatedList);
+        localStorage.setItem('voltway_last_sync', new Date().toISOString());
+        if (stats.added > 0 || stats.removed > 0) {
+          showAutoUpdateToast(`⚡ Database Synced: +${stats.added} added, -${stats.removed} removed`);
+        }
+        return stats;
+      } catch (e) {
         return { added: 0, removed: 0 };
+      } finally {
+        otaSyncPromise = null;
       }
+    })();
 
-      const validatedList = remoteChargers.map(validateAndNormalizeCharger).filter(Boolean);
-      if (validatedList.length === 0) return { added: 0, removed: 0 };
-
-      const stats = reconcileChargers(validatedList);
-      localStorage.setItem('voltway_last_sync', new Date().toISOString());
-      if (stats.added > 0 || stats.removed > 0) {
-        showAutoUpdateToast(`⚡ Database Synced: +${stats.added} added, -${stats.removed} removed`);
-      }
-      return stats;
-    } catch (e) {
-      return { added: 0, removed: 0 };
-    }
+    return otaSyncPromise;
   }
 
   function reconcileChargers(authoritativeList) {
@@ -346,7 +354,14 @@ const SyncEngine = (function () {
     if (/\b6[0-4]\d{4}\b/.test(text)) return 'tamil_nadu';
     if (/\b5[6-9]\d{4}\b/.test(text)) return 'karnataka';
 
-    const klKw = ['kerala', 'malappuram', 'kozhikode', 'calicut', 'ernakulam', 'kochi', 'cochin', 'thrissur', 'trivandrum', 'thiruvananthapuram', 'kollam', 'alappuzha', 'kottayam', 'palakkad', 'kannur', 'kasaragod', 'wayanad', 'idukki', 'pathanamthitta', 'pala'];
+    const klKw = [
+      'kerala', 'malappuram', 'kozhikode', 'calicut', 'ernakulam', 'kochi', 'cochin',
+      'thrissur', 'trivandrum', 'thiruvananthapuram', 'kollam', 'alappuzha', 'alleppey',
+      'kottayam', 'palakkad', 'kannur', 'kasaragod', 'wayanad', 'idukki', 'pathanamthitta',
+      'edappally', 'aluva', 'kakkanad', 'thalassery', 'vadakara', 'tirur', 'perinthalmanna',
+      'manjeri', 'guruvayur', 'muvattupuzha', 'thodupuzha', 'kayamkulam', 'thiruvalla', 'pala',
+      'chengannur', 'kottarakkara', 'attingal', 'kalpetta', 'sulthan bathery', 'munnar'
+    ];
     if (klKw.some(k => new RegExp(`\\b${k}\\b`).test(text))) return 'kerala';
 
     const tnKw = ['tamil nadu', 'tamilnadu', 'chennai', 'coimbatore', 'madurai', 'trichy', 'tiruchirappalli', 'salem', 'tirunelveli', 'tiruppur', 'erode', 'vellore', 'hosur', 'kanyakumari', 'ooty', 'udhagamandalam', 'dharmapuri', 'krishnagiri'];
