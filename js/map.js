@@ -642,8 +642,10 @@ const MapEngine = (function () {
     const isCorridorActive = Boolean(activeRoute && corridorBuffer !== 'all');
     isCorridorClusterMode = isCorridorActive;
 
+    const isRoundTrip = Boolean(window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
     const activeRouteWaypoints = (activeRoute && activeRoute.waypoints) || [];
-    const activeWpIds = new Set(activeRouteWaypoints.map(w => w.id));
+    const activeRouteRetWaypoints = (isRoundTrip && activeRoute && activeRoute.returnWaypoints) || [];
+    const activeWpIds = new Set([...activeRouteWaypoints, ...activeRouteRetWaypoints].map(w => w.id));
 
     let visibleChargers = [];
     if (isCorridorActive && !isExplicitList) {
@@ -686,7 +688,7 @@ const MapEngine = (function () {
           visibleChargers.length,
           firstId,
           lastId,
-          Array.from(activeWpIds).sort().join(',')
+          `${isRoundTrip ? 1 : 0}_${Array.from(activeWpIds).sort().join(',')}`
         ].join('|');
 
     if (datasetKey === lastDatasetKey) {
@@ -790,9 +792,16 @@ const MapEngine = (function () {
       networkName = 'Bolt.Earth';
     }
 
-    const waypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
+    const isRoundTrip = Boolean(window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
+    const outWaypoints = window.RouteEngine ? window.RouteEngine.getWaypoints() : [];
+    const retWaypoints = (isRoundTrip && window.RouteEngine && typeof window.RouteEngine.getReturnWaypoints === 'function')
+      ? window.RouteEngine.getReturnWaypoints()
+      : [];
     const baseId = charger.originalId || charger.id;
-    const isInRoute = waypoints.some(w => String(w.originalId || w.id) === String(baseId));
+    const outIdx = outWaypoints.findIndex(w => String(w.originalId || w.id) === String(baseId));
+    const retIdx = retWaypoints.findIndex(w => String(w.originalId || w.id) === String(baseId));
+    const isInOut = outIdx !== -1;
+    const isInRet = retIdx !== -1;
 
     const activeRoute = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
     let routeDistanceHtml = '';
@@ -802,31 +811,58 @@ const MapEngine = (function () {
         const isHighway = distFromRoute <= 0.4;
         const distColor = isHighway ? '#00e676' : '#38bdf8';
         const labelText = isHighway ? 'Direct on Route' : `${distFromRoute} km off route`;
-        routeDistanceHtml = `<div style="font-size: 0.72rem; font-weight: 700; color: ${distColor}; margin: 2px 0;">🛣️ ${labelText}</div>`;
+        let rtExtra = '';
+        if (isRoundTrip && typeof charger.kmFromDest === 'number') {
+          rtExtra = ` • ↩ ${charger.kmFromDest} km back`;
+        }
+        routeDistanceHtml = `<div style="font-size: 0.72rem; font-weight: 700; color: ${distColor}; margin: 2px 0;">🛣️ ${labelText}${rtExtra}</div>`;
       }
     }
 
     const cleanTitle = esc((charger.name || '2W Charger').replace(/\s*\(Ather Gun[^)]*\)/gi, '').trim());
     const safeAddr = esc(charger.address || '');
 
+    let stopBadgeTxt = `⚡ STOP ${(stopIndex || 0) + 1}`;
+    let stopBadgeStyle = 'background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;';
+    if (stopIndex !== null) {
+      if (isInOut && isInRet) {
+        stopBadgeTxt = `⚡ OUT ${outIdx + 1} • ↩ RET ${retIdx + 1}`;
+        stopBadgeStyle = 'background: linear-gradient(90deg, #00E676, #a855f7); color: #fff; font-weight: 900; padding: 2px 7px; font-size: 0.62rem;';
+      } else if (charger.leg === 'return' || (!isInOut && isInRet)) {
+        stopBadgeTxt = `↩ RETURN STOP ${isInRet ? retIdx + 1 : (stopIndex + 1)}`;
+        stopBadgeStyle = 'background: #a855f7; color: #fff; font-weight: 900; padding: 2px 7px; font-size: 0.62rem;';
+      }
+    }
+
     const stopHeaderBadge = stopIndex !== null
-      ? `<span class="popup-badge" style="background: #00E676; color: #000; font-weight: 900; padding: 2px 6px; font-size: 0.62rem;">⚡ STOP #${stopIndex + 1}</span>`
+      ? `<span class="popup-badge" style="${stopBadgeStyle}">${stopBadgeTxt}</span>`
       : `<span class="popup-badge ${networkBadgeClass}" style="padding: 2px 6px; font-size: 0.62rem;">${networkName}</span>`;
+
+    const buildRoundTripLegButtons = () => {
+      const outBtn = isInOut
+        ? `<button type="button" class="btn-sm btn-remove-stop js-popup-remove-out" style="flex:1; min-height:34px;">❌ Out #${outIdx + 1}</button>`
+        : `<button type="button" class="btn-sm btn-add-stop js-popup-add-out" style="flex:1; min-height:34px;">➕ Going</button>`;
+      const retBtn = isInRet
+        ? `<button type="button" class="btn-sm btn-remove-stop js-popup-remove-ret" style="flex:1; min-height:34px;">❌ Ret #${retIdx + 1}</button>`
+        : `<button type="button" class="btn-sm btn-add-return-stop js-popup-add-ret" style="flex:1; min-height:34px;">↩➕ Return</button>`;
+      return `<div style="display: flex; gap: 6px;">${outBtn}${retBtn}</div>`;
+    };
 
     let stopActionButtons = '';
     if (stopIndex !== null) {
+      const stopControls = isRoundTrip
+        ? buildRoundTripLegButtons()
+        : `<button type="button" class="btn-popup-waypoint js-popup-remove-stop" style="background: rgba(255, 51, 102, 0.18); border: 1px solid var(--color-danger); color: var(--color-danger);">❌ Remove Stop #${stopIndex + 1}</button>`;
       stopActionButtons = `
         <div class="popup-actions">
-          <button type="button" class="btn-popup-waypoint js-popup-remove-stop" style="background: rgba(255, 51, 102, 0.18); border: 1px solid var(--color-danger); color: var(--color-danger);">
-            ❌ Remove Stop #${stopIndex + 1}
-          </button>
+          ${stopControls}
           <button type="button" class="btn-popup-nav js-popup-open-gmaps">
             🗺️ Open in Google Maps
           </button>
         </div>
       `;
     } else {
-      const waypointControlHtml = isInRoute
+      const singleControlHtml = isInOut
         ? `<button type="button" class="btn-sm btn-remove-stop js-popup-remove-stop" style="flex:1; min-height:36px;">❌ Remove Stop</button>`
         : `<button type="button" class="btn-sm btn-add-stop js-popup-add-stop" style="flex:1; min-height:36px;">➕ Add Stop</button>`;
 
@@ -835,8 +871,9 @@ const MapEngine = (function () {
           <button type="button" class="btn-popup-nav btn-direct-inapp-route js-popup-route-here" style="min-height: 38px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: #fff;">
             ⚡ Route Here
           </button>
+          ${isRoundTrip ? buildRoundTripLegButtons() : ''}
           <div style="display: flex; gap: 6px;">
-            ${waypointControlHtml}
+            ${isRoundTrip ? '' : singleControlHtml}
             <button type="button" class="btn-sm btn-nav js-popup-set-dest" style="flex: 1; min-height: 36px;">
               🏁 Dest
             </button>
@@ -897,8 +934,12 @@ const MapEngine = (function () {
       const btn = card.querySelector(sel);
       if (btn) btn.addEventListener('click', fn);
     };
-    bindClick('.js-popup-remove-stop', () => handleRemoveWaypoint(chargerId, stopIndex));
-    bindClick('.js-popup-add-stop', () => handleAddWaypoint(chargerId));
+    bindClick('.js-popup-remove-stop', () => handleRemoveWaypoint(chargerId, stopIndex, charger.leg || null));
+    bindClick('.js-popup-add-stop', () => handleAddWaypoint(chargerId, 'outbound'));
+    bindClick('.js-popup-add-out', () => handleAddWaypoint(chargerId, 'outbound'));
+    bindClick('.js-popup-remove-out', () => handleRemoveWaypoint(chargerId, null, 'outbound'));
+    bindClick('.js-popup-add-ret', () => handleAddWaypoint(chargerId, 'return'));
+    bindClick('.js-popup-remove-ret', () => handleRemoveWaypoint(chargerId, null, 'return'));
     bindClick('.js-popup-open-gmaps', () => handleNavigateToCharger(chargerId));
     bindClick('.js-popup-route-here', () => handleRouteDirectToCharger(chargerId));
     bindClick('.js-popup-set-dest', () => handleSetAsDest(chargerId));
@@ -1005,23 +1046,24 @@ const MapEngine = (function () {
     }
   }
 
-  function handleAddWaypoint(chargerId) {
+  function handleAddWaypoint(chargerId, leg = 'outbound') {
     const c = window.SyncEngine ? window.SyncEngine.getChargerById(chargerId) : null;
     if (c && window.RouteEngine) {
-      const added = window.RouteEngine.addWaypoint(c);
+      const added = window.RouteEngine.addWaypoint(c, leg);
       if (map) map.closePopup();
       if (added && window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast(`📍 Added Stop: ${c.name}`);
+        const tag = leg === 'return' ? '↩ Return Stop' : 'Stop';
+        window.SyncEngine.showAutoUpdateToast(`📍 Added ${tag}: ${c.name}`);
       }
     }
   }
 
-  function handleRemoveWaypoint(chargerId, stopIndex = null) {
+  function handleRemoveWaypoint(chargerId, stopIndex = null, leg = null) {
     if (window.RouteEngine) {
       if (chargerId) {
-        window.RouteEngine.removeWaypoint(chargerId);
+        window.RouteEngine.removeWaypoint(chargerId, leg);
       } else if (typeof stopIndex === 'number') {
-        window.RouteEngine.removeWaypoint(stopIndex);
+        window.RouteEngine.removeWaypoint(stopIndex, leg);
       }
       if (map) map.closePopup();
     }
@@ -1128,6 +1170,19 @@ const MapEngine = (function () {
       }
     });
 
+    const isRoundTrip = Boolean(window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
+    if (isRoundTrip && activeRoute.returnRoute && Array.isArray(activeRoute.returnRoute.coordinates) && activeRoute.returnRoute.coordinates.length >= 2) {
+      L.polyline(activeRoute.returnRoute.coordinates, {
+        color: '#a855f7',
+        weight: 4,
+        opacity: 0.78,
+        dashArray: '8, 8',
+        lineCap: 'round',
+        lineJoin: 'round',
+        interactive: false
+      }).addTo(routeLayer);
+    }
+
     activeGlowLine = L.polyline(activeRoute.coordinates, {
       color: '#00E676',
       weight: 10,
@@ -1164,13 +1219,34 @@ const MapEngine = (function () {
     `).addTo(waypointsLayer);
 
     const intermediateStops = activeRoute.waypoints || [];
+    const returnStops = isRoundTrip ? (activeRoute.returnWaypoints || []) : [];
+    const retIdxById = new Map();
+    returnStops.forEach((rw, rIdx) => {
+      retIdxById.set(String(rw.originalId || rw.id), rIdx);
+    });
+    const outIdSet = new Set(intermediateStops.map(ow => String(ow.originalId || ow.id)));
+
     intermediateStops.forEach((wp, idx) => {
+      const bid = String(wp.originalId || wp.id);
+      const bothRetIdx = retIdxById.get(bid);
+      const badgeTxt = bothRetIdx !== undefined ? `OUT ${idx + 1} • ↩${bothRetIdx + 1}` : `STOP ${idx + 1}`;
       const stopMarker = L.marker([wp.lat, wp.lng], {
-        icon: createHighlightedStopPinIcon(wp, idx, `STOP ${idx + 1}`),
+        icon: createHighlightedStopPinIcon(wp, idx, badgeTxt),
         zIndexOffset: 20000 + idx
       }).bindPopup(() => createChargerPopupHtml(wp, idx), { maxWidth: 270, className: 'charger-popup' }).addTo(waypointsLayer);
 
       waypointMarkersMap.set(wp.id, stopMarker);
+    });
+
+    returnStops.forEach((wp, rIdx) => {
+      const bid = String(wp.originalId || wp.id);
+      if (outIdSet.has(bid)) return; // Already rendered with combined OUT+RET marker above
+      const stopMarker = L.marker([wp.lat, wp.lng], {
+        icon: createHighlightedStopPinIcon(wp, rIdx, `↩ RET ${rIdx + 1}`),
+        zIndexOffset: 21000 + rIdx
+      }).bindPopup(() => createChargerPopupHtml({ ...wp, leg: 'return' }, rIdx), { maxWidth: 270, className: 'charger-popup' }).addTo(waypointsLayer);
+
+      waypointMarkersMap.set(`ret_${wp.id}`, stopMarker);
     });
 
     L.marker([activeRoute.destination.lat, activeRoute.destination.lng], {
@@ -1610,7 +1686,9 @@ const MapEngine = (function () {
     if (!map) return;
 
     if (activePopupChargerId) {
-      const activeMarker = waypointMarkersMap.get(activePopupChargerId) || markerMap.get(activePopupChargerId);
+      const activeMarker = waypointMarkersMap.get(activePopupChargerId)
+        || waypointMarkersMap.get(`ret_${activePopupChargerId}`)
+        || markerMap.get(activePopupChargerId);
       if (activeMarker && activeMarker.isPopupOpen && activeMarker.isPopupOpen() && activeMarker._chargerData) {
         activeMarker.setPopupContent(createChargerPopupHtml(activeMarker._chargerData, null));
       }
@@ -1965,8 +2043,10 @@ const MapEngine = (function () {
     const fullCharger = (window.SyncEngine && window.SyncEngine.getChargerById(charger.id)) || charger;
     activePopupChargerId = fullCharger.id;
 
-    let marker = markerMap.get(fullCharger.id) || waypointMarkersMap.get(fullCharger.id);
-    if (!marker && !waypointMarkersMap.has(fullCharger.id)) {
+    let marker = markerMap.get(fullCharger.id)
+      || waypointMarkersMap.get(fullCharger.id)
+      || waypointMarkersMap.get(`ret_${fullCharger.id}`);
+    if (!marker && !waypointMarkersMap.has(fullCharger.id) && !waypointMarkersMap.has(`ret_${fullCharger.id}`)) {
       const icon = createPinIcon(fullCharger);
       marker = L.marker(L.latLng(fullCharger.lat, fullCharger.lng), { icon });
       marker._chargerData = fullCharger;
@@ -1984,7 +2064,7 @@ const MapEngine = (function () {
 
     map.flyTo([fullCharger.lat, fullCharger.lng], 16, { animate: true, duration: 0.4 });
     setTimeout(() => {
-      const wpMarker = waypointMarkersMap.get(fullCharger.id);
+      const wpMarker = waypointMarkersMap.get(fullCharger.id) || waypointMarkersMap.get(`ret_${fullCharger.id}`);
       if (wpMarker) {
         wpMarker.openPopup();
       } else if (marker) {
@@ -2006,7 +2086,7 @@ const MapEngine = (function () {
       renderRafId = null;
     }
     _executeFastRender();
-    const wpMarker = waypointMarkersMap.get(c.id);
+    const wpMarker = waypointMarkersMap.get(c.id) || waypointMarkersMap.get(`ret_${c.id}`);
     const m = markerMap.get(c.id);
     if (wpMarker) {
       wpMarker.openPopup();

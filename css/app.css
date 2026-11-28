@@ -1944,6 +1944,23 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   flex-shrink: 0;
 }
 
+.trip-waypoint-badge.badge-return {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.45);
+  color: #d8b4fe;
+}
+
+.trip-waypoint-divider {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #d8b4fe;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px dashed rgba(168, 85, 247, 0.35);
+  text-align: center;
+}
+
 .trip-waypoint-title {
   flex: 1;
   font-weight: 700;
@@ -2807,6 +2824,38 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   background: #17243b;
   border: 1px solid var(--border-color);
   color: #f8fafc;
+}
+
+.corridor-leg-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.btn-corridor-leg-tab {
+  flex: 1;
+  min-height: 32px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: #0f172a;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn-corridor-leg-tab.active {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: #38bdf8;
+  color: #f8fafc;
+}
+
+.btn-add-return-stop {
+  background: rgba(168, 85, 247, 0.22);
+  border: 1px solid rgba(168, 85, 247, 0.55);
+  color: #e9d5ff;
 }
 
 .btn-add-stop {
@@ -4484,6 +4533,27 @@ body.ui-light-mode .btn-remove-stop {
   background: #fff1f2;
   color: #be123c;
   border-color: rgba(225, 29, 72, 0.35);
+}
+body.ui-light-mode .btn-add-return-stop {
+  background: #f3e8ff;
+  color: #7e22ce;
+  border-color: rgba(147, 51, 234, 0.4);
+}
+body.ui-light-mode .btn-corridor-leg-tab {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: rgba(15, 23, 42, 0.14);
+}
+body.ui-light-mode .btn-corridor-leg-tab.active {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: #0284c7;
+}
+body.ui-light-mode .trip-waypoint-badge.badge-return,
+body.ui-light-mode .trip-waypoint-divider {
+  background: #f3e8ff;
+  color: #7e22ce;
+  border-color: rgba(147, 51, 234, 0.35);
 }
 body.ui-light-mode .btn-focus-corridor,
 body.ui-light-mode .btn-sos-focus {

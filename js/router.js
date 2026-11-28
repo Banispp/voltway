@@ -16,6 +16,7 @@ const RouteEngine = (function () {
   let currentDestination = null;
   let corridorChargers = [];
   let intermediateWaypoints = [];
+  let returnWaypoints = [];
   let lastSnappedSegmentIndex = 0;
   let sentToGoogleMaps = false;
 
@@ -52,6 +53,7 @@ const RouteEngine = (function () {
       selectedRouteIndex,
       corridorChargers,
       waypoints: intermediateWaypoints,
+      returnWaypoints,
       timelineMode: currentTimelineMode,
       isRoundTrip,
       corridorBufferKm,
@@ -97,6 +99,17 @@ const RouteEngine = (function () {
       origin: rt.origin,
       destination: rt.destination,
       waypoints: rt.waypoints || [],
+      returnWaypoints: rt.returnWaypoints || [],
+      returnRoute: rt.returnRoute
+        ? {
+            distanceKm: rt.returnRoute.distanceKm,
+            durationMins: rt.returnRoute.durationMins,
+            coordinates: rt.returnRoute.coordinates || [],
+            legs: compactSteps(rt.returnRoute.legs || []),
+            sourceEngine: rt.returnRoute.sourceEngine || 'Same-Route Return',
+            retKey: rt.returnRoute.retKey || ''
+          }
+        : null,
       distanceKm: rt.distanceKm,
       durationMins: rt.durationMins,
       timeDiffMins: rt.timeDiffMins || 0,
@@ -124,6 +137,7 @@ const RouteEngine = (function () {
         origin: currentOrigin || activeRoute.origin,
         destination: currentDestination || activeRoute.destination,
         waypoints: intermediateWaypoints,
+        returnWaypoints,
         timelineMode: currentTimelineMode,
         isRoundTrip,
         corridorBufferKm,
@@ -167,8 +181,11 @@ const RouteEngine = (function () {
       currentOrigin = parsed.origin || activeRoute.origin || null;
       currentDestination = parsed.destination || activeRoute.destination || null;
       intermediateWaypoints = Array.isArray(parsed.waypoints)
-        ? parsed.waypoints.map(w => ({ ...w }))
-        : (activeRoute.waypoints || []).map(w => ({ ...w }));
+        ? parsed.waypoints.map(w => ({ ...w, leg: 'outbound', stopRole: 'outbound' }))
+        : (activeRoute.waypoints || []).map(w => ({ ...w, leg: 'outbound', stopRole: 'outbound' }));
+      returnWaypoints = Array.isArray(parsed.returnWaypoints)
+        ? parsed.returnWaypoints.map(w => ({ ...w, leg: 'return', stopRole: 'return' }))
+        : (activeRoute.returnWaypoints || []).map(w => ({ ...w, leg: 'return', stopRole: 'return' }));
 
       if (parsed.timelineMode === 'optimal' || parsed.timelineMode === 'target') {
         currentTimelineMode = parsed.timelineMode;
@@ -190,6 +207,7 @@ const RouteEngine = (function () {
         origin: currentOrigin,
         destination: currentDestination,
         waypoints: intermediateWaypoints,
+        returnWaypoints,
         isRoundTrip,
         sentToGoogleMaps,
         savedAt: parsed.savedAt || Date.now()
@@ -390,14 +408,36 @@ const RouteEngine = (function () {
     }
   }
 
-  function setRoundTrip(enabled) {
+  async function setRoundTrip(enabled) {
     const next = Boolean(enabled);
     if (isRoundTrip === next) return;
     isRoundTrip = next;
+    if (!next) {
+      returnWaypoints = returnWaypoints.filter(w => !w.isAutoSuggested);
+      if (activeRoute) {
+        activeRoute.returnWaypoints = returnWaypoints.map(w => ({ ...w }));
+      }
+      if (Array.isArray(allRoutes)) {
+        allRoutes.forEach(r => {
+          if (r && Array.isArray(r.returnWaypoints)) {
+            r.returnWaypoints = r.returnWaypoints.filter(w => !w.isAutoSuggested);
+          }
+        });
+      }
+    }
     persistTripState();
     notify();
-    if (activeRoute && navigator.onLine) {
-      reconcileStopsForBattery(null, true);
+    if (activeRoute) {
+      if (next) {
+        const reconciled = await reconcileStopsForBattery(null, true);
+        if (!reconciled && !activeRoute.returnRoute) {
+          await ensureReturnRouteForRoute(activeRoute, returnWaypoints);
+          persistTripState();
+          notify();
+        }
+      } else if (navigator.onLine) {
+        await reconcileStopsForBattery(null, true);
+      }
     }
   }
 
@@ -598,7 +638,11 @@ const RouteEngine = (function () {
    */
   async function fetchValhallaRoutes(cleanPoints) {
     const body = {
-      locations: cleanPoints.map(p => ({ lat: p.lat, lon: p.lng })),
+      locations: cleanPoints.map(p => (
+        p.isThroughAnchor
+          ? { lat: p.lat, lon: p.lng, type: 'through', radius: 600 }
+          : { lat: p.lat, lon: p.lng }
+      )),
       costing: 'auto',
       costing_options: {
         auto: {
@@ -790,7 +834,8 @@ const RouteEngine = (function () {
   }
 
   async function fetchOsrmRaw(cleanPoints) {
-    const coordsStr = cleanPoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+    const routedPoints = cleanPoints.filter(p => !p.isThroughAnchor);
+    const coordsStr = routedPoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
 
     async function queryMirror(serverUrl, allowAlternatives = true, timeoutMs = 10000) {
       let controller = null;
@@ -874,7 +919,7 @@ const RouteEngine = (function () {
       if (isNaN(lat) || isNaN(lng)) {
         throw new Error(`Invalid route coordinate at index ${idx}`);
       }
-      return { lat, lng };
+      return p.isThroughAnchor ? { lat, lng, isThroughAnchor: true } : { lat, lng };
     });
 
     try {
@@ -942,23 +987,178 @@ const RouteEngine = (function () {
    * Orders waypoints along the active road polyline if available (preserves curved roads),
    * or by distance from origin when no baseline polyline exists yet.
    */
-  function sortWaypointsSequentially(waypoints, origin, destination, routeCoords = null) {
-    if (!waypoints || waypoints.length <= 1) return waypoints || [];
+  function sortWaypointsSequentially(waypoints, origin, destination, routeCoords = null, reverseOrder = false) {
+    if (!waypoints || waypoints.length === 0) return waypoints || [];
+    if (waypoints.length === 1) {
+      if (routeCoords && routeCoords.length >= 2) {
+        const w = waypoints[0];
+        const kOut = typeof w.kmFromOrigin === 'number' ? w.kmFromOrigin : calculateKmAlongRoute(w.lat, w.lng, routeCoords);
+        return [{ ...w, kmFromOrigin: Math.round(kOut * 10) / 10 }];
+      }
+      return waypoints;
+    }
     if (!origin) return waypoints;
 
     if (routeCoords && routeCoords.length >= 2) {
       return [...waypoints].sort((a, b) => {
         const kA = typeof a.kmFromOrigin === 'number' ? a.kmFromOrigin : calculateKmAlongRoute(a.lat, a.lng, routeCoords);
         const kB = typeof b.kmFromOrigin === 'number' ? b.kmFromOrigin : calculateKmAlongRoute(b.lat, b.lng, routeCoords);
-        return kA - kB;
+        return reverseOrder ? (kB - kA) : (kA - kB);
       });
     }
 
     return [...waypoints].sort((a, b) => {
-      const dA = haversineDistance(origin.lat, origin.lng, a.lat, a.lng);
-      const dB = haversineDistance(origin.lat, origin.lng, b.lat, b.lng);
+      const ref = reverseOrder && destination ? destination : origin;
+      const dA = haversineDistance(ref.lat, ref.lng, a.lat, a.lng);
+      const dB = haversineDistance(ref.lat, ref.lng, b.lat, b.lng);
       return dA - dB;
     });
+  }
+
+  function buildMirroredReturnFallback(route, retStops = []) {
+    if (!route) return null;
+    const oneWayDist = Math.max(0.1, Number(route.distanceKm) || 0.1);
+    const oneWayMins = Math.max(1, Number(route.durationMins) || 1);
+    const reversedCoords = Array.isArray(route.coordinates) ? [...route.coordinates].reverse() : [];
+
+    const enrichedStops = (retStops || []).map(w => {
+      let kDest = typeof w.kmFromDest === 'number' ? w.kmFromDest : null;
+      if (kDest == null && reversedCoords.length >= 2) {
+        kDest = calculateKmAlongRoute(w.lat, w.lng, reversedCoords);
+      } else if (kDest == null && typeof w.kmFromOrigin === 'number') {
+        kDest = Math.max(0.1, oneWayDist - w.kmFromOrigin);
+      }
+      const cleanDestKm = kDest != null ? Math.max(0.1, Math.min(oneWayDist, Math.round(kDest * 10) / 10)) : oneWayDist / 2;
+      return {
+        ...w,
+        leg: 'return',
+        stopRole: 'return',
+        kmFromDest: cleanDestKm,
+        kmFromOrigin: Math.max(0, Math.round((oneWayDist - cleanDestKm) * 10) / 10)
+      };
+    }).sort((a, b) => a.kmFromDest - b.kmFromDest);
+
+    const boundaries = [0, ...enrichedStops.map(w => w.kmFromDest), oneWayDist];
+    const legs = [];
+    for (let i = 0; i < boundaries.length - 1; i++) {
+      const segKm = Math.max(0.1, Math.round((boundaries[i + 1] - boundaries[i]) * 10) / 10);
+      const ratio = segKm / oneWayDist;
+      legs.push({
+        distance: Math.round(segKm * 1000),
+        duration: Math.max(60, Math.round(oneWayMins * 60 * ratio)),
+        steps: []
+      });
+    }
+
+    const retKey = enrichedStops.map(w => String(w.originalId || w.id)).join('|') + '@' + oneWayDist;
+    return {
+      distanceKm: oneWayDist,
+      durationMins: oneWayMins,
+      coordinates: reversedCoords,
+      legs,
+      stops: enrichedStops,
+      sourceEngine: 'Same-Route Mirror',
+      retKey
+    };
+  }
+
+  function buildSameRouteReturnThroughAnchors(route, retStops = []) {
+    const coords = route && Array.isArray(route.coordinates) ? route.coordinates : [];
+    if (coords.length < 3) return [];
+    const fracs = coords.length < 6 ? [0.5] : [0.75, 0.50, 0.25];
+    const oneWayDist = Number(route.distanceKm) || 1;
+    const usedIdx = new Set();
+    const anchors = [];
+    for (const f of fracs) {
+      const idx = Math.min(coords.length - 2, Math.max(1, Math.floor((coords.length - 1) * f)));
+      if (usedIdx.has(idx)) continue;
+      usedIdx.add(idx);
+      const pt = coords[idx];
+      if (!pt) continue;
+      const nearEndpoint =
+        haversineDistance(pt[0], pt[1], route.origin.lat, route.origin.lng) < 3.0 ||
+        haversineDistance(pt[0], pt[1], route.destination.lat, route.destination.lng) < 3.0;
+      const nearRetStop = (retStops || []).some(w => haversineDistance(pt[0], pt[1], w.lat, w.lng) < 3.5);
+      if (nearEndpoint || nearRetStop) continue;
+      anchors.push({
+        lat: pt[0],
+        lng: pt[1],
+        isThroughAnchor: true,
+        kmFromDest: Math.round(((1 - f) * oneWayDist) * 10) / 10
+      });
+    }
+    return anchors;
+  }
+
+  async function ensureReturnRouteForRoute(route, retStops = returnWaypoints) {
+    if (!route || !route.origin || !route.destination) return null;
+    const cleanStops = Array.isArray(retStops) ? retStops : [];
+    const oneWayDist = Math.max(0.1, Number(route.distanceKm) || 0.1);
+    const orderedIds = cleanStops
+      .map(w => {
+        const kd = typeof w.kmFromDest === 'number'
+          ? w.kmFromDest
+          : (route.coordinates && route.coordinates.length >= 2
+              ? Math.round((oneWayDist - calculateKmAlongRoute(w.lat, w.lng, route.coordinates)) * 10) / 10
+              : oneWayDist / 2);
+        return { ...w, _kd: kd };
+      })
+      .sort((a, b) => a._kd - b._kd);
+    const retKey = orderedIds.map(w => String(w.originalId || w.id)).join('|') + '@' + oneWayDist;
+
+    if (route.returnRoute && route.returnRoute.retKey === retKey && Array.isArray(route.returnRoute.coordinates) && route.returnRoute.coordinates.length >= 2) {
+      return route.returnRoute;
+    }
+
+    const fallback = buildMirroredReturnFallback(route, orderedIds);
+    if (!navigator.onLine) {
+      route.returnRoute = fallback;
+      return fallback;
+    }
+
+    try {
+      const taggedStops = fallback.stops.map(s => ({ ...s, isThroughAnchor: false }));
+      const anchors = buildSameRouteReturnThroughAnchors(route, taggedStops);
+      const midSorted = [...taggedStops, ...anchors].sort((a, b) => (a.kmFromDest || 0) - (b.kmFromDest || 0));
+      const pts = [route.destination, ...midSorted, route.origin];
+      const candidates = await fetchBestMainRoadRoutes(pts);
+      const best = candidates && candidates[0];
+      if (!best || !best.geometry || !Array.isArray(best.geometry.coordinates) || best.geometry.coordinates.length < 2) {
+        route.returnRoute = fallback;
+        return fallback;
+      }
+
+      const retDistKm = Math.round(((best.distance || 0) / 1000) * 10) / 10 || fallback.distanceKm;
+      const retDurMins = Math.round((best.duration || 0) / 60) || fallback.durationMins;
+      const retLegs = best.legs || fallback.legs;
+
+      let cumRetKm = 0;
+      const updatedStops = fallback.stops.map((w, idx) => {
+        if (retLegs[idx]) {
+          cumRetKm += Math.round(((retLegs[idx].distance || 0) / 1000) * 10) / 10;
+          return { ...w, kmFromDest: Math.round(cumRetKm * 10) / 10 };
+        }
+        return w;
+      });
+
+      route.returnWaypoints = updatedStops;
+      if (route === activeRoute) {
+        returnWaypoints = updatedStops.map(w => ({ ...w }));
+      }
+      route.returnRoute = {
+        distanceKm: retDistKm,
+        durationMins: retDurMins,
+        coordinates: best.geometry.coordinates.map(c => [c[1], c[0]]),
+        legs: retLegs,
+        stops: updatedStops,
+        sourceEngine: best.sourceEngine || 'Same-Route Return',
+        retKey
+      };
+      return route.returnRoute;
+    } catch (e) {
+      route.returnRoute = fallback;
+      return fallback;
+    }
   }
 
   function refreshRouteTimeDiffs(pool) {
@@ -985,11 +1185,19 @@ const RouteEngine = (function () {
     if (manualWaypoints !== null) {
       const sanitized = manualWaypoints.map((w, i) => {
         const wid = w.id || w.originalId || `stop_${Date.now()}_${i}`;
-        return { ...w, id: wid, originalId: w.originalId || wid };
+        return { ...w, id: wid, originalId: w.originalId || wid, leg: 'outbound', stopRole: 'outbound' };
       });
       intermediateWaypoints = preserveManualOrder
         ? sanitized
         : sortWaypointsSequentially(sanitized, origin, destination, activeRoute?.coordinates);
+    }
+
+    if (options && Array.isArray(options.returnWaypoints)) {
+      const sanitizedRet = options.returnWaypoints.map((w, i) => {
+        const wid = w.id || w.originalId || `ret_${Date.now()}_${i}`;
+        return { ...w, id: wid, originalId: w.originalId || wid, leg: 'return', stopRole: 'return' };
+      });
+      returnWaypoints = sanitizedRet;
     }
 
     const points = [origin, ...intermediateWaypoints, destination];
@@ -1006,8 +1214,9 @@ const RouteEngine = (function () {
         const prominentRoad = extractMainRoadName(routeData.legs);
         const roadLabel = prominentRoad ? `via ${prominentRoad}` : (idx === 0 ? 'Main Highway' : `Alternate Route ${idx + 1}`);
         const name = isPrimaryFlag ? `${roadLabel} (Main Road)` : `${roadLabel} (${distKm} km)`;
+        const outCoords = routeData.geometry.coordinates.map(c => [c[1], c[0]]);
 
-        const clonedWaypoints = intermediateWaypoints.map(w => ({ ...w }));
+        const clonedWaypoints = intermediateWaypoints.map(w => ({ ...w, leg: 'outbound', stopRole: 'outbound' }));
         let cumKm = 0;
         for (let i = 0; i < clonedWaypoints.length; i++) {
           if (routeData.legs && routeData.legs[i]) {
@@ -1016,6 +1225,14 @@ const RouteEngine = (function () {
           }
         }
 
+        const clonedRetWaypoints = returnWaypoints
+          .map(w => {
+            const kOut = calculateKmAlongRoute(w.lat, w.lng, outCoords);
+            const kDest = Math.max(0.1, Math.round((distKm - kOut) * 10) / 10);
+            return { ...w, leg: 'return', stopRole: 'return', kmFromOrigin: Math.round(kOut * 10) / 10, kmFromDest: kDest };
+          })
+          .sort((a, b) => a.kmFromDest - b.kmFromDest);
+
         return {
           id: `route-${idx}`,
           name,
@@ -1023,11 +1240,13 @@ const RouteEngine = (function () {
           origin,
           destination,
           waypoints: clonedWaypoints,
+          returnWaypoints: clonedRetWaypoints,
+          returnRoute: null,
           distanceKm: distKm,
           durationMins: durMins,
           timeDiffMins: 0,
           geometry: routeData.geometry,
-          coordinates: routeData.geometry.coordinates.map(c => [c[1], c[0]]),
+          coordinates: outCoords,
           legs: routeData.legs || [],
           isPrimary: isPrimaryFlag,
           sourceEngine: routeData.sourceEngine || 'OSRM Highway'
@@ -1049,14 +1268,22 @@ const RouteEngine = (function () {
         refreshRouteTimeDiffs(allRoutes);
         selectedRouteIndex = 0;
         if (!preserveOtherOptions && intermediateWaypoints.every(w => !w.isAutoSuggested)) {
-          baseRouteOptions = allRoutes.map(r => ({ ...r, waypoints: (r.waypoints || []).map(w => ({ ...w })) }));
+          baseRouteOptions = allRoutes.map(r => ({
+            ...r,
+            waypoints: (r.waypoints || []).map(w => ({ ...w })),
+            returnWaypoints: (r.returnWaypoints || []).map(w => ({ ...w }))
+          }));
         }
       }
 
       activeRoute = allRoutes[selectedRouteIndex];
-      intermediateWaypoints = activeRoute.waypoints.map(w => ({ ...w }));
+      intermediateWaypoints = (activeRoute.waypoints || []).map(w => ({ ...w }));
+      returnWaypoints = (activeRoute.returnWaypoints || []).map(w => ({ ...w }));
 
       findCorridorChargers(activeRoute.coordinates);
+      if (isRoundTrip && !(options && options.skipReturnRoute)) {
+        await ensureReturnRouteForRoute(activeRoute, returnWaypoints);
+      }
       persistTripState();
       notify();
       return activeRoute;
@@ -1086,19 +1313,36 @@ const RouteEngine = (function () {
       ? baseRouteOptions[index].waypoints.filter(w => !w.isAutoSuggested)
       : [];
     if (routeWps.length > 0) {
-      intermediateWaypoints = routeWps.map(w => ({ ...w }));
+      intermediateWaypoints = routeWps.map(w => ({ ...w, leg: 'outbound', stopRole: 'outbound' }));
     } else if (baseManual.length > 0) {
-      intermediateWaypoints = baseManual.map(w => ({ ...w }));
+      intermediateWaypoints = baseManual.map(w => ({ ...w, leg: 'outbound', stopRole: 'outbound' }));
     } else {
       intermediateWaypoints = [];
+    }
+
+    const routeRetWps = Array.isArray(activeRoute.returnWaypoints) ? activeRoute.returnWaypoints : [];
+    const baseRetManual = (baseRouteOptions[index] && Array.isArray(baseRouteOptions[index].returnWaypoints))
+      ? baseRouteOptions[index].returnWaypoints.filter(w => !w.isAutoSuggested)
+      : [];
+    if (routeRetWps.length > 0) {
+      returnWaypoints = routeRetWps.map(w => ({ ...w, leg: 'return', stopRole: 'return' }));
+    } else if (baseRetManual.length > 0) {
+      returnWaypoints = baseRetManual.map(w => ({ ...w, leg: 'return', stopRole: 'return' }));
+    } else {
+      returnWaypoints = [];
     }
 
     findCorridorChargers(activeRoute.coordinates);
     persistTripState();
     notify();
 
-    // Ensure the newly selected alternate route checks battery & picks a fast charger along ITS OWN corridor if needed
-    await reconcileStopsForBattery(null, true);
+    // Ensure the newly selected alternate route checks battery & picks stops/return path along ITS OWN corridor
+    const didReconcile = await reconcileStopsForBattery(null, true);
+    if (isRoundTrip && !didReconcile && !activeRoute.returnRoute) {
+      await ensureReturnRouteForRoute(activeRoute, returnWaypoints);
+      persistTripState();
+      notify();
+    }
   }
 
   function matchesRouteFilters(c) {
@@ -1177,11 +1421,13 @@ const RouteEngine = (function () {
       if (minDistance <= effectiveMaxCorridorKm) {
         const segDist = cumDists[closestSegmentIndex] + closestT * (cumDists[closestSegmentIndex + 1] - cumDists[closestSegmentIndex]);
         const approxKmFromOrigin = Math.round(segDist * distScale * 10) / 10;
+        const approxKmFromDest = Math.max(0.1, Math.round((routeDist - approxKmFromOrigin) * 10) / 10);
 
         matching.push({
           ...charger,
           corridorDistanceKm: Math.round(minDistance * 10) / 10,
-          kmFromOrigin: approxKmFromOrigin
+          kmFromOrigin: approxKmFromOrigin,
+          kmFromDest: approxKmFromDest
         });
       }
     }
@@ -1191,139 +1437,246 @@ const RouteEngine = (function () {
     return corridorChargers;
   }
 
-  function pickAutoStopsForRoute(route, baseWaypoints = [], batState = {}, roundTripOverride = isRoundTrip) {
-    if (!route || corridorChargers.length === 0) return [];
-
-    const eff = (batState.efficiency && batState.efficiency > 0) ? batState.efficiency : 0.85;
-    const minReserve = batState.safetyReservePct ?? 15;
-    const startBat = batState.currentBatteryPct ?? 85;
-    const targetCharge = batState.targetChargePct ?? 80;
-
-    const firstLegSafeRange = Math.max(8, Math.round((startBat - minReserve) * eff * 10) / 10);
-    const intermediateSafeRange = Math.max(12, Math.round((targetCharge - minReserve) * eff * 10) / 10);
-    const legDistOneWay = route.distanceKm;
-    const totalDist = roundTripOverride ? Math.round(legDistOneWay * 20) / 10 : legDistOneWay;
-
-    const baseStops = [...baseWaypoints];
-    const existingWaypoints = roundTripOverride
-      ? [
-          ...baseStops,
-          ...baseStops
-            .filter(w => (w.network || w.type) && typeof w.kmFromOrigin === 'number')
-            .map(w => ({ ...w, kmFromOrigin: Math.round(((legDistOneWay * 2) - w.kmFromOrigin) * 10) / 10 }))
-        ].sort((a, b) => (a.kmFromOrigin || 0) - (b.kmFromOrigin || 0))
-      : baseStops;
-
-    const existingIds = new Set(baseStops.map(w => String(w.originalId || w.id)));
-    const addedIds = new Set(existingIds);
-
-    const searchPool = roundTripOverride
-      ? [
-          ...corridorChargers.map(c => ({ ...c, _simKm: c.kmFromOrigin })),
-          ...corridorChargers
-            .filter(c => typeof c.kmFromOrigin === 'number' && legDistOneWay - c.kmFromOrigin > 0.5)
-            .map(c => ({ ...c, _simKm: Math.round(((legDistOneWay * 2) - c.kmFromOrigin) * 10) / 10 }))
-        ]
-      : corridorChargers.map(c => ({ ...c, _simKm: c.kmFromOrigin }));
-
+  function planDirectionStops({ legDistKm, initialBatPct, manualStops, poolChargers, eff, minReserve, targetCharge, stopRole, maxAllowedPool = 25 }) {
     const isCompat = (c) => {
       if (window.BatteryEngine && typeof window.BatteryEngine.isChargerCompatible === 'function') {
         return window.BatteryEngine.isChargerCompatible(c).compatible;
       }
       return c.is_2w !== false;
     };
+    const netBonus = (c) => {
+      if (c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID') return 28;
+      if (c.network === 'BOLT_EARTH' && c.type === 'FAST') return 20;
+      return 0;
+    };
 
-    const newlySuggested = [];
-    let currentCoveredKm = 0;
+    const sortedManual = [...(manualStops || [])]
+      .filter(w => typeof w._simKm === 'number' && w._simKm > 0.2 && w._simKm < legDistKm - 0.1)
+      .sort((a, b) => a._simKm - b._simKm);
+
+    const usedIds = new Set((manualStops || []).map(w => String(w.originalId || w.id)));
+    const autoPicked = [];
+    let curKm = 0;
+    let curBat = initialBatPct;
+    let unreachedStartGap = false;
     let attempts = 0;
-    const maxAttempts = 25;
 
-    while (currentCoveredKm + (attempts === 0 ? firstLegSafeRange : intermediateSafeRange) < totalDist && attempts < maxAttempts) {
-      const safeRange = (attempts === 0) ? firstLegSafeRange : intermediateSafeRange;
-      attempts++;
+    const pickBestBefore = (targetKm, stopAfterOne = false) => {
+      while (curKm + Math.max(4, (curBat - minReserve) * eff) < targetKm && attempts < maxAllowedPool) {
+        const safeReach = Math.max(4, (curBat - minReserve) * eff);
+        const spanToTarget = Math.max(1, targetKm - curKm);
+        const searchCap = Math.min(targetKm - 0.3, curKm + safeReach);
+        const targetMin = curKm + Math.min(spanToTarget * 0.45, safeReach * 0.45);
+        const targetMax = Math.min(targetKm - 0.3, curKm + safeReach * 0.92);
 
-      const nextManualStop = existingWaypoints.find(w =>
-        (w.network || w.type) &&
-        typeof w.kmFromOrigin === 'number' &&
-        w.kmFromOrigin > currentCoveredKm + 1 &&
-        w.kmFromOrigin <= currentCoveredKm + safeRange
-      );
-      if (nextManualStop) {
-        currentCoveredKm = nextManualStop.kmFromOrigin;
-        continue;
-      }
+        const effectiveReachOk = (c) => {
+          const detourKm = (c.corridorDistanceKm || 0) * 2.0;
+          return (c._simKm - curKm + detourKm) <= safeReach;
+        };
 
-      // Also check if a mirrored charger from an already-selected outbound auto-stop covers the current return span
-      if (roundTripOverride) {
-        const nextMirroredAuto = newlySuggested
-          .map(w => Math.round(((legDistOneWay * 2) - w.kmFromOrigin) * 10) / 10)
-          .find(mk => mk > currentCoveredKm + 1 && mk <= currentCoveredKm + safeRange);
-        if (nextMirroredAuto !== undefined) {
-          currentCoveredKm = nextMirroredAuto;
-          continue;
-        }
-      }
-
-      const targetMinKm = currentCoveredKm + (safeRange * 0.45);
-      const targetMaxKm = currentCoveredKm + (safeRange * 0.92);
-
-      const effectiveReachOk = (c) => {
-        const detourKm = (c.corridorDistanceKm || 0) * 2.0;
-        return (c._simKm - currentCoveredKm + detourKm) <= safeRange;
-      };
-
-      let candidates = searchPool.filter(c =>
-        matchesRouteFilters(c) &&
-        isCompat(c) &&
-        !addedIds.has(String(c.originalId || c.id)) &&
-        c._simKm >= targetMinKm &&
-        c._simKm <= targetMaxKm &&
-        effectiveReachOk(c)
-      );
-
-      if (candidates.length === 0) {
-        candidates = searchPool.filter(c =>
+        let cands = poolChargers.filter(c =>
           matchesRouteFilters(c) &&
           isCompat(c) &&
-          !addedIds.has(String(c.originalId || c.id)) &&
-          c._simKm > currentCoveredKm + 4 &&
+          !usedIds.has(String(c.originalId || c.id)) &&
+          c._simKm >= targetMin &&
+          c._simKm <= targetMax &&
           effectiveReachOk(c)
         );
-      }
+        if (cands.length === 0) {
+          cands = poolChargers.filter(c =>
+            matchesRouteFilters(c) &&
+            isCompat(c) &&
+            !usedIds.has(String(c.originalId || c.id)) &&
+            c._simKm > curKm + 1.5 &&
+            c._simKm <= searchCap &&
+            effectiveReachOk(c)
+          );
+        }
+        if (cands.length === 0) {
+          const forward = poolChargers.filter(c =>
+            matchesRouteFilters(c) &&
+            isCompat(c) &&
+            !usedIds.has(String(c.originalId || c.id)) &&
+            c._simKm > curKm + 0.5 &&
+            c._simKm < targetKm
+          );
+          if (forward.length === 0) {
+            unreachedStartGap = true;
+            return;
+          }
+          forward.sort((a, b) => a._simKm - b._simKm);
+          cands = [forward[0]];
+          const nearestArrival = curBat - ((forward[0]._simKm - curKm) / eff);
+          if (nearestArrival < 0) unreachedStartGap = true;
+        }
 
-      if (candidates.length === 0) {
-        const forward = searchPool.filter(c =>
-          matchesRouteFilters(c) &&
-          isCompat(c) &&
-          !addedIds.has(String(c.originalId || c.id)) &&
-          c._simKm > currentCoveredKm
-        );
-        if (forward.length === 0) break;
-        forward.sort((a, b) => a._simKm - b._simKm);
-        candidates = [forward[0]];
-      }
+        attempts++;
+        cands.sort((a, b) => {
+          const sA = ((a._simKm - curKm) * 1.4) + netBonus(a) - (a.corridorDistanceKm * 4.5);
+          const sB = ((b._simKm - curKm) * 1.4) + netBonus(b) - (b.corridorDistanceKm * 4.5);
+          return sB - sA;
+        });
 
-      candidates.sort((a, b) => {
-        const netBonus = (c) => {
-          if (c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID') return 28;
-          if (c.network === 'BOLT_EARTH' && c.type === 'FAST') return 20;
-          return 0;
+        const selected = cands[0];
+        const orig = corridorChargers.find(c => String(c.id) === String(selected.id)) || selected;
+        const cleanStop = {
+          ...orig,
+          leg: stopRole,
+          stopRole,
+          isAutoSuggested: true
         };
-        const scoreA = ((a._simKm - currentCoveredKm) * 1.4) + netBonus(a) - (a.corridorDistanceKm * 4.5);
-        const scoreB = ((b._simKm - currentCoveredKm) * 1.4) + netBonus(b) - (b.corridorDistanceKm * 4.5);
-        return scoreB - scoreA;
-      });
+        if (stopRole === 'return') {
+          cleanStop.kmFromDest = Math.round(selected._simKm * 10) / 10;
+        }
+        delete cleanStop._simKm;
+        autoPicked.push(cleanStop);
+        usedIds.add(String(cleanStop.originalId || cleanStop.id));
 
-      const selected = candidates[0];
-      const orig = corridorChargers.find(c => String(c.id) === String(selected.id)) || selected;
-      const cleanStop = { ...orig, isAutoSuggested: true };
-      delete cleanStop._simKm;
-      newlySuggested.push(cleanStop);
-      addedIds.add(String(cleanStop.originalId || cleanStop.id));
-      currentCoveredKm = selected._simKm;
+        const arrBat = Math.max(0, curBat - ((selected._simKm - curKm) / eff));
+        const isFast = orig.network === 'ATHER_GRID' || orig.network === 'VIDA_GRID' || orig.type === 'FAST';
+        curBat = Math.max(arrBat, isFast ? targetCharge : 100);
+        curKm = selected._simKm;
+        if (stopAfterOne) break;
+      }
+    };
+
+    for (const mw of sortedManual) {
+      const neededAtStop = curBat - ((mw._simKm - curKm) / eff);
+      if (neededAtStop < minReserve) {
+        pickBestBefore(mw._simKm, false);
+      }
+      const arrBat = Math.max(0, curBat - ((mw._simKm - curKm) / eff));
+      if (mw.network || mw.type) {
+        const isFast = mw.network === 'ATHER_GRID' || mw.network === 'VIDA_GRID' || mw.type === 'FAST';
+        curBat = Math.max(arrBat, isFast ? targetCharge : 100);
+      } else {
+        curBat = arrBat;
+      }
+      curKm = mw._simKm;
     }
 
-    return newlySuggested;
+    // Check remaining span to destination (targetKm = legDistKm)
+    const needBatForRemaining = ((legDistKm - curKm) / eff) + minReserve;
+    if (curBat < needBatForRemaining) {
+      pickBestBefore(legDistKm, false);
+    }
+
+    const arrivalAtEndPct = Math.round((curBat - ((legDistKm - curKm) / eff)) * 10) / 10;
+    return { autoPicked, arrivalAtEndPct, unreachedStartGap };
+  }
+
+  function pickAutoStopsForRoute(route, baseOutWaypoints = [], baseRetWaypoints = [], batState = {}, roundTripOverride = isRoundTrip) {
+    if (!route || corridorChargers.length === 0) return { outbound: [], return: [] };
+
+    const eff = (batState.efficiency && batState.efficiency > 0) ? batState.efficiency : 0.85;
+    const minReserve = batState.safetyReservePct ?? 15;
+    const startBat = batState.currentBatteryPct ?? 85;
+    const targetCharge = batState.targetChargePct ?? 80;
+    const legDistOneWay = Math.max(0.1, Number(route.distanceKm) || 0.1);
+
+    const outManual = (baseOutWaypoints || []).map(w => ({
+      ...w,
+      _simKm: typeof w.kmFromOrigin === 'number'
+        ? w.kmFromOrigin
+        : (route.coordinates && route.coordinates.length >= 2 ? calculateKmAlongRoute(w.lat, w.lng, route.coordinates) : legDistOneWay / 2)
+    }));
+    const outPool = corridorChargers.map(c => ({ ...c, _simKm: c.kmFromOrigin }));
+
+    const outPlan = planDirectionStops({
+      legDistKm: legDistOneWay,
+      initialBatPct: startBat,
+      manualStops: outManual,
+      poolChargers: outPool,
+      eff,
+      minReserve,
+      targetCharge,
+      stopRole: 'outbound'
+    });
+
+    if (!roundTripOverride) {
+      return { outbound: outPlan.autoPicked, return: [] };
+    }
+
+    const retManual = (baseRetWaypoints || []).map(w => {
+      const kd = typeof w.kmFromDest === 'number'
+        ? w.kmFromDest
+        : (typeof w.kmFromOrigin === 'number'
+            ? Math.max(0.1, legDistOneWay - w.kmFromOrigin)
+            : (route.coordinates && route.coordinates.length >= 2
+                ? Math.max(0.1, legDistOneWay - calculateKmAlongRoute(w.lat, w.lng, route.coordinates))
+                : legDistOneWay / 2));
+      return { ...w, _simKm: kd };
+    });
+    const retPool = corridorChargers
+      .map(c => ({
+        ...c,
+        _simKm: typeof c.kmFromDest === 'number' ? c.kmFromDest : Math.max(0.1, Math.round((legDistOneWay - c.kmFromOrigin) * 10) / 10)
+      }))
+      .filter(c => c._simKm > 0.2 && c._simKm < legDistOneWay - 0.2)
+      .sort((a, b) => a._simKm - b._simKm);
+
+    let finalAutoOut = [...outPlan.autoPicked];
+    let retPlan = planDirectionStops({
+      legDistKm: legDistOneWay,
+      initialBatPct: outPlan.arrivalAtEndPct,
+      manualStops: retManual,
+      poolChargers: retPool,
+      eff,
+      minReserve,
+      targetCharge,
+      stopRole: 'return'
+    });
+
+    // If arriving at B left battery too low to even reach the first return charger safely,
+    // add one late-outbound top-up stop (within outbound reach near B) so Return can reach home/first return charger safely.
+    if (retPlan.unreachedStartGap || (retPlan.arrivalAtEndPct < 0 && retPool.length > 0)) {
+      const combinedOutManual = [
+        ...outManual,
+        ...finalAutoOut.map(w => ({ ...w, _simKm: w.kmFromOrigin }))
+      ].sort((a, b) => a._simKm - b._simKm);
+      const usedOutIds = new Set(combinedOutManual.map(w => String(w.originalId || w.id)));
+      const lastOutKm = combinedOutManual.length > 0 ? combinedOutManual[combinedOutManual.length - 1]._simKm : 0;
+      let batBeforeLastLeg = startBat;
+      if (combinedOutManual.length > 0) {
+        const lastStop = combinedOutManual[combinedOutManual.length - 1];
+        const isFast = lastStop.network === 'ATHER_GRID' || lastStop.network === 'VIDA_GRID' || lastStop.type === 'FAST';
+        batBeforeLastLeg = Math.max(outPlan.arrivalAtEndPct + ((legDistOneWay - lastOutKm) / eff), isFast ? targetCharge : 100);
+      }
+      const safeOutFromLast = Math.max(4, (batBeforeLastLeg - minReserve) * eff);
+      const lateOutCands = outPool
+        .filter(c =>
+          matchesRouteFilters(c) &&
+          (!window.BatteryEngine || window.BatteryEngine.isChargerCompatible(c).compatible) &&
+          !usedOutIds.has(String(c.originalId || c.id)) &&
+          c._simKm > lastOutKm + 1.5 &&
+          c._simKm < legDistOneWay - 0.2 &&
+          (c._simKm - lastOutKm + (c.corridorDistanceKm || 0) * 2) <= safeOutFromLast
+        )
+        .sort((a, b) => b._simKm - a._simKm);
+
+      if (lateOutCands.length > 0) {
+        const topUp = lateOutCands[0];
+        const origTopUp = corridorChargers.find(c => String(c.id) === String(topUp.id)) || topUp;
+        const cleanTopUp = { ...origTopUp, leg: 'outbound', stopRole: 'outbound', isAutoSuggested: true };
+        delete cleanTopUp._simKm;
+        finalAutoOut.push(cleanTopUp);
+        const isFastTop = cleanTopUp.network === 'ATHER_GRID' || cleanTopUp.network === 'VIDA_GRID' || cleanTopUp.type === 'FAST';
+        const topUpTarget = isFastTop ? targetCharge : 100;
+        const newSocAtB = Math.round((topUpTarget - ((legDistOneWay - topUp._simKm) / eff)) * 10) / 10;
+        retPlan = planDirectionStops({
+          legDistKm: legDistOneWay,
+          initialBatPct: newSocAtB,
+          manualStops: retManual,
+          poolChargers: retPool,
+          eff,
+          minReserve,
+          targetCharge,
+          stopRole: 'return'
+        });
+      }
+    }
+
+    return { outbound: finalAutoOut, return: retPlan.autoPicked };
   }
 
   /**
@@ -1347,19 +1700,25 @@ const RouteEngine = (function () {
       }
     }
 
-    const existingWaypoints = [...intermediateWaypoints];
-    const newlySuggested = pickAutoStopsForRoute(activeRoute, existingWaypoints, batState, isRoundTrip);
+    const existingOut = [...intermediateWaypoints];
+    const existingRet = isRoundTrip ? [...returnWaypoints] : [];
+    const suggested = pickAutoStopsForRoute(activeRoute, existingOut, existingRet, batState, isRoundTrip);
+    const outAdd = suggested.outbound || [];
+    const retAdd = suggested.return || [];
 
-    if (newlySuggested.length > 0) {
-      const merged = [...existingWaypoints, ...newlySuggested];
-      intermediateWaypoints = sortWaypointsSequentially(merged, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
+    if (outAdd.length > 0 || retAdd.length > 0) {
+      const mergedOut = [...existingOut, ...outAdd];
+      intermediateWaypoints = sortWaypointsSequentially(mergedOut, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
+      const mergedRet = isRoundTrip ? [...existingRet, ...retAdd] : existingRet;
+      returnWaypoints = sortWaypointsSequentially(mergedRet, activeRoute.origin, activeRoute.destination, activeRoute.coordinates, true);
       await calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, true, {
         preserveOtherOptions: allRoutes.length > 1 || baseRouteOptions.length > 1,
-        optionIndex: selectedRouteIndex
+        optionIndex: selectedRouteIndex,
+        returnWaypoints
       });
     }
 
-    return newlySuggested;
+    return [...outAdd, ...retAdd];
   }
 
   let isReconcilingBatteryStops = false;
@@ -1402,32 +1761,40 @@ const RouteEngine = (function () {
         ? slice.remainingKm
         : activeRoute.distanceKm;
 
-      const manualStops = intermediateWaypoints.filter(w =>
+      const manualOutStops = intermediateWaypoints.filter(w =>
         !w.isAutoSuggested && (!isDriving || typeof w.kmFromOrigin !== 'number' || w.kmFromOrigin > traversedKm + 0.3)
       );
-      const hasAutoStops = intermediateWaypoints.some(w => w.isAutoSuggested);
+      const manualRetStops = effectiveRt ? returnWaypoints.filter(w => !w.isAutoSuggested) : [];
+      const hasAutoOut = intermediateWaypoints.some(w => w.isAutoSuggested);
+      const hasAutoRet = returnWaypoints.some(w => w.isAutoSuggested);
+      const hasAutoStops = hasAutoOut || hasAutoRet;
 
       if (!hasUnsafeNode && !hasAutoStops && !forceEvaluate) {
         return false;
       }
 
-      let desired = [...manualStops];
+      let desiredOut = [...manualOutStops];
+      let desiredRet = [...manualRetStops];
       const directArrival = startBat - ((effectiveRt ? remainingDistKm * 2 : remainingDistKm) / eff);
 
-      // Zero-cost instant restore of uncharged base route option when battery/efficiency now covers the trip
-      if (!isDriving && manualStops.length === 0 && directArrival >= minReserve && hasAutoStops && baseRouteOptions[selectedRouteIndex]) {
+      // Zero-cost instant restore when battery/efficiency covers full trip & no manual stops remain
+      if (!isDriving && manualOutStops.length === 0 && manualRetStops.length === 0 && directArrival >= minReserve && hasAutoStops && baseRouteOptions[selectedRouteIndex]) {
         const cleanBase = baseRouteOptions[selectedRouteIndex];
-        allRoutes[selectedRouteIndex] = { ...cleanBase, waypoints: [] };
+        allRoutes[selectedRouteIndex] = { ...cleanBase, waypoints: [], returnWaypoints: [], returnRoute: null };
         refreshRouteTimeDiffs(allRoutes);
         activeRoute = allRoutes[selectedRouteIndex];
         intermediateWaypoints = [];
+        returnWaypoints = [];
         findCorridorChargers(activeRoute.coordinates);
+        if (effectiveRt) {
+          await ensureReturnRouteForRoute(activeRoute, []);
+        }
         persistTripState();
         notify();
         return true;
       }
 
-      if (manualStops.length > 0 || directArrival < minReserve) {
+      if (manualOutStops.length > 0 || manualRetStops.length > 0 || directArrival < minReserve || effectiveRt) {
         const simRoute = isDriving
           ? {
               ...activeRoute,
@@ -1436,7 +1803,7 @@ const RouteEngine = (function () {
             }
           : activeRoute;
 
-        const baseForSim = manualStops.map(w => ({
+        const baseOutForSim = manualOutStops.map(w => ({
           ...w,
           kmFromOrigin: typeof w.kmFromOrigin === 'number' ? Math.max(0.5, w.kmFromOrigin - traversedKm) : w.kmFromOrigin
         }));
@@ -1446,31 +1813,66 @@ const RouteEngine = (function () {
 
         const origCorridor = corridorChargers;
         if (shiftedCorridor) corridorChargers = shiftedCorridor;
-        const neededAuto = pickAutoStopsForRoute(simRoute, baseForSim, batState, effectiveRt);
+        const neededAuto = pickAutoStopsForRoute(simRoute, baseOutForSim, manualRetStops, batState, effectiveRt);
         if (shiftedCorridor) corridorChargers = origCorridor;
 
-        if (hasUnsafeNode || (hasAutoStops && neededAuto.length > 0)) {
-          desired = sortWaypointsSequentially(
-            [...manualStops, ...neededAuto],
+        const autoOut = neededAuto.outbound || [];
+        const autoRet = neededAuto.return || [];
+
+        if (hasUnsafeNode || (hasAutoStops && (autoOut.length > 0 || autoRet.length > 0)) || forceEvaluate) {
+          desiredOut = sortWaypointsSequentially(
+            [...manualOutStops, ...autoOut],
             routeOriginForReplan,
             activeRoute.destination,
             activeRoute.coordinates
           );
-        } else if (hasAutoStops && neededAuto.length === 0 && !hasUnsafeNode) {
-          desired = [...manualStops];
+          desiredRet = effectiveRt
+            ? sortWaypointsSequentially(
+                [...manualRetStops, ...autoRet],
+                activeRoute.origin,
+                activeRoute.destination,
+                activeRoute.coordinates,
+                true
+              )
+            : [...manualRetStops];
         } else {
-          desired = [...intermediateWaypoints];
+          desiredOut = [...intermediateWaypoints];
+          desiredRet = [...returnWaypoints];
         }
       }
 
       const normIds = (arr) => arr.map(w => String(w.originalId || w.id)).join('|');
-      if (normIds(desired) === normIds(intermediateWaypoints)) {
+      const outChanged = normIds(desiredOut) !== normIds(intermediateWaypoints);
+      const retChanged = normIds(desiredRet) !== normIds(returnWaypoints);
+      if (!outChanged && !retChanged) {
+        if (effectiveRt && !activeRoute.returnRoute) {
+          await ensureReturnRouteForRoute(activeRoute, returnWaypoints);
+          persistTripState();
+          notify();
+          return true;
+        }
         return false;
       }
 
-      await calculateRoute(routeOriginForReplan, activeRoute.destination, desired, true, {
+      if (!outChanged && retChanged) {
+        // Only return stops changed — keep outbound route untouched and rebuild only return route!
+        returnWaypoints = desiredRet.map(w => ({ ...w, leg: 'return', stopRole: 'return' }));
+        activeRoute.returnWaypoints = returnWaypoints.map(w => ({ ...w }));
+        if (baseRouteOptions[selectedRouteIndex]) {
+          baseRouteOptions[selectedRouteIndex].returnWaypoints = returnWaypoints.map(w => ({ ...w }));
+        }
+        if (effectiveRt) {
+          await ensureReturnRouteForRoute(activeRoute, returnWaypoints);
+        }
+        persistTripState();
+        notify();
+        return true;
+      }
+
+      await calculateRoute(routeOriginForReplan, activeRoute.destination, desiredOut, true, {
         preserveOtherOptions: !isDriving && (allRoutes.length > 1 || baseRouteOptions.length > 1),
-        optionIndex: selectedRouteIndex
+        optionIndex: selectedRouteIndex,
+        returnWaypoints: desiredRet
       });
       return true;
     } catch (e) {
@@ -1480,14 +1882,21 @@ const RouteEngine = (function () {
     }
   }
 
-  function addWaypoint(charger) {
+  function addWaypoint(charger, leg = 'outbound') {
     if (!charger) return false;
+    const targetLeg = (leg === 'return') ? 'return' : 'outbound';
+    if (targetLeg === 'return' && !isRoundTrip) {
+      isRoundTrip = true;
+    }
+
     const baseId = charger.originalId || charger.id || `stop_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const alreadyExists = intermediateWaypoints.some(w => String(w.originalId || w.id) === String(baseId));
+    const targetList = targetLeg === 'return' ? returnWaypoints : intermediateWaypoints;
+    const alreadyExists = targetList.some(w => String(w.originalId || w.id) === String(baseId));
 
     if (alreadyExists) {
       if (window.SyncEngine && window.SyncEngine.showAutoUpdateToast) {
-        window.SyncEngine.showAutoUpdateToast(`⚡ ${charger.name || 'Charger'} is already added as a stop`);
+        const legLbl = targetLeg === 'return' ? 'Return' : 'Going';
+        window.SyncEngine.showAutoUpdateToast(`⚡ ${charger.name || 'Charger'} is already in ${legLbl} stops`);
       }
       return false;
     }
@@ -1499,8 +1908,42 @@ const RouteEngine = (function () {
       }
     }
 
-    const stopObj = { ...charger, originalId: baseId, id: baseId };
+    const stopObj = { ...charger, originalId: baseId, id: baseId, leg: targetLeg, stopRole: targetLeg };
     delete stopObj.kmFromOrigin;
+    delete stopObj.kmFromDest;
+
+    if (targetLeg === 'return') {
+      if (activeRoute && activeRoute.coordinates) {
+        const kOut = calculateKmAlongRoute(stopObj.lat, stopObj.lng, activeRoute.coordinates);
+        const legDist = Number(activeRoute.distanceKm) || 0;
+        stopObj.kmFromOrigin = Math.round(kOut * 10) / 10;
+        stopObj.kmFromDest = Math.max(0.1, Math.round((legDist - kOut) * 10) / 10);
+      }
+      returnWaypoints.push(stopObj);
+      returnWaypoints = sortWaypointsSequentially(
+        returnWaypoints,
+        activeRoute && activeRoute.origin,
+        activeRoute && activeRoute.destination,
+        activeRoute && activeRoute.coordinates,
+        true
+      );
+      if (Array.isArray(baseRouteOptions) && baseRouteOptions[selectedRouteIndex]) {
+        baseRouteOptions[selectedRouteIndex].returnWaypoints = returnWaypoints.map(w => ({ ...w }));
+      }
+      if (activeRoute) {
+        activeRoute.returnWaypoints = returnWaypoints.map(w => ({ ...w }));
+        persistTripState();
+        notify();
+        ensureReturnRouteForRoute(activeRoute, returnWaypoints).then(() => {
+          persistTripState();
+          notify();
+        }).catch(() => {});
+      } else {
+        persistTripState();
+        notify();
+      }
+      return true;
+    }
 
     if (Array.isArray(baseRouteOptions) && baseRouteOptions[selectedRouteIndex]) {
       if (!Array.isArray(baseRouteOptions[selectedRouteIndex].waypoints)) {
@@ -1516,7 +1959,8 @@ const RouteEngine = (function () {
       intermediateWaypoints = sortWaypointsSequentially(intermediateWaypoints, activeRoute.origin, activeRoute.destination, activeRoute.coordinates);
       calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, false, {
         preserveOtherOptions: allRoutes.length > 1 || baseRouteOptions.length > 1,
-        optionIndex: selectedRouteIndex
+        optionIndex: selectedRouteIndex,
+        returnWaypoints
       });
     } else {
       intermediateWaypoints.push(stopObj);
@@ -1526,9 +1970,10 @@ const RouteEngine = (function () {
     return true;
   }
 
-  function removeWaypoint(target) {
+  function removeWaypoint(target, leg = null) {
     if (target === undefined || target === null || target === '') return;
 
+    const explicitLeg = leg || (typeof target === 'object' ? (target.leg || target.stopRole || null) : null);
     const matchFn = (w) => {
       if (!w) return false;
       if (typeof target === 'object') {
@@ -1550,32 +1995,67 @@ const RouteEngine = (function () {
       return String(w.id) === sTarget || String(w.originalId || '') === sTarget || String(w.name || '') === sTarget;
     };
 
-    if (typeof target === 'number' && target >= 0 && target < intermediateWaypoints.length) {
-      intermediateWaypoints.splice(target, 1);
-    } else {
-      intermediateWaypoints = intermediateWaypoints.filter(w => !matchFn(w));
+    let removedOut = false;
+    let removedRet = false;
+
+    if (explicitLeg !== 'return') {
+      const before = intermediateWaypoints.length;
+      if (typeof target === 'number' && target >= 0 && target < intermediateWaypoints.length) {
+        intermediateWaypoints.splice(target, 1);
+      } else {
+        intermediateWaypoints = intermediateWaypoints.filter(w => !matchFn(w));
+      }
+      if (intermediateWaypoints.length !== before) removedOut = true;
+      intermediateWaypoints.forEach(w => { delete w.kmFromOrigin; });
     }
-    intermediateWaypoints.forEach(w => { delete w.kmFromOrigin; });
+
+    if (explicitLeg === 'return' || (!explicitLeg && !removedOut)) {
+      const beforeR = returnWaypoints.length;
+      if (explicitLeg === 'return' && typeof target === 'number' && target >= 0 && target < returnWaypoints.length) {
+        returnWaypoints.splice(target, 1);
+      } else {
+        returnWaypoints = returnWaypoints.filter(w => !matchFn(w));
+      }
+      if (returnWaypoints.length !== beforeR) removedRet = true;
+    }
 
     if (Array.isArray(baseRouteOptions)) {
       baseRouteOptions.forEach(opt => {
-        if (Array.isArray(opt.waypoints)) {
+        if (removedOut && Array.isArray(opt.waypoints)) {
           if (typeof target === 'number' && target >= 0 && target < opt.waypoints.length) {
             opt.waypoints.splice(target, 1);
           } else {
             opt.waypoints = opt.waypoints.filter(w => !matchFn(w));
           }
         }
+        if (removedRet && Array.isArray(opt.returnWaypoints)) {
+          if (explicitLeg === 'return' && typeof target === 'number' && target >= 0 && target < opt.returnWaypoints.length) {
+            opt.returnWaypoints.splice(target, 1);
+          } else {
+            opt.returnWaypoints = opt.returnWaypoints.filter(w => !matchFn(w));
+          }
+        }
       });
     }
 
     if (activeRoute) {
-      calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, false, {
-        preserveOtherOptions: allRoutes.length > 1 || baseRouteOptions.length > 1,
-        optionIndex: selectedRouteIndex
-      }).catch(err => {
-        console.warn('[VoltWay Router] Recalculate after remove waypoint note:', err);
-      });
+      if (removedOut) {
+        calculateRoute(activeRoute.origin, activeRoute.destination, intermediateWaypoints, false, {
+          preserveOtherOptions: allRoutes.length > 1 || baseRouteOptions.length > 1,
+          optionIndex: selectedRouteIndex,
+          returnWaypoints
+        }).catch(err => {
+          console.warn('[VoltWay Router] Recalculate after remove waypoint note:', err);
+        });
+      } else if (removedRet) {
+        activeRoute.returnWaypoints = returnWaypoints.map(w => ({ ...w }));
+        persistTripState();
+        notify();
+        ensureReturnRouteForRoute(activeRoute, returnWaypoints).then(() => {
+          persistTripState();
+          notify();
+        }).catch(() => {});
+      }
     } else {
       persistTripState();
       notify();
@@ -1667,11 +2147,15 @@ const RouteEngine = (function () {
     const targetCharge = (typeof batState.targetChargePct === 'number' && !isNaN(batState.targetChargePct)) ? batState.targetChargePct : 80;
     const minReserve = (typeof batState.safetyReservePct === 'number' && !isNaN(batState.safetyReservePct)) ? batState.safetyReservePct : 15;
 
-    const waypoints = route.waypoints || [];
+    const outWaypoints = route.waypoints || [];
+    const retWaypoints = roundTrip ? (route.returnWaypoints || []) : [];
+    const retRouteObj = roundTrip ? route.returnRoute : null;
     const legs = route.legs || [];
+    const returnDistKm = (retRouteObj && typeof retRouteObj.distanceKm === 'number') ? retRouteObj.distanceKm : route.distanceKm;
+    const returnMins = (retRouteObj && typeof retRouteObj.durationMins === 'number') ? retRouteObj.durationMins : route.durationMins;
     const timeline = [];
-    const totalRouteDistKm = roundTrip ? Math.round(route.distanceKm * 20) / 10 : route.distanceKm;
-    const totalDrivingMins = roundTrip ? (route.durationMins * 2) : route.durationMins;
+    const totalRouteDistKm = roundTrip ? Math.round((route.distanceKm + returnDistKm) * 10) / 10 : route.distanceKm;
+    const totalDrivingMins = roundTrip ? ((route.durationMins || 0) + (returnMins || 0)) : route.durationMins;
 
     let currentSoC = startBat;
     let totalChargingTimeMins = 0;
@@ -1685,7 +2169,7 @@ const RouteEngine = (function () {
       batteryPct: currentSoC
     });
 
-    if (waypoints.length === 0) {
+    if (outWaypoints.length === 0 && retWaypoints.length === 0) {
       const usedPct = fixNegZero(Math.round((route.distanceKm / eff) * 10) / 10);
       const arrivalSoC = fixNegZero(Math.round((currentSoC - usedPct) * 10) / 10);
 
@@ -1723,23 +2207,24 @@ const RouteEngine = (function () {
         };
       }
 
-      const retArrivalSoC = fixNegZero(Math.round((arrivalSoC - usedPct) * 10) / 10);
+      const retUsedPct = fixNegZero(Math.round((returnDistKm / eff) * 10) / 10);
+      const retArrivalSoC = fixNegZero(Math.round((arrivalSoC - retUsedPct) * 10) / 10);
       timeline.push({
         type: 'TURNAROUND',
         name: route.destination?.name || 'Destination',
         lat: route.destination?.lat,
         lng: route.destination?.lng,
         arrivalSoC,
-        returnNeededPct: fixNegZero(Math.round((usedPct + minReserve) * 10) / 10),
+        returnNeededPct: fixNegZero(Math.round((retUsedPct + minReserve) * 10) / 10),
         isSafe: arrivalSoC >= minReserve,
         isCritical: arrivalSoC < 0
       });
 
       timeline.push({
         type: 'LEG',
-        distanceKm: route.distanceKm,
-        durationMins: route.durationMins,
-        batteryUsedPct: usedPct,
+        distanceKm: returnDistKm,
+        durationMins: returnMins,
+        batteryUsedPct: retUsedPct,
         isReturnLeg: true
       });
 
@@ -1772,18 +2257,47 @@ const RouteEngine = (function () {
     const getLegMetrics = (idx) => {
       const distKm = (legs[idx] && legs[idx].distance)
         ? Math.round((legs[idx].distance / 1000) * 10) / 10
-        : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
+        : Math.round((route.distanceKm / (outWaypoints.length + 1)) * 10) / 10;
       const durationMins = (legs[idx] && legs[idx].duration)
         ? Math.round(legs[idx].duration / 60)
         : Math.round(distKm * 1.8);
       return { distKm, durationMins };
     };
 
+    const getRetBoundsKm = () => {
+      const bounds = [0];
+      let last = 0;
+      for (const w of retWaypoints) {
+        const kd = typeof w.kmFromDest === 'number'
+          ? w.kmFromDest
+          : (typeof w.kmFromOrigin === 'number' ? Math.max(0.1, returnDistKm - w.kmFromOrigin) : last + (returnDistKm / (retWaypoints.length + 1)));
+        const clamped = Math.max(last + 0.1, Math.min(returnDistKm - 0.1, Math.round(kd * 10) / 10));
+        bounds.push(clamped);
+        last = clamped;
+      }
+      bounds.push(returnDistKm);
+      return bounds;
+    };
+    const retBounds = roundTrip ? getRetBoundsKm() : [];
+    const hasRealRetLegs = Boolean(retRouteObj && Array.isArray(retRouteObj.legs) && retRouteObj.legs.length === retWaypoints.length + 1);
+    const getRetLegMetrics = (idx) => {
+      if (hasRealRetLegs && retRouteObj.legs[idx]) {
+        const l = retRouteObj.legs[idx];
+        const distKm = Math.round(((l.distance || 0) / 1000) * 10) / 10;
+        const durationMins = Math.max(1, Math.round((l.duration || 0) / 60));
+        return { distKm, durationMins };
+      }
+      const distKm = Math.max(0.1, Math.round(((retBounds[idx + 1] ?? returnDistKm) - (retBounds[idx] ?? 0)) * 10) / 10);
+      const ratio = returnDistKm > 0 ? (distKm / returnDistKm) : (1 / (retWaypoints.length + 1));
+      const durationMins = Math.max(1, Math.round(returnMins * ratio));
+      return { distKm, durationMins };
+    };
+
     const sequence = [];
-    for (let i = 0; i < waypoints.length; i++) {
+    for (let i = 0; i < outWaypoints.length; i++) {
       const lm = getLegMetrics(i);
       sequence.push({ kind: 'LEG', ...lm, isReturnLeg: false });
-      const wp = waypoints[i];
+      const wp = outWaypoints[i];
       sequence.push({
         kind: (wp.network || wp.type) ? 'CHARGER_STOP' : 'CUSTOM_STOP',
         wp,
@@ -1791,7 +2305,7 @@ const RouteEngine = (function () {
         isReturnLeg: false
       });
     }
-    const lastOutLeg = getLegMetrics(waypoints.length);
+    const lastOutLeg = getLegMetrics(outWaypoints.length);
     sequence.push({ kind: 'LEG', ...lastOutLeg, isReturnLeg: false });
 
     if (roundTrip) {
@@ -1801,18 +2315,19 @@ const RouteEngine = (function () {
         lat: route.destination?.lat,
         lng: route.destination?.lng
       });
-      sequence.push({ kind: 'LEG', ...lastOutLeg, isReturnLeg: true });
-      for (let i = waypoints.length - 1; i >= 0; i--) {
-        const wp = waypoints[i];
+      for (let i = 0; i < retWaypoints.length; i++) {
+        const rlm = getRetLegMetrics(i);
+        sequence.push({ kind: 'LEG', ...rlm, isReturnLeg: true });
+        const wp = retWaypoints[i];
         sequence.push({
           kind: (wp.network || wp.type) ? 'CHARGER_STOP' : 'CUSTOM_STOP',
           wp,
-          stopIdx: waypoints.length - i,
+          stopIdx: i + 1,
           isReturnLeg: true
         });
-        const lm = getLegMetrics(i);
-        sequence.push({ kind: 'LEG', ...lm, isReturnLeg: true });
       }
+      const lastRetLeg = getRetLegMetrics(retWaypoints.length);
+      sequence.push({ kind: 'LEG', ...lastRetLeg, isReturnLeg: true });
       sequence.push({
         kind: 'DESTINATION',
         name: `${route.origin?.name || 'Origin'} (Return)`,
@@ -1831,7 +2346,6 @@ const RouteEngine = (function () {
     }
 
     let turnaroundArrivalSoC = null;
-    const chargedOutboundIds = new Set();
 
     for (let s = 0; s < sequence.length; s++) {
       const item = sequence[s];
@@ -1904,7 +2418,6 @@ const RouteEngine = (function () {
         const isFast = wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID' || wp.type === 'FAST';
         const maxChargerCeiling = isFast ? targetCharge : 100;
         const effectiveArrival = Math.max(0, arrivalSoC);
-        const wpKey = String(wp.originalId || wp.id || wp.name || s);
 
         const optimalTargetSoC = effectiveArrival >= minDepartureNeeded
           ? arrivalSoC
@@ -1912,12 +2425,9 @@ const RouteEngine = (function () {
         const optimalChargeNeededPct = fixNegZero(Math.max(0, Math.round((optimalTargetSoC - effectiveArrival) * 10) / 10));
         const optimalChargeTimeMins = computeChargingDuration(optimalChargeNeededPct, effectiveArrival, isFast, wp.power_kw, batState.vehicleDetails);
 
-        const skipDoubleChargeReturn = Boolean(item.isReturnLeg && chargedOutboundIds.has(wpKey) && effectiveArrival >= minDepartureNeeded);
-        const fullTargetSoC = skipDoubleChargeReturn
-          ? optimalTargetSoC
-          : (effectiveArrival >= maxChargerCeiling
-              ? arrivalSoC
-              : Math.max(effectiveArrival, Math.min(maxChargerCeiling, Math.max(targetCharge, optimalTargetSoC))));
+        const fullTargetSoC = (effectiveArrival >= maxChargerCeiling
+          ? arrivalSoC
+          : Math.max(effectiveArrival, Math.min(maxChargerCeiling, Math.max(targetCharge, optimalTargetSoC))));
         const fullChargeNeededPct = fixNegZero(Math.max(0, Math.round((fullTargetSoC - effectiveArrival) * 10) / 10));
         const fullChargeTimeMins = computeChargingDuration(fullChargeNeededPct, effectiveArrival, isFast, wp.power_kw, batState.vehicleDetails);
 
@@ -1927,10 +2437,6 @@ const RouteEngine = (function () {
         const activeChargeNeeded = currentTimelineMode === 'optimal' ? optimalChargeNeededPct : fullChargeNeededPct;
         const activeChargeTime = currentTimelineMode === 'optimal' ? optimalChargeTimeMins : fullChargeTimeMins;
         const unitsActiveKWh = Math.round(((activeChargeNeeded / 100) * batCap) * 100) / 100;
-
-        if (!item.isReturnLeg && activeChargeNeeded > 0) {
-          chargedOutboundIds.add(wpKey);
-        }
 
         let smartAdvice = '';
         if (isFast && minDepartureNeeded > Math.max(maxChargerCeiling, effectiveArrival)) {
@@ -1997,7 +2503,8 @@ const RouteEngine = (function () {
       }
     }
 
-    const totalPhysicalChargerStops = waypoints.filter(w => w.network || w.type).length;
+    const totalPhysicalChargerStops = outWaypoints.filter(w => w.network || w.type).length
+      + retWaypoints.filter(w => w.network || w.type).length;
     return {
       timeline,
       isRoundTrip: roundTrip,
@@ -2020,6 +2527,7 @@ const RouteEngine = (function () {
     selectedRouteIndex = 0;
     corridorChargers = [];
     intermediateWaypoints = [];
+    returnWaypoints = [];
     lastSnappedSegmentIndex = 0;
     lastSliceKey = '';
     lastSliceResult = null;
@@ -2060,6 +2568,7 @@ const RouteEngine = (function () {
     getSelectedRouteIndex: () => selectedRouteIndex,
     getCorridorChargers: () => corridorChargers,
     getWaypoints: () => intermediateWaypoints,
+    getReturnWaypoints: () => returnWaypoints,
     getOrigin: () => currentOrigin || (activeRoute && activeRoute.origin),
     getDestination: () => currentDestination || (activeRoute && activeRoute.destination)
   };

@@ -360,10 +360,10 @@ public class VoltWayNativePlugin extends Plugin {
     @PluginMethod
     public void getAppInfo(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("pluginBuild", "v5.57-tts");
+        ret.put("pluginBuild", "v5.58-rt");
         try {
             PackageInfo pInfo = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
-            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.57");
+            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.58");
             ret.put("lastUpdateTime", pInfo.lastUpdateTime);
             if (Build.VERSION.SDK_INT >= 28) {
                 ret.put("versionCode", pInfo.getLongVersionCode());
@@ -593,7 +593,7 @@ public class VoltWayNativePlugin extends Plugin {
 
         executor.execute(() -> {
             JSObject ret = new JSObject();
-            ret.put("pluginBuild", "v5.57-wv");
+            ret.put("pluginBuild", "v5.58-wv");
             String stage = "init";
             String socketErr = null;
             try {

@@ -1,5 +1,5 @@
 /**
- * VoltWay 2W v5.57 - Main Application Controller
+ * VoltWay 2W v5.58 - Main Application Controller
  * Ties together BatteryEngine, SyncEngine, RouteEngine, MapEngine, Utilities & DriveEngine.
  */
 
@@ -18,14 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- 1. Service Worker & Safe Asset Refresh ----------
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.57')
+      navigator.serviceWorker.register('./sw.js?v=5.58')
         .then(reg => {
           reg.onupdatefound = () => {
             const nw = reg.installing;
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.57 — Tap here or v5.57 to reload!', refreshAppInPlace);
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.58 — Tap here or v5.58 to reload!', refreshAppInPlace);
               }
             };
           };
@@ -1049,6 +1049,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const tripTimelineContainer = document.getElementById('trip-battery-timeline-container');
   const btnModeOptimal = document.getElementById('btn-mode-optimal');
   const btnModeTarget = document.getElementById('btn-mode-target');
+  const corridorLegTabs = document.getElementById('corridor-leg-tabs');
+  let corridorLegFilter = 'all';
   const corridorChargersList = document.getElementById('corridor-chargers-list');
   const corridorCountEl = document.getElementById('corridor-count');
   const corridorBufferBadge = document.getElementById('corridor-buffer-badge');
@@ -1077,6 +1079,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   syncRoundTripUi();
+
+  if (corridorLegTabs) {
+    corridorLegTabs.querySelectorAll('.btn-corridor-leg-tab').forEach(tabBtn => {
+      tabBtn.addEventListener('click', () => {
+        corridorLegFilter = tabBtn.dataset.leg || 'all';
+        if (latestRoutePayload) renderRouteSummaryAndTimeline(latestRoutePayload);
+      });
+    });
+  }
 
   routeFilterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1133,7 +1144,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!active) return;
 
       let exportOrigin = active.origin;
-      let exportWaypoints = active.waypoints || [];
+      const isRt = Boolean(window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
+      let outWaypoints = active.waypoints || [];
+      const retWaypoints = isRt ? (active.returnWaypoints || []) : [];
 
       // If rider is currently along the active route (>3% progressed, within 1km), resume Google Maps from live GPS & drop already-passed stops
       const curCoords = window.MapEngine ? window.MapEngine.getUserCoords() : null;
@@ -1142,13 +1155,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (slice && slice.distanceFromRouteKm <= 1.0 && slice.progressPct >= 3 && slice.progressPct < 98) {
           const traversedKm = Math.max(0, active.distanceKm - slice.remainingKm);
           exportOrigin = { lat: curCoords.lat, lng: curCoords.lng, name: 'Current Location' };
-          exportWaypoints = exportWaypoints.filter(w =>
+          outWaypoints = outWaypoints.filter(w =>
             typeof w.kmFromOrigin !== 'number' || w.kmFromOrigin > traversedKm + 0.5
           );
         }
       }
 
-      window.NavigationEngine.startFullTrip(exportOrigin, active.destination, exportWaypoints);
+      if (isRt) {
+        const rtWaypoints = [...outWaypoints, active.destination, ...retWaypoints];
+        window.NavigationEngine.startFullTrip(exportOrigin, active.origin, rtWaypoints);
+      } else {
+        window.NavigationEngine.startFullTrip(exportOrigin, active.destination, outWaypoints);
+      }
     });
   }
 
@@ -1314,9 +1332,13 @@ document.addEventListener('DOMContentLoaded', () => {
     btnClearRoute.addEventListener('click', resetActiveTrip);
   }
 
-  function renderWaypointsList(waypoints) {
+  function renderWaypointsList(waypoints, returnWaypoints = [], isRoundTrip = false) {
     if (!tripWaypointsSection || !tripWaypointsContainer || !tripWaypointsCount) return;
-    if (!waypoints || waypoints.length === 0) {
+    const outList = Array.isArray(waypoints) ? waypoints : [];
+    const retList = (isRoundTrip && Array.isArray(returnWaypoints)) ? returnWaypoints : [];
+    const totalCount = outList.length + retList.length;
+
+    if (totalCount === 0) {
       tripWaypointsSection.style.display = 'none';
       tripWaypointsContainer.innerHTML = '';
       tripWaypointsCount.textContent = '0';
@@ -1324,39 +1346,45 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     tripWaypointsSection.style.display = 'block';
-    tripWaypointsCount.textContent = String(waypoints.length);
+    tripWaypointsCount.textContent = String(totalCount);
     tripWaypointsContainer.innerHTML = '';
 
     const batStateForStops = window.BatteryEngine ? window.BatteryEngine.getState() : null;
-    waypoints.forEach((wp, idx) => {
+    const appendStopRow = (wp, idx, legRole) => {
       const item = document.createElement('div');
       item.className = 'trip-waypoint-item';
 
+      const isRet = legRole === 'return';
       const isCharger = !!(wp.network || wp.type);
-      const badgeLabel = isCharger ? `⚡ STOP ${idx + 1}` : `📍 STOP ${idx + 1}`;
+      const badgeLabel = isRet
+        ? `↩ RET ${idx + 1}`
+        : (isRoundTrip ? (isCharger ? `⚡ OUT ${idx + 1}` : `📍 OUT ${idx + 1}`) : (isCharger ? `⚡ STOP ${idx + 1}` : `📍 STOP ${idx + 1}`));
       const backupInfo = (isCharger && window.RouteEngine && typeof window.RouteEngine.getNearbyBackupSummary === 'function')
         ? window.RouteEngine.getNearbyBackupSummary(wp, batStateForStops, 2.5)
         : null;
       const backupTag = (backupInfo && backupInfo.totalCompatible > 0)
         ? ` • 🛡️+${backupInfo.totalCompatible} backup`
         : (isCharger ? ' • ⚠️ Solo stop' : '');
+      const distStr = isRet
+        ? (typeof wp.kmFromDest === 'number' ? `${wp.kmFromDest} km back` : 'Return route')
+        : (typeof wp.kmFromOrigin === 'number' ? `${wp.kmFromOrigin} km` : 'On route');
       const detailSuffix = isCharger
-        ? ` (${wp.power_kw || (wp.type === 'FAST' ? 3 : 1.5)} kW • ${typeof wp.kmFromOrigin === 'number' ? wp.kmFromOrigin + ' km' : 'On route'}${backupTag})`
-        : (typeof wp.kmFromOrigin === 'number' ? ` (${wp.kmFromOrigin} km)` : '');
+        ? ` (${wp.power_kw || (wp.type === 'FAST' ? 3 : 1.5)} kW • ${distStr}${backupTag})`
+        : (distStr ? ` (${distStr})` : '');
 
       item.innerHTML = `
-        <span class="trip-waypoint-badge">${esc(badgeLabel)}</span>
+        <span class="trip-waypoint-badge${isRet ? ' badge-return' : ''}">${esc(badgeLabel)}</span>
         <span class="trip-waypoint-title">${esc(wp.name || 'Stop')}${esc(detailSuffix)}</span>
-        <button type="button" class="btn-remove-waypoint" title="Remove Stop">❌</button>
+        <button type="button" class="btn-remove-waypoint" title="Remove ${isRet ? 'Return' : 'Going'} Stop">❌</button>
       `;
 
       const rmBtn = item.querySelector('.btn-remove-waypoint');
       if (rmBtn) {
         rmBtn.addEventListener('click', () => {
           if (window.RouteEngine) {
-            window.RouteEngine.removeWaypoint(wp);
+            window.RouteEngine.removeWaypoint(wp, legRole);
           }
-          if (intermediateStopsList) {
+          if (!isRet && intermediateStopsList) {
             const rows = Array.from(intermediateStopsList.querySelectorAll('.intermediate-stop-row'));
             for (const r of rows) {
               const rd = r._stopData;
@@ -1375,7 +1403,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       tripWaypointsContainer.appendChild(item);
-    });
+    };
+
+    outList.forEach((wp, idx) => appendStopRow(wp, idx, 'outbound'));
+    if (retList.length > 0) {
+      const divEl = document.createElement('div');
+      divEl.className = 'trip-waypoint-divider';
+      divEl.textContent = '🔁 Return Trip (B → A, Same Route)';
+      tripWaypointsContainer.appendChild(divEl);
+      retList.forEach((wp, idx) => appendStopRow(wp, idx, 'return'));
+    }
   }
 
   function renderRouteSummaryAndTimeline(payload) {
@@ -1384,6 +1421,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedIdx = payload ? payload.selectedRouteIndex : 0;
     const corridor = payload ? payload.corridorChargers : [];
     const waypoints = payload ? payload.waypoints : [];
+    const retWaypoints = (payload && payload.returnWaypoints)
+      || (route && route.returnWaypoints)
+      || (window.RouteEngine && window.RouteEngine.getReturnWaypoints ? window.RouteEngine.getReturnWaypoints() : []);
     const timelineMode = payload ? payload.timelineMode : 'optimal';
     const isRoundTrip = Boolean((payload && payload.isRoundTrip) || (window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip()));
     const bufKm = payload ? payload.corridorBufferKm : 5;
@@ -1422,7 +1462,9 @@ document.addEventListener('DOMContentLoaded', () => {
           const badgeClass = diffMins === 0 ? 'pill-badge-fastest' : 'pill-badge-diff';
           const badgeTxt = diffMins === 0 ? 'FASTEST' : `+${diffMins}m`;
           const durTxt = window.Utilities ? window.Utilities.formatMinutes(r.durationMins) : `${r.durationMins} min`;
-          const stopCount = Array.isArray(r.waypoints) ? r.waypoints.filter(w => w.network || w.type).length : 0;
+          const outStopsCnt = Array.isArray(r.waypoints) ? r.waypoints.filter(w => w.network || w.type).length : 0;
+          const retStopsCnt = (isRoundTrip && Array.isArray(r.returnWaypoints)) ? r.returnWaypoints.filter(w => w.network || w.type).length : 0;
+          const stopCount = outStopsCnt + retStopsCnt;
           const roadDisplay = stopCount > 0
             ? `${r.roadName || `Route ${idx + 1}`} • ⚡${stopCount} stop`
             : (r.roadName || `Route ${idx + 1}`);
@@ -1444,7 +1486,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    renderWaypointsList(waypoints);
+    renderWaypointsList(waypoints, retWaypoints, isRoundTrip);
 
     if (routeSummaryCard) routeSummaryCard.style.display = 'flex';
 
@@ -1724,43 +1766,101 @@ document.addEventListener('DOMContentLoaded', () => {
       inputDrawerCorridor.value = String(bufKm);
     }
 
+    if (!isRoundTrip) corridorLegFilter = 'all';
+    if (corridorLegTabs) {
+      corridorLegTabs.style.display = isRoundTrip ? 'flex' : 'none';
+      corridorLegTabs.querySelectorAll('.btn-corridor-leg-tab').forEach(btn => {
+        btn.classList.toggle('active', (btn.dataset.leg || 'all') === corridorLegFilter);
+      });
+    }
+
     if (corridorCountEl) corridorCountEl.textContent = String((corridor || []).length);
     if (corridorChargersList) {
       corridorChargersList.innerHTML = '';
       if (!corridor || corridor.length === 0) {
         corridorChargersList.innerHTML = `<div class="empty-state">No compatible 2W chargers found within ${esc(bufKm)} km corridor. Increase buffer or toggle filters.</div>`;
       } else {
-        const addedSet = new Set((waypoints || []).map(w => String(w.originalId || w.id)));
-        corridor.slice(0, 60).forEach(c => {
-          const isAdded = addedSet.has(String(c.originalId || c.id));
+        const addedOutSet = new Set((waypoints || []).map(w => String(w.originalId || w.id)));
+        const addedRetSet = new Set((retWaypoints || []).map(w => String(w.originalId || w.id)));
+        const sortedCorridor = (isRoundTrip && corridorLegFilter === 'return')
+          ? [...corridor].sort((a, b) => ((a.kmFromDest ?? (route.distanceKm - a.kmFromOrigin)) - (b.kmFromDest ?? (route.distanceKm - b.kmFromOrigin))))
+          : corridor;
+
+        sortedCorridor.slice(0, 60).forEach(c => {
+          const cid = String(c.originalId || c.id);
+          const inOut = addedOutSet.has(cid);
+          const inRet = isRoundTrip && addedRetSet.has(cid);
+          const isAddedAny = inOut || inRet;
           const compat = (window.BatteryEngine && window.BatteryEngine.isChargerCompatible)
             ? window.BatteryEngine.isChargerCompatible(c)
             : { compatible: true, reason: '2W Compatible' };
 
+          const retKm = typeof c.kmFromDest === 'number'
+            ? c.kmFromDest
+            : Math.max(0.1, Math.round((route.distanceKm - (c.kmFromOrigin || 0)) * 10) / 10);
+          const distDesc = isRoundTrip
+            ? (corridorLegFilter === 'return'
+                ? `↩ ${retKm} km after B (${c.kmFromOrigin} km from A)`
+                : `${c.kmFromOrigin} km ahead • ↩ ${retKm} km back`)
+            : `${c.kmFromOrigin} km ahead`;
+
+          const actionButtonsHtml = isRoundTrip
+            ? `
+              <button type="button" class="btn-sm ${inOut ? 'btn-remove-stop is-added' : 'btn-add-stop'} btn-corridor-out">
+                ${inOut ? '❌ Going' : '➕ Going'}
+              </button>
+              <button type="button" class="btn-sm ${inRet ? 'btn-remove-stop is-added' : 'btn-add-return-stop'} btn-corridor-ret">
+                ${inRet ? '❌ Return' : '↩➕ Return'}
+              </button>
+              <button type="button" class="btn-sm btn-focus-corridor">📍 Map</button>
+            `
+            : `
+              <button type="button" class="btn-sm ${inOut ? 'btn-remove-stop' : 'btn-add-stop'} btn-corridor-toggle ${inOut ? 'is-added' : ''}">
+                ${inOut ? '❌ Remove Stop' : '➕ Add Stop'}
+              </button>
+              <button type="button" class="btn-sm btn-focus-corridor">📍 View on Map</button>
+            `;
+
           const card = document.createElement('div');
-          card.className = `corridor-card${isAdded ? ' is-waypoint' : ''}`;
+          card.className = `corridor-card${isAddedAny ? ' is-waypoint' : ''}`;
           const detourClass = (c.corridorDistanceKm || 0) <= 0.8 ? 'direct-pill' : 'detour-pill';
           card.innerHTML = `
             <div class="corridor-card-header">
               <div class="corridor-card-title">${c.type === 'FAST' ? '⚡' : '🔌'} ${esc(c.name)}</div>
               <span class="corridor-detour-pill ${detourClass}">${c.corridorDistanceKm} km off</span>
             </div>
-            <div class="corridor-card-desc">${c.kmFromOrigin} km ahead • ${c.power_kw || (c.type === 'FAST' ? 3 : 1.5)} kW • ${compat.compatible ? '✅' : '⚠️'} ${esc(compat.reason)}</div>
+            <div class="corridor-card-desc">${distDesc} • ${c.power_kw || (c.type === 'FAST' ? 3 : 1.5)} kW • ${compat.compatible ? '✅' : '⚠️'} ${esc(compat.reason)}</div>
             <div class="corridor-card-actions">
-              <button type="button" class="btn-sm ${isAdded ? 'btn-remove-stop' : 'btn-add-stop'} btn-corridor-toggle ${isAdded ? 'is-added' : ''}">
-                ${isAdded ? '❌ Remove Stop' : '➕ Add Stop'}
-              </button>
-              <button type="button" class="btn-sm btn-focus-corridor">📍 View on Map</button>
+              ${actionButtonsHtml}
             </div>
           `;
 
-          const stopBtn = card.querySelector(isAdded ? '.btn-remove-stop' : '.btn-add-stop');
-          if (stopBtn) {
-            stopBtn.addEventListener('click', () => {
-              if (!window.RouteEngine) return;
-              if (isAdded) window.RouteEngine.removeWaypoint(c.id);
-              else window.RouteEngine.addWaypoint(c);
-            });
+          if (isRoundTrip) {
+            const outBtn = card.querySelector('.btn-corridor-out');
+            if (outBtn) {
+              outBtn.addEventListener('click', () => {
+                if (!window.RouteEngine) return;
+                if (inOut) window.RouteEngine.removeWaypoint(cid, 'outbound');
+                else window.RouteEngine.addWaypoint(c, 'outbound');
+              });
+            }
+            const retBtn = card.querySelector('.btn-corridor-ret');
+            if (retBtn) {
+              retBtn.addEventListener('click', () => {
+                if (!window.RouteEngine) return;
+                if (inRet) window.RouteEngine.removeWaypoint(cid, 'return');
+                else window.RouteEngine.addWaypoint(c, 'return');
+              });
+            }
+          } else {
+            const stopBtn = card.querySelector(inOut ? '.btn-remove-stop' : '.btn-add-stop');
+            if (stopBtn) {
+              stopBtn.addEventListener('click', () => {
+                if (!window.RouteEngine) return;
+                if (inOut) window.RouteEngine.removeWaypoint(c.id, 'outbound');
+                else window.RouteEngine.addWaypoint(c, 'outbound');
+              });
+            }
           }
 
           const focusBtn = card.querySelector('.btn-focus-corridor');
@@ -2072,8 +2172,58 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const DriveEngine = (function () {
     let active = false;
+    let tripPhase = 'outbound';
     let steps = [];
     let currentStepIdx = 0;
+
+    function getNavRoute(route) {
+      if (!route) return null;
+      const isRt = Boolean(window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
+      if (tripPhase === 'return' && isRt && route.returnRoute) {
+        return {
+          origin: route.destination,
+          destination: route.origin,
+          waypoints: (route.returnWaypoints || []).map(w => ({
+            ...w,
+            kmFromOrigin: typeof w.kmFromDest === 'number' ? w.kmFromDest : w.kmFromOrigin
+          })),
+          distanceKm: route.returnRoute.distanceKm || route.distanceKm,
+          durationMins: route.returnRoute.durationMins || route.durationMins,
+          coordinates: route.returnRoute.coordinates || [...(route.coordinates || [])].reverse(),
+          legs: route.returnRoute.legs || []
+        };
+      }
+      return route;
+    }
+
+    function computeReturnSlice(coords, navRoute) {
+      if (!navRoute || !Array.isArray(navRoute.coordinates) || navRoute.coordinates.length < 2 || !window.Utilities) return null;
+      const pts = navRoute.coordinates;
+      let bestIdx = 0;
+      let bestDistKm = Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        const d = window.Utilities.haversine(coords.lat, coords.lng, pts[i][0], pts[i][1]);
+        if (d < bestDistKm) {
+          bestDistKm = d;
+          bestIdx = i;
+        }
+      }
+      let remPoly = 0;
+      for (let i = bestIdx; i < pts.length - 1; i++) {
+        remPoly += window.Utilities.haversine(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+      }
+      let totalPoly = remPoly;
+      for (let i = 0; i < bestIdx; i++) {
+        totalPoly += window.Utilities.haversine(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+      }
+      const frac = totalPoly > 0 ? Math.min(1, Math.max(0, remPoly / totalPoly)) : 1;
+      return {
+        distanceFromRouteKm: bestDistKm,
+        remainingKm: Math.round((navRoute.distanceKm || totalPoly) * frac * 10) / 10,
+        remainingMins: Math.max(1, Math.round((navRoute.durationMins || 1) * frac)),
+        progressPct: Math.round((1 - frac) * 100)
+      };
+    }
     let arrivedAnnounced = false;
     let offRouteCount = 0;
     let lastRerouteTime = 0;
@@ -2392,7 +2542,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (nextChargerKm != null) {
         estArr = Math.round((bs.currentBatteryPct - nextChargerKm / eff) * 10) / 10;
         suffix = ' stop';
-      } else if (route && route.waypoints && route.waypoints.some(w => w.network || w.type) && window.RouteEngine) {
+      } else if (route && (tripPhase === 'outbound') && route.waypoints && route.waypoints.some(w => w.network || w.type) && window.RouteEngine) {
         const tl = window.RouteEngine.calculateTripTimeline(route, bs);
         estArr = tl ? tl.finalArrivalSoC : Math.round((bs.currentBatteryPct - (remainingKm ?? route.distanceKm) / eff) * 10) / 10;
         suffix = ' final';
@@ -2507,16 +2657,17 @@ document.addEventListener('DOMContentLoaded', () => {
           { lat: coords.lat, lng: coords.lng, name: 'Current Location' },
           route.destination,
           upcomingWaypoints,
-          true
+          true,
+          { returnWaypoints: route.returnWaypoints || [] }
         );
 
         const refreshed = window.RouteEngine.getActiveRoute();
         if (refreshed) {
-          steps = extractSteps(refreshed);
+          steps = extractSteps(getNavRoute(refreshed));
           currentStepIdx = 0;
           arrivedAnnounced = false;
           spokenStages.clear();
-          updateStepBanner(refreshed);
+          updateStepBanner(getNavRoute(refreshed));
           if (voiceEnabled) speakNavPrompt('Rerouting', true);
         }
       } catch (e) {} finally {
@@ -2532,9 +2683,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       active = true;
+      tripPhase = 'outbound';
       overviewMode = false;
       offRouteCount = 0;
-      steps = extractSteps(route);
+      steps = extractSteps(getNavRoute(route));
       currentStepIdx = 0;
       arrivedAnnounced = false;
       spokenStages.clear();
@@ -2593,6 +2745,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function stop() {
       if (!active) return;
       active = false;
+      tripPhase = 'outbound';
       overviewMode = false;
       stopNavSpeech();
       spokenStages.clear();
@@ -2637,10 +2790,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function onLocationUpdate(coords) {
       if (!active || !coords || !window.RouteEngine || !window.Utilities) return;
-      const route = window.RouteEngine.getActiveRoute();
+      const baseRoute = window.RouteEngine.getActiveRoute();
+      if (!baseRoute) return;
+      const route = getNavRoute(baseRoute);
       if (!route) return;
 
-      const slice = window.MapEngine ? window.MapEngine.updateProgressAlongRoute(coords) : null;
+      const slice = tripPhase === 'return'
+        ? computeReturnSlice(coords, route)
+        : (window.MapEngine ? window.MapEngine.updateProgressAlongRoute(coords) : null);
       const speedKmh = coords.speed != null && coords.speed >= 0 ? Math.round(coords.speed * 3.6) : 0;
       if (navSpeedVal) navSpeedVal.textContent = String(speedKmh);
 
@@ -2649,11 +2806,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (navStatTime) navStatTime.textContent = window.Utilities.formatMinutes(slice.remainingMins);
         if (navStatEta) navStatEta.textContent = formatEtaClock(slice.remainingMins);
 
-        if (slice.distanceFromRouteKm > 0.080) {
+        if (tripPhase === 'outbound' && slice.distanceFromRouteKm > 0.080) {
           offRouteCount++;
           if (offRouteCount >= 2) {
             offRouteCount = 0;
-            handleOffRoute(coords, route, slice);
+            handleOffRoute(coords, baseRoute, slice);
             return;
           }
         } else {
@@ -2732,6 +2889,25 @@ document.addEventListener('DOMContentLoaded', () => {
         : Infinity;
 
       if (destDistM <= 50 && !arrivedAnnounced) {
+        const isRt = Boolean(window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
+        if (tripPhase === 'outbound' && isRt && baseRoute.returnRoute) {
+          tripPhase = 'return';
+          const retNav = getNavRoute(baseRoute);
+          steps = extractSteps(retNav);
+          currentStepIdx = 0;
+          arrivedAnnounced = false;
+          spokenStages.clear();
+          offRouteCount = 0;
+          updateStepBanner(retNav);
+          refreshHudBattery(retNav.distanceKm);
+          if (navStatDist) navStatDist.textContent = `${retNav.distanceKm} km`;
+          if (navStatTime) navStatTime.textContent = window.Utilities.formatMinutes(retNav.durationMins);
+          if (navStatEta) navStatEta.textContent = formatEtaClock(retNav.durationMins);
+          const homeName = shortPlaceName(baseRoute.origin && baseRoute.origin.name, 'start');
+          speakNavPrompt(`Reached destination. Starting return route to ${homeName}`, true);
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast(`🔁 Return trip started toward ${homeName}`);
+          return;
+        }
         arrivedAnnounced = true;
         currentStepIdx = Math.max(0, steps.length - 1);
         const finalPlace = (steps[currentStepIdx] && steps[currentStepIdx].destName) || shortPlaceName(route.destination && route.destination.name, 'destination');
@@ -2741,12 +2917,12 @@ document.addEventListener('DOMContentLoaded', () => {
           hudTurnIcon.innerHTML = getManeuverArrowSvg('arrive', 44);
         }
         if (hudStreetName) hudStreetName.textContent = finalPlace;
-        if (hudTowardDest) hudTowardDest.textContent = 'Arrived at destination';
+        if (hudTowardDest) hudTowardDest.textContent = tripPhase === 'return' ? 'Arrived back at start' : 'Arrived at destination';
         if (hudSubStep) hudSubStep.style.display = 'none';
         if (hudSubText) hudSubText.textContent = '';
         const arriveSpeech = (steps[currentStepIdx] && steps[currentStepIdx].speech) || `You have arrived at ${finalPlace}`;
         speakNavPrompt(arriveSpeech, true);
-        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🏁 You have arrived!');
+        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast(tripPhase === 'return' ? '🏠 You have arrived home!' : '🏁 You have arrived!');
         return;
       }
 
@@ -2780,10 +2956,14 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
 
-        if (targetStep.isArrive && distToStepM <= 50 && !arrivedAnnounced) {
+        if (targetStep.isArrive && !targetStep.isStopLeg && distToStepM <= 50 && !arrivedAnnounced) {
+          const isRt = Boolean(window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
+          if (tripPhase === 'outbound' && isRt && baseRoute.returnRoute) {
+            return;
+          }
           arrivedAnnounced = true;
           speakNavPrompt(targetStep.speech || 'You have arrived at your destination', true);
-          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🏁 You have arrived!');
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast(tripPhase === 'return' ? '🏠 You have arrived home!' : '🏁 You have arrived!');
         } else if (distToStepM <= 35 && currentStepIdx < steps.length - 1) {
           currentStepIdx = lookIdx;
         }
@@ -2792,7 +2972,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function refreshActiveRoute(routeOverride = null) {
       if (!active) return;
-      const rt = routeOverride || (window.RouteEngine ? window.RouteEngine.getActiveRoute() : null);
+      const baseRt = routeOverride || (window.RouteEngine ? window.RouteEngine.getActiveRoute() : null);
+      const rt = getNavRoute(baseRt);
       if (!rt) return;
       steps = extractSteps(rt);
       currentStepIdx = 0;
