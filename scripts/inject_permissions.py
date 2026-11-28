@@ -81,6 +81,14 @@ if os.path.exists(manifest_path):
             '    </queries>\n\n    <application'
         )
         content = content.replace('<application', queries_block)
+    elif 'android.intent.action.TTS_SERVICE' not in content:
+        tts_intent = (
+            '        <intent>\n'
+            '            <action android:name="android.intent.action.TTS_SERVICE" />\n'
+            '        </intent>\n'
+            '    </queries>'
+        )
+        content = content.replace('</queries>', tts_intent, 1)
 
     if 'android.intent.action.SEND' not in content:
         share_filters = (
@@ -139,7 +147,10 @@ import android.graphics.Bitmap;
 import android.location.Address;
 import android.location.Geocoder;
 import android.net.Uri;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -198,7 +209,84 @@ public class VoltWayNativePlugin extends Plugin {
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private TextToSpeech tts = null;
     private volatile boolean ttsReady = false;
-    private volatile String pendingTtsText = null;
+    private volatile boolean ttsTriedGoogle = false;
+    private volatile CountDownLatch ttsInitLatch = null;
+
+    private synchronized void ensureTtsEngine() {
+        if (tts != null) return;
+        final android.content.Context appCtx = getContext() != null ? getContext().getApplicationContext() : null;
+        if (appCtx == null) return;
+        ttsReady = false;
+        ttsInitLatch = new CountDownLatch(1);
+        final TextToSpeech.OnInitListener listener = status -> {
+            if (status == TextToSpeech.SUCCESS && tts != null) {
+                try {
+                    tts.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build());
+                } catch (Exception ignored) {}
+                try {
+                    int res = tts.setLanguage(new Locale("en", "IN"));
+                    if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        res = tts.setLanguage(Locale.ENGLISH);
+                    }
+                    if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        tts.setLanguage(Locale.US);
+                    }
+                } catch (Exception ignored) {}
+                try { tts.setSpeechRate(1.0f); tts.setPitch(1.0f); } catch (Exception ignored) {}
+                ttsReady = true;
+                CountDownLatch l = ttsInitLatch;
+                if (l != null) l.countDown();
+            } else {
+                if (tts != null) {
+                    try { tts.shutdown(); } catch (Exception ignored) {}
+                    tts = null;
+                }
+                if (!ttsTriedGoogle) {
+                    ttsTriedGoogle = true;
+                    try {
+                        tts = new TextToSpeech(appCtx, s2 -> {
+                            if (s2 == TextToSpeech.SUCCESS && tts != null) {
+                                try {
+                                    tts.setAudioAttributes(new AudioAttributes.Builder()
+                                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                        .build());
+                                } catch (Exception ignored) {}
+                                try { tts.setLanguage(Locale.ENGLISH); } catch (Exception ignored) {}
+                                ttsReady = true;
+                            }
+                            CountDownLatch l2 = ttsInitLatch;
+                            if (l2 != null) l2.countDown();
+                        }, "com.google.android.tts");
+                        return;
+                    } catch (Exception ignored) {}
+                }
+                CountDownLatch l = ttsInitLatch;
+                if (l != null) l.countDown();
+            }
+        };
+        android.app.Activity act = getActivity();
+        if (act != null) {
+            act.runOnUiThread(() -> {
+                try {
+                    if (tts == null) tts = new TextToSpeech(appCtx, listener);
+                } catch (Exception e) {
+                    CountDownLatch l = ttsInitLatch;
+                    if (l != null) l.countDown();
+                }
+            });
+        } else {
+            try {
+                tts = new TextToSpeech(appCtx, listener);
+            } catch (Exception e) {
+                CountDownLatch l = ttsInitLatch;
+                if (l != null) l.countDown();
+            }
+        }
+    }
 
     @Override
     public void load() {
@@ -206,6 +294,7 @@ public class VoltWayNativePlugin extends Plugin {
         if (getActivity() != null) {
             captureShareIntent(getActivity().getIntent(), false);
         }
+        ensureTtsEngine();
     }
 
     @Override
@@ -235,56 +324,67 @@ public class VoltWayNativePlugin extends Plugin {
         if (text.isEmpty()) {
             JSObject r = new JSObject();
             r.put("success", false);
+            r.put("reason", "empty");
             call.resolve(r);
             return;
         }
-        if (getActivity() != null) {
-            getActivity().runOnUiThread(() -> {
+        executor.execute(() -> {
+            ensureTtsEngine();
+            CountDownLatch l = ttsInitLatch;
+            if (!ttsReady && l != null) {
+                try { l.await(2600, TimeUnit.MILLISECONDS); } catch (InterruptedException ignored) {}
+            }
+            android.app.Activity act = getActivity();
+            if (!ttsReady || tts == null || act == null) {
+                JSObject r = new JSObject();
+                r.put("success", false);
+                r.put("mode", "android-tts");
+                r.put("reason", "tts-not-ready");
+                call.resolve(r);
+                return;
+            }
+            act.runOnUiThread(() -> {
+                JSObject r = new JSObject();
+                r.put("mode", "android-tts");
                 try {
-                    if (tts == null) {
-                        pendingTtsText = text;
-                        tts = new TextToSpeech(getContext(), status -> {
-                            if (status == TextToSpeech.SUCCESS && tts != null) {
-                                ttsReady = true;
-                                int res = tts.setLanguage(new Locale("en", "IN"));
-                                if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                                    tts.setLanguage(Locale.ENGLISH);
-                                }
-                                String queued = pendingTtsText;
-                                pendingTtsText = null;
-                                if (queued != null && !queued.isEmpty()) {
-                                    tts.speak(queued, TextToSpeech.QUEUE_FLUSH, null, "vw_turn");
-                                }
-                            }
-                        });
-                    } else if (ttsReady) {
-                        int qMode = flush ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD;
-                        tts.speak(text, qMode, null, "vw_turn");
-                    } else {
-                        pendingTtsText = text;
+                    AudioManager am = (AudioManager) act.getSystemService(android.content.Context.AUDIO_SERVICE);
+                    int vol = -1;
+                    int maxVol = -1;
+                    if (am != null) {
+                        vol = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+                        maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                        try { am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK); } catch (Exception ignored) {}
                     }
-                    JSObject r = new JSObject();
-                    r.put("success", true);
+                    r.put("volume", vol);
+                    r.put("maxVolume", maxVol);
+                    Bundle params = new Bundle();
+                    params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
+                    params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f);
+                    int qMode = flush ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD;
+                    String uttId = "vw_" + System.currentTimeMillis();
+                    int speakRes = tts.speak(text, qMode, params, uttId);
+                    r.put("success", speakRes == TextToSpeech.SUCCESS);
+                    r.put("speakCode", speakRes);
                     call.resolve(r);
                 } catch (Exception e) {
-                    JSObject r = new JSObject();
                     r.put("success", false);
+                    r.put("reason", e.getMessage());
                     call.resolve(r);
                 }
             });
-        } else {
-            JSObject r = new JSObject();
-            r.put("success", false);
-            call.resolve(r);
-        }
+        });
     }
 
     @PluginMethod
     public void stopSpeech(PluginCall call) {
-        if (tts != null && ttsReady) {
+        android.app.Activity act = getActivity();
+        if (act != null && tts != null) {
+            act.runOnUiThread(() -> {
+                try { if (tts != null) tts.stop(); } catch (Exception ignored) {}
+            });
+        } else if (tts != null) {
             try { tts.stop(); } catch (Exception ignored) {}
         }
-        pendingTtsText = null;
         JSObject r = new JSObject();
         r.put("success", true);
         call.resolve(r);
@@ -360,10 +460,10 @@ public class VoltWayNativePlugin extends Plugin {
     @PluginMethod
     public void getAppInfo(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("pluginBuild", "v5.58-rt");
+        ret.put("pluginBuild", "v5.59-tts");
         try {
             PackageInfo pInfo = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
-            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.58");
+            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.59");
             ret.put("lastUpdateTime", pInfo.lastUpdateTime);
             if (Build.VERSION.SDK_INT >= 28) {
                 ret.put("versionCode", pInfo.getLongVersionCode());
@@ -593,7 +693,7 @@ public class VoltWayNativePlugin extends Plugin {
 
         executor.execute(() -> {
             JSObject ret = new JSObject();
-            ret.put("pluginBuild", "v5.58-wv");
+            ret.put("pluginBuild", "v5.59-wv");
             String stage = "init";
             String socketErr = null;
             try {

@@ -1,5 +1,5 @@
 /**
- * VoltWay 2W v5.58 - Main Application Controller
+ * VoltWay 2W v5.59 - Main Application Controller
  * Ties together BatteryEngine, SyncEngine, RouteEngine, MapEngine, Utilities & DriveEngine.
  */
 
@@ -18,14 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- 1. Service Worker & Safe Asset Refresh ----------
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.58')
+      navigator.serviceWorker.register('./sw.js?v=5.59')
         .then(reg => {
           reg.onupdatefound = () => {
             const nw = reg.installing;
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.58 — Tap here or v5.58 to reload!', refreshAppInPlace);
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.59 — Tap here or v5.59 to reload!', refreshAppInPlace);
               }
             };
           };
@@ -2168,6 +2168,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnNavCompass = document.getElementById('btn-nav-compass');
   const btnNavVoice = document.getElementById('btn-nav-voice');
   const navVoiceIcon = document.getElementById('nav-voice-icon');
+  const btnDrawerVoiceToggle = document.getElementById('btn-drawer-voice-toggle');
+  const drawerVoiceIcon = document.getElementById('drawer-voice-icon');
+  const drawerVoiceLabel = document.getElementById('drawer-voice-label');
+  const btnTestVoice = document.getElementById('btn-test-voice');
+  const voiceTestStatus = document.getElementById('voice-test-status');
   const btnNavOverview = document.getElementById('btn-nav-routes-toggle');
 
   const DriveEngine = (function () {
@@ -2238,16 +2243,97 @@ document.addEventListener('DOMContentLoaded', () => {
     let wasCriticallyLowBat = false;
     let lastSpokenAt = 0;
     let lastSpokenText = '';
+    let sharedAudioCtx = null;
+    let activeUtteranceRef = null;
+    let speechCancelTimer = null;
+
+    function unlockAudioContext() {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return null;
+        if (!sharedAudioCtx) sharedAudioCtx = new AudioCtx();
+        if (sharedAudioCtx.state === 'suspended' && typeof sharedAudioCtx.resume === 'function') {
+          sharedAudioCtx.resume().catch(() => {});
+        }
+        return sharedAudioCtx;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function playNavChime(kind = 'turn') {
+      try {
+        const ctx = unlockAudioContext();
+        if (!ctx) return false;
+        const notes = kind === 'warn' ? [660, 520] : [784, 1046];
+        notes.forEach((freq, idx) => {
+          const t0 = ctx.currentTime + idx * 0.13;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, t0);
+          gain.gain.setValueAtTime(0.0001, t0);
+          gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t0);
+          osc.stop(t0 + 0.17);
+        });
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    try {
+      if (typeof window.speechSynthesis !== 'undefined') {
+        window.speechSynthesis.getVoices();
+        if (typeof window.speechSynthesis.addEventListener === 'function') {
+          window.speechSynthesis.addEventListener('voiceschanged', () => {
+            try { window.speechSynthesis.getVoices(); } catch (e) {}
+          });
+        }
+      }
+    } catch (e) {}
+
+    function pickBestSpeechVoice() {
+      try {
+        const ss = window.speechSynthesis;
+        if (!ss || typeof ss.getVoices !== 'function') return null;
+        const voices = ss.getVoices() || [];
+        if (voices.length === 0) return null;
+        return voices.find(v => /en[-_]IN/i.test(v.lang))
+          || voices.find(v => /^en\b/i.test(v.lang) && v.localService)
+          || voices.find(v => /^en\b/i.test(v.lang))
+          || voices.find(v => v.default)
+          || voices[0];
+      } catch (e) {
+        return null;
+      }
+    }
 
     function syncVoiceBtnUi() {
-      if (!btnNavVoice) return;
-      btnNavVoice.classList.toggle('voice-active', voiceEnabled);
-      btnNavVoice.setAttribute('aria-pressed', voiceEnabled ? 'true' : 'false');
-      btnNavVoice.title = voiceEnabled ? 'Mute Voice Guidance' : 'Enable Voice Guidance';
-      if (navVoiceIcon) navVoiceIcon.textContent = voiceEnabled ? '🔊' : '🔇';
+      if (btnNavVoice) {
+        btnNavVoice.classList.toggle('voice-active', voiceEnabled);
+        btnNavVoice.setAttribute('aria-pressed', voiceEnabled ? 'true' : 'false');
+        btnNavVoice.title = voiceEnabled ? 'Mute Voice Guidance' : 'Enable Voice Guidance';
+        if (navVoiceIcon) navVoiceIcon.textContent = voiceEnabled ? '🔊' : '🔇';
+      }
+      if (btnDrawerVoiceToggle) {
+        btnDrawerVoiceToggle.classList.toggle('voice-active', voiceEnabled);
+        btnDrawerVoiceToggle.setAttribute('aria-pressed', voiceEnabled ? 'true' : 'false');
+        if (drawerVoiceIcon) drawerVoiceIcon.textContent = voiceEnabled ? '🔊' : '🔇';
+        if (drawerVoiceLabel) drawerVoiceLabel.textContent = voiceEnabled ? 'Voice Turn: ON' : 'Voice Turn: OFF';
+      }
     }
 
     function stopNavSpeech() {
+      if (speechCancelTimer) {
+        clearTimeout(speechCancelTimer);
+        speechCancelTimer = null;
+      }
+      activeUtteranceRef = null;
       try {
         const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
         if (nativePlugin && typeof nativePlugin.stopSpeech === 'function') {
@@ -2261,38 +2347,165 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {}
     }
 
-    function speakWebSpeech(cleanText, interrupt) {
-      try {
-        if (typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined') return;
-        if (interrupt) window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(cleanText);
-        utter.lang = 'en-IN';
-        utter.rate = 1.02;
-        utter.pitch = 1.0;
-        window.speechSynthesis.speak(utter);
-      } catch (e) {}
+    function speakWebSpeechAsync(cleanText, interrupt) {
+      return new Promise((resolve) => {
+        try {
+          if (typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined') {
+            resolve({ started: false, reason: 'no-api' });
+            return;
+          }
+          const ss = window.speechSynthesis;
+          if (speechCancelTimer) {
+            clearTimeout(speechCancelTimer);
+            speechCancelTimer = null;
+          }
+          const utter = new SpeechSynthesisUtterance(cleanText);
+          const bestVoice = pickBestSpeechVoice();
+          if (bestVoice) {
+            utter.voice = bestVoice;
+            if (bestVoice.lang) utter.lang = bestVoice.lang;
+          }
+          utter.volume = 1.0;
+          utter.rate = 1.0;
+          utter.pitch = 1.0;
+          activeUtteranceRef = utter;
+
+          let settled = false;
+          const done = (started, reason = 'ok') => {
+            if (settled) return;
+            settled = true;
+            resolve({ started, reason });
+          };
+          const fallbackTimer = setTimeout(() => {
+            done(false, 'silent-timeout');
+          }, 1150);
+
+          utter.onstart = () => {
+            clearTimeout(fallbackTimer);
+            done(true, 'started');
+          };
+          utter.onend = () => {
+            clearTimeout(fallbackTimer);
+            if (activeUtteranceRef === utter) activeUtteranceRef = null;
+            done(true, 'ended');
+          };
+          utter.onerror = (ev) => {
+            clearTimeout(fallbackTimer);
+            if (activeUtteranceRef === utter) activeUtteranceRef = null;
+            done(false, (ev && ev.error) || 'speech-error');
+          };
+
+          const fireSpeak = () => {
+            try {
+              if (typeof ss.resume === 'function') ss.resume();
+              ss.speak(utter);
+            } catch (e) {
+              clearTimeout(fallbackTimer);
+              done(false, 'speak-threw');
+            }
+          };
+
+          // Chrome/Android WebView silently drops utter if speak() runs in the same tick right after cancel()
+          if (interrupt && (ss.speaking || ss.pending)) {
+            ss.cancel();
+            speechCancelTimer = setTimeout(() => {
+              speechCancelTimer = null;
+              fireSpeak();
+            }, 75);
+          } else {
+            fireSpeak();
+          }
+        } catch (e) {
+          resolve({ started: false, reason: 'exception' });
+        }
+      });
     }
 
-    function speakNavPrompt(text, interrupt = false) {
-      if (!voiceEnabled || !text) return;
+    async function speakNavPrompt(text, interrupt = false, forcePlay = false) {
+      if ((!voiceEnabled && !forcePlay) || !text) {
+        return { ok: false, mode: 'disabled', reason: 'muted' };
+      }
       const clean = String(text).replace(/\s+/g, ' ').trim();
-      if (!clean) return;
+      if (!clean) return { ok: false, mode: 'empty', reason: 'empty' };
+
       const now = Date.now();
-      if (!interrupt && clean === lastSpokenText && now - lastSpokenAt < 4000) return;
+      if (!interrupt && !forcePlay && clean === lastSpokenText && now - lastSpokenAt < 4000) {
+        return { ok: false, mode: 'dedup', reason: 'duplicate' };
+      }
       lastSpokenText = clean;
       lastSpokenAt = now;
+
+      unlockAudioContext();
+
+      const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
+      if (nativePlugin && typeof nativePlugin.speakText === 'function') {
+        try {
+          const res = await nativePlugin.speakText({ text: clean, flush: Boolean(interrupt) });
+          if (res && res.success === true) {
+            if (typeof res.volume === 'number' && res.volume === 0) {
+              playNavChime(clean.toLowerCase().includes('warning') ? 'warn' : 'turn');
+              return { ok: true, mode: 'native-muted', volume: 0 };
+            }
+            return { ok: true, mode: 'native', volume: res.volume };
+          }
+        } catch (e) {}
+      }
+
+      const webRes = await speakWebSpeechAsync(clean, interrupt);
+      if (webRes && webRes.started) {
+        return { ok: true, mode: 'web' };
+      }
+
+      const isLegacyApk = Boolean(nativePlugin && typeof nativePlugin.speakText !== 'function');
+      playNavChime(clean.toLowerCase().includes('warning') ? 'warn' : 'turn');
+      return {
+        ok: false,
+        mode: isLegacyApk ? 'legacy-apk-no-tts' : 'web-unavailable',
+        reason: (webRes && webRes.reason) || 'unavailable'
+      };
+    }
+
+    function renderVoiceStatus(text, stateClass = '', onClick = null) {
+      if (!voiceTestStatus) return;
+      voiceTestStatus.style.display = 'block';
+      voiceTestStatus.className = `voice-test-status${stateClass ? ' ' + stateClass : ''}`;
+      voiceTestStatus.textContent = text;
+      voiceTestStatus.onclick = typeof onClick === 'function' ? onClick : null;
+    }
+
+    async function testVoiceGuidance() {
+      unlockAudioContext();
+      if (!voiceEnabled) {
+        voiceEnabled = true;
+        try { localStorage.setItem('voltway_voice_enabled', '1'); } catch (e) {}
+        syncVoiceBtnUi();
+      }
+      renderVoiceStatus('⏳ Playing test voice turn...', '');
+      if (btnTestVoice) btnTestVoice.disabled = true;
       try {
-        const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
-        if (nativePlugin && typeof nativePlugin.speakText === 'function') {
-          nativePlugin.speakText({ text: clean, flush: Boolean(interrupt) })
-            .then(res => {
-              if (!res || res.success !== true) speakWebSpeech(clean, interrupt);
-            })
-            .catch(() => speakWebSpeech(clean, interrupt));
-          return;
+        const res = await speakNavPrompt('In 200 meters, turn left onto Main Highway', true, true);
+        if (res.mode === 'native-muted') {
+          renderVoiceStatus('🔇 Phone Media Volume is 0! Increase phone volume to hear voice turns.', 'is-warn');
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔇 Phone Media Volume is 0 — turn up volume!');
+        } else if (res.ok && res.mode === 'native') {
+          renderVoiceStatus('✅ Working! Spoken via Android Native Voice.', 'is-ok');
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔊 Voice test OK (Android TTS)');
+        } else if (res.ok && res.mode === 'web') {
+          renderVoiceStatus('✅ Working! Spoken via Browser Voice.', 'is-ok');
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔊 Voice test OK (Browser Speech)');
+        } else if (res.mode === 'legacy-apk-no-tts') {
+          renderVoiceStatus('📲 Alert chime played! Tap here to update Android APK (v5.59) for spoken voice turns.', 'is-warn', () => {
+            triggerApkAutoUpdate();
+          });
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('📲 Tap here to update APK for Native Voice', () => triggerApkAutoUpdate());
+        } else {
+          renderVoiceStatus('🔔 Chime played, but Speech Voice is disabled in this browser. Check phone TTS / volume settings or install VoltWay APK.', 'is-warn');
+          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔔 Chime played — enable phone TTS or update APK for speech');
         }
-      } catch (e) {}
-      speakWebSpeech(clean, interrupt);
+        return res;
+      } finally {
+        if (btnTestVoice) btnTestVoice.disabled = false;
+      }
     }
 
     function toggleVoice() {
@@ -2300,8 +2513,15 @@ document.addEventListener('DOMContentLoaded', () => {
       try { localStorage.setItem('voltway_voice_enabled', voiceEnabled ? '1' : '0'); } catch (e) {}
       syncVoiceBtnUi();
       if (voiceEnabled) {
+        unlockAudioContext();
         spokenStages.clear();
-        speakNavPrompt('Voice guidance enabled', true);
+        speakNavPrompt('Voice guidance enabled', true).then((res) => {
+          if (res && res.mode === 'legacy-apk-no-tts') {
+            if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('📲 Voice ON (Chime mode) — Tap to update APK for full speech', () => triggerApkAutoUpdate());
+          } else if (res && res.mode === 'native-muted') {
+            if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔇 Voice ON — Phone Media volume is 0');
+          }
+        }).catch(() => {});
         if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔊 Voice guidance enabled');
       } else {
         stopNavSpeech();
@@ -2706,7 +2926,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (navBottomBar) navBottomBar.style.display = 'flex';
       if (btnNavCompass) btnNavCompass.style.display = 'flex';
       if (btnNavVoice) btnNavVoice.style.display = 'flex';
-      if (voiceEnabled) speakNavPrompt('Starting navigation', true);
+      if (voiceEnabled) {
+        unlockAudioContext();
+        speakNavPrompt('Starting navigation', true);
+      }
 
       try {
         if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
@@ -2994,6 +3217,7 @@ document.addEventListener('DOMContentLoaded', () => {
       refreshHudBattery,
       refreshActiveRoute,
       toggleVoice,
+      testVoiceGuidance,
       isVoiceEnabled: () => voiceEnabled,
       toggleOverview: () => {
         if (!window.MapEngine || !window.RouteEngine) return;
@@ -3030,6 +3254,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if (btnNavVoice) {
     btnNavVoice.addEventListener('click', () => DriveEngine.toggleVoice());
+  }
+  if (btnDrawerVoiceToggle) {
+    btnDrawerVoiceToggle.addEventListener('click', () => DriveEngine.toggleVoice());
+  }
+  if (btnTestVoice) {
+    btnTestVoice.addEventListener('click', () => DriveEngine.testVoiceGuidance());
   }
   if (btnNavOverview) {
     btnNavOverview.addEventListener('click', () => DriveEngine.toggleOverview());
