@@ -1726,6 +1726,26 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   transform: scale(0.98);
 }
 
+.btn-pill-round-trip {
+  flex: 1;
+  background: #0b111e;
+  border: 1.5px solid rgba(148, 163, 184, 0.35);
+  color: #cbd5e1;
+}
+
+.btn-pill-round-trip:hover {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: #38bdf8;
+  color: #f8fafc;
+}
+
+.btn-pill-round-trip.active {
+  background: rgba(0, 230, 118, 0.16);
+  border-color: var(--color-ather);
+  color: var(--color-ather);
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.22);
+}
+
 .intermediate-stops-list {
   display: flex;
   flex-direction: column;
@@ -2603,6 +2623,44 @@ body:has(.modal-overlay.open) #btn-floating-start-nav {
   background: rgba(255, 51, 102, 0.16);
   border-color: rgba(255, 51, 102, 0.4);
   color: #fecdd3;
+}
+
+.dot-turnaround {
+  background: #0ea5e9;
+  color: #ffffff;
+}
+
+.plan-backup-pill {
+  font-size: 0.71rem;
+  font-weight: 700;
+  padding: 5px 9px;
+  border-radius: 6px;
+  text-align: left;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  line-height: 1.3;
+  font-family: inherit;
+}
+
+.plan-backup-pill.is-safe {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  color: #7dd3fc;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.15s ease;
+}
+
+.plan-backup-pill.is-safe:hover {
+  background: rgba(56, 189, 248, 0.2);
+}
+
+.plan-backup-pill.is-isolated {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fcd34d;
 }
 
 .stop-pill-spec {
@@ -4265,6 +4323,26 @@ body.ui-light-mode .btn-pill-add-stop {
   background: #f0f9ff;
   border-color: rgba(2, 132, 199, 0.45);
   color: #0369a1;
+}
+body.ui-light-mode .btn-pill-round-trip {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.18);
+  color: #334155;
+}
+body.ui-light-mode .btn-pill-round-trip.active {
+  background: #ecfdf5;
+  border-color: #059669;
+  color: #047857;
+}
+body.ui-light-mode .plan-backup-pill.is-safe {
+  background: #f0f9ff;
+  border-color: rgba(2, 132, 199, 0.35);
+  color: #0369a1;
+}
+body.ui-light-mode .plan-backup-pill.is-isolated {
+  background: #fffbeb;
+  border-color: rgba(217, 119, 6, 0.4);
+  color: #b45309;
 }
 body.ui-light-mode .intermediate-stop-row {
   background: #f8fafc;

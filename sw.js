@@ -1,5 +1,5 @@
-// VoltWay 2W Service Worker - Version 5.55 (Resilient Cache Shell & Bounded Tile Cache)
-const CACHE_NAME = 'voltway-2w-v5-89';
+// VoltWay 2W Service Worker - Version 5.56 (Round-Trip Mode + Backup Stop Proximity)
+const CACHE_NAME = 'voltway-2w-v5-90';
 const TILE_CACHE_NAME = 'voltway-2w-tiles-v1';
 const MAX_CACHED_TILES = 350;
 
@@ -8,17 +8,17 @@ const ASSETS_TO_CACHE = [
   './index.html',
   './manifest.json',
   './chargers_db.json',
-  './css/MarkerCluster.css?v=5.55',
-  './css/app.css?v=5.55',
-  './js/leaflet-rotate.js?v=5.55',
-  './js/leaflet.markercluster.js?v=5.55',
-  './js/app.js?v=5.55',
-  './js/map.js?v=5.55',
-  './js/router.js?v=5.55',
-  './js/battery.js?v=5.55',
-  './js/navigator.js?v=5.55',
-  './js/sync.js?v=5.55',
-  './js/utilities.js?v=5.55',
+  './css/MarkerCluster.css?v=5.56',
+  './css/app.css?v=5.56',
+  './js/leaflet-rotate.js?v=5.56',
+  './js/leaflet.markercluster.js?v=5.56',
+  './js/app.js?v=5.56',
+  './js/map.js?v=5.56',
+  './js/router.js?v=5.56',
+  './js/battery.js?v=5.56',
+  './js/navigator.js?v=5.56',
+  './js/sync.js?v=5.56',
+  './js/utilities.js?v=5.56',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',

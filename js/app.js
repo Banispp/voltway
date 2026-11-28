@@ -1,5 +1,5 @@
 /**
- * VoltWay 2W v5.55 - Main Application Controller
+ * VoltWay 2W v5.56 - Main Application Controller
  * Ties together BatteryEngine, SyncEngine, RouteEngine, MapEngine, Utilities & DriveEngine.
  */
 
@@ -18,14 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- 1. Service Worker & Safe Asset Refresh ----------
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.55')
+      navigator.serviceWorker.register('./sw.js?v=5.56')
         .then(reg => {
           reg.onupdatefound = () => {
             const nw = reg.installing;
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.55 — Tap here or v5.55 to reload!', refreshAppInPlace);
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.56 — Tap here or v5.56 to reload!', refreshAppInPlace);
               }
             };
           };
@@ -1034,6 +1034,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---------- 8. Route Planning, Auto-Stop & Summary Controls ----------
+  const btnRoundTrip = document.getElementById('btn-round-trip');
   const btnPlanRoute = document.getElementById('btn-plan-route');
   const btnClearRoute = document.getElementById('btn-clear-route');
   const routeFilterBtns = Array.from(document.querySelectorAll('.route-filter-btn'));
@@ -1058,6 +1059,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnStartInAppNav = document.getElementById('btn-start-inapp-nav');
   const navSecondaryActions = document.getElementById('nav-secondary-actions');
   const btnOpenGoogleMaps = document.getElementById('btn-open-google-maps');
+
+  function syncRoundTripUi() {
+    if (!btnRoundTrip || !window.RouteEngine) return;
+    const active = Boolean(window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
+    btnRoundTrip.classList.toggle('active', active);
+    btnRoundTrip.setAttribute('aria-pressed', active ? 'true' : 'false');
+    btnRoundTrip.textContent = active ? '🔁 Round Trip ON' : '🔁 Round Trip (A↔B)';
+  }
+
+  if (btnRoundTrip) {
+    btnRoundTrip.addEventListener('click', () => {
+      if (!window.RouteEngine || typeof window.RouteEngine.setRoundTrip !== 'function') return;
+      const next = !window.RouteEngine.getRoundTrip();
+      window.RouteEngine.setRoundTrip(next);
+      syncRoundTripUi();
+    });
+  }
+  syncRoundTripUi();
 
   routeFilterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1275,6 +1294,7 @@ document.addEventListener('DOMContentLoaded', () => {
       window.DriveEngine.stop();
     }
     if (window.RouteEngine) window.RouteEngine.clearRoute();
+    syncRoundTripUi();
     destCoords = null;
     if (destInput) destInput.value = '';
     if (searchInput) searchInput.value = '';
@@ -1307,14 +1327,21 @@ document.addEventListener('DOMContentLoaded', () => {
     tripWaypointsCount.textContent = String(waypoints.length);
     tripWaypointsContainer.innerHTML = '';
 
+    const batStateForStops = window.BatteryEngine ? window.BatteryEngine.getState() : null;
     waypoints.forEach((wp, idx) => {
       const item = document.createElement('div');
       item.className = 'trip-waypoint-item';
 
       const isCharger = !!(wp.network || wp.type);
       const badgeLabel = isCharger ? `⚡ STOP ${idx + 1}` : `📍 STOP ${idx + 1}`;
+      const backupInfo = (isCharger && window.RouteEngine && typeof window.RouteEngine.getNearbyBackupSummary === 'function')
+        ? window.RouteEngine.getNearbyBackupSummary(wp, batStateForStops, 2.5)
+        : null;
+      const backupTag = (backupInfo && backupInfo.totalCompatible > 0)
+        ? ` • 🛡️+${backupInfo.totalCompatible} backup`
+        : (isCharger ? ' • ⚠️ Solo stop' : '');
       const detailSuffix = isCharger
-        ? ` (${wp.power_kw || (wp.type === 'FAST' ? 3 : 1.5)} kW • ${typeof wp.kmFromOrigin === 'number' ? wp.kmFromOrigin + ' km' : 'On route'})`
+        ? ` (${wp.power_kw || (wp.type === 'FAST' ? 3 : 1.5)} kW • ${typeof wp.kmFromOrigin === 'number' ? wp.kmFromOrigin + ' km' : 'On route'}${backupTag})`
         : (typeof wp.kmFromOrigin === 'number' ? ` (${wp.kmFromOrigin} km)` : '');
 
       item.innerHTML = `
@@ -1358,7 +1385,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const corridor = payload ? payload.corridorChargers : [];
     const waypoints = payload ? payload.waypoints : [];
     const timelineMode = payload ? payload.timelineMode : 'optimal';
+    const isRoundTrip = Boolean((payload && payload.isRoundTrip) || (window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip()));
     const bufKm = payload ? payload.corridorBufferKm : 5;
+    syncRoundTripUi();
 
     if (!route) {
       if (routeSelectorContainer) routeSelectorContainer.style.display = 'none';
@@ -1431,7 +1460,10 @@ document.addEventListener('DOMContentLoaded', () => {
       : null;
 
     const eff = batState.efficiency > 0 ? batState.efficiency : 0.85;
-    const totalUsedPct = Math.round((route.distanceKm / eff) * 10) / 10;
+    const evalDistKm = (timelineResult && typeof timelineResult.totalRouteDistKm === 'number')
+      ? timelineResult.totalRouteDistKm
+      : (isRoundTrip ? Math.round(route.distanceKm * 20) / 10 : route.distanceKm);
+    const totalUsedPct = Math.round((evalDistKm / eff) * 10) / 10;
     const finalArrivalSoC = timelineResult
       ? timelineResult.finalArrivalSoC
       : Math.round((batState.currentBatteryPct - totalUsedPct) * 10) / 10;
@@ -1442,12 +1474,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const arrivalEl = document.getElementById('metric-bat-arrival');
     const statusBanner = document.getElementById('route-status-banner');
 
-    if (distEl) distEl.textContent = `${route.distanceKm} km`;
+    if (distEl) distEl.textContent = isRoundTrip ? `${evalDistKm} km 🔁` : `${route.distanceKm} km`;
     if (timeEl) {
       const fmtMin = m => (window.Utilities ? window.Utilities.formatMinutes(m) : `${m} min`);
       const rideMins = (timelineResult && typeof timelineResult.totalDrivingMins === 'number')
         ? timelineResult.totalDrivingMins
-        : route.durationMins;
+        : (isRoundTrip ? route.durationMins * 2 : route.durationMins);
       const totalMins = (timelineResult && typeof timelineResult.totalTripDurationMins === 'number')
         ? timelineResult.totalTripDurationMins
         : rideMins;
@@ -1457,7 +1489,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (timeLabelEl) {
         timeLabelEl.textContent = chargeMins > 0
           ? `Ride (+${fmtMin(chargeMins)}⚡ = ${fmtMin(totalMins)})`
-          : 'Ride Time';
+          : (isRoundTrip ? 'Round-Trip Ride' : 'Ride Time');
       }
     }
     if (neededEl) neededEl.textContent = `~${totalUsedPct}%`;
@@ -1471,25 +1503,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (statusBanner) {
       const stopsCount = timelineResult ? timelineResult.totalChargingStops : 0;
       const unsafeNode = timelineResult && timelineResult.timeline
-        ? timelineResult.timeline.find(n => (n.type === 'CHARGER_STOP' || n.type === 'CUSTOM_STOP' || n.type === 'DESTINATION') && n.arrivalSoC < 0)
+        ? timelineResult.timeline.find(n => (n.type === 'CHARGER_STOP' || n.type === 'CUSTOM_STOP' || n.type === 'TURNAROUND' || n.type === 'DESTINATION') && n.arrivalSoC < 0)
         : null;
       const warnNode = timelineResult && timelineResult.timeline
-        ? timelineResult.timeline.find(n => (n.type === 'CHARGER_STOP' || n.type === 'CUSTOM_STOP' || n.type === 'DESTINATION') && n.arrivalSoC < batState.safetyReservePct)
+        ? timelineResult.timeline.find(n => (n.type === 'CHARGER_STOP' || n.type === 'CUSTOM_STOP' || n.type === 'TURNAROUND' || n.type === 'DESTINATION') && n.arrivalSoC < batState.safetyReservePct)
         : null;
+      const tripTag = isRoundTrip ? 'Round-Trip' : 'Trip';
+      const returnLabel = isRoundTrip ? 'back at start' : 'at destination';
 
       if (unsafeNode) {
         statusBanner.className = 'status-banner status-critical';
-        statusBanner.textContent = `Range Alert: Leg arrival at ~${unsafeNode.arrivalSoC}% SoC. Add a charging stop or adjust efficiency.`;
+        statusBanner.textContent = `${isRoundTrip ? 'Round-Trip ' : ''}Range Alert: Leg arrival at ~${unsafeNode.arrivalSoC}% SoC. Add a charging stop or adjust efficiency.`;
       } else if (warnNode) {
         statusBanner.className = 'status-banner status-warning';
-        statusBanner.textContent = `Reserve Notice: Leg arrives at ~${warnNode.arrivalSoC}% (below ${batState.safetyReservePct}% buffer).`;
+        statusBanner.textContent = `${isRoundTrip ? 'Round-Trip ' : ''}Reserve Notice: Leg arrives at ~${warnNode.arrivalSoC}% (below ${batState.safetyReservePct}% buffer).`;
       } else if (stopsCount > 0) {
         statusBanner.className = 'status-banner status-safe';
-        statusBanner.textContent = `Safe Multi-Stop Trip (${stopsCount} charging stop${stopsCount > 1 ? 's' : ''}): Arrive at destination with ~${finalArrivalSoC}% SoC.`;
+        statusBanner.textContent = `Safe ${isRoundTrip ? 'Round-Trip' : 'Multi-Stop Trip'} (${stopsCount} charging session${stopsCount > 1 ? 's' : ''}): Arrive ${returnLabel} with ~${finalArrivalSoC}% SoC.`;
       } else {
-        const evalRes = window.BatteryEngine ? window.BatteryEngine.evaluateTrip(route.distanceKm) : null;
+        const evalRes = window.BatteryEngine ? window.BatteryEngine.evaluateTrip(evalDistKm) : null;
         statusBanner.className = `status-banner ${(evalRes && evalRes.statusClass) || 'status-safe'}`;
-        statusBanner.textContent = (evalRes && evalRes.statusText) || `Est. Safe Ride: Arrive with ~${finalArrivalSoC}% battery`;
+        statusBanner.textContent = isRoundTrip
+          ? `Safe ${tripTag}: Arrive at destination ~${timelineResult ? timelineResult.turnaroundArrivalSoC : finalArrivalSoC}%, return home ~${finalArrivalSoC}% SoC.`
+          : ((evalRes && evalRes.statusText) || `Est. Safe Ride: Arrive with ~${finalArrivalSoC}% battery`);
       }
     }
 
@@ -1567,16 +1603,36 @@ document.addEventListener('DOMContentLoaded', () => {
             warningHtml += `<div class="plan-alert-pill">🔌 ${esc(compat.reason)}</div>`;
           }
 
+          const backup = node.backupSummary || (window.RouteEngine && typeof window.RouteEngine.getNearbyBackupSummary === 'function'
+            ? window.RouteEngine.getNearbyBackupSummary(st, batState, 2.5)
+            : null);
+          let backupHtml = '';
+          if (backup) {
+            if (backup.fastCount > 0 && backup.closest) {
+              const slowExtra = backup.slowCount > 0 ? `, +${backup.slowCount} 15A` : '';
+              backupHtml = `<button type="button" class="plan-backup-pill is-safe" title="Tap to view nearest backup charger on map">🛡️ +${backup.fastCount} Fast Backup${backup.fastCount > 1 ? 's' : ''} (${backup.closest.distanceKm} km${esc(slowExtra)}) ➔</button>`;
+            } else if (backup.slowCount > 0 && backup.closest) {
+              backupHtml = `<button type="button" class="plan-backup-pill is-safe" title="Tap to view nearest 15A backup socket on map">🔌 +${backup.slowCount} 15A Backup (${backup.closest.distanceKm} km) ➔</button>`;
+            } else {
+              backupHtml = `<div class="plan-backup-pill is-isolated">⚠️ Isolated Stop: No compatible backup within 2.5 km</div>`;
+            }
+          }
+
+          const legPrefix = node.isReturnLeg ? '↩ Return ' : '';
+          const chargeMidTxt = node.chargeNeededPct > 0
+            ? `+${node.chargeNeededPct}% • ${esc(fmtTime)}`
+            : 'Pass-through • 0 min';
+
           el.className = 'timeline-step';
           el.innerHTML = `
             <div class="step-icon-col">
-              <div class="step-dot dot-stop">⚡</div>
+              <div class="step-dot dot-stop">${node.isReturnLeg ? '↩' : '⚡'}</div>
               <div class="step-stem"></div>
             </div>
             <div class="step-content">
               <div class="plan-stop-card ${cardStateClass}">
                 <div class="plan-stop-top">
-                  <div class="plan-stop-name">Stop ${node.index} • ${esc(st.name || 'Charger')}</div>
+                  <div class="plan-stop-name">${legPrefix}Stop ${node.index} • ${esc(st.name || 'Charger')}</div>
                   <span class="plan-stop-badge">${node.isFast ? `⚡ ${st.power_kw || 3} kW` : '🔌 15A'}</span>
                 </div>
                 <div class="plan-charge-flow">
@@ -1584,7 +1640,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="plan-flow-lbl">Arrive</span>
                     <span class="plan-flow-val" style="color:${arrColor};">${node.arrivalSoC}%</span>
                   </div>
-                  <div class="plan-flow-mid">+${node.chargeNeededPct}% • ${esc(fmtTime)}</div>
+                  <div class="plan-flow-mid">${chargeMidTxt}</div>
                   <div class="plan-flow-col">
                     <span class="plan-flow-lbl">Leave</span>
                     <span class="plan-flow-val" style="color:#00e676;">${node.departureSoC}%</span>
@@ -1593,7 +1649,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="plan-bat-bar-track">
                   <div class="plan-bat-bar-fill" style="width:${fillPct}%;"></div>
                 </div>
+                ${backupHtml}
                 ${warningHtml}
+              </div>
+            </div>
+          `;
+          if (backup && backup.closest) {
+            const bkBtn = el.querySelector('.plan-backup-pill.is-safe');
+            if (bkBtn) {
+              bkBtn.addEventListener('click', () => {
+                if (window.MapEngine && typeof window.MapEngine.focusCharger === 'function') {
+                  window.MapEngine.focusCharger(backup.closest);
+                }
+              });
+            }
+          }
+        } else if (node.type === 'TURNAROUND') {
+          const turnCol = node.isCritical ? '#ff4d6d' : (node.isSafe ? '#38bdf8' : '#fbbf24');
+          el.className = 'timeline-step';
+          el.innerHTML = `
+            <div class="step-icon-col">
+              <div class="step-dot dot-turnaround">🔁</div>
+              <div class="step-stem"></div>
+            </div>
+            <div class="step-content">
+              <div class="step-title-row">
+                <span class="step-title">Turnaround • ${esc(node.name)}</span>
+                <span class="stop-pill-spec" style="color:${turnCol};">Arrive: ${node.arrivalSoC}%</span>
               </div>
             </div>
           `;
@@ -1602,27 +1684,28 @@ document.addEventListener('DOMContentLoaded', () => {
           el.className = 'timeline-step';
           el.innerHTML = `
             <div class="step-icon-col">
-              <div class="step-dot" style="background:#fbbf24; color:#451a03;">📍</div>
+              <div class="step-dot" style="background:#fbbf24; color:#451a03;">${node.isReturnLeg ? '↩' : '📍'}</div>
               <div class="step-stem"></div>
             </div>
             <div class="step-content">
               <div class="step-title-row">
-                <span class="step-title">Stop ${node.index} • ${esc(node.name)}</span>
+                <span class="step-title">${node.isReturnLeg ? '↩ Return ' : ''}Stop ${node.index} • ${esc(node.name)}</span>
                 <span class="stop-pill-spec" style="color:${arrCol};">Arrive: ${node.arrivalSoC}%</span>
               </div>
             </div>
           `;
         } else if (node.type === 'DESTINATION') {
           const endCol = node.isCritical ? '#ff4d6d' : (node.isSafe ? '#00e676' : '#fbbf24');
+          const finishLbl = node.isReturnOrigin ? 'Home Return' : 'Finish';
           el.className = 'timeline-step';
           el.innerHTML = `
             <div class="step-icon-col">
-              <div class="step-dot dot-dest" style="background:${endCol};">🏁</div>
+              <div class="step-dot dot-dest" style="background:${endCol};">${node.isReturnOrigin ? '🏠' : '🏁'}</div>
             </div>
             <div class="step-content" style="padding-bottom: 2px;">
               <div class="step-title-row">
                 <span class="step-title">${esc(node.name)}</span>
-                <span class="stop-pill-spec" style="color:${endCol};">Finish: ${node.arrivalSoC}%</span>
+                <span class="stop-pill-spec" style="color:${endCol};">${finishLbl}: ${node.arrivalSoC}%</span>
               </div>
             </div>
           `;
@@ -1799,6 +1882,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (inputMapCorridor) inputMapCorridor.value = String(buf);
         if (inputDrawerCorridor) inputDrawerCorridor.value = String(buf);
       }
+      syncRoundTripUi();
       if (window.MapEngine) {
         window.MapEngine.locateUser(false, true);
       }

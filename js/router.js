@@ -34,6 +34,7 @@ const RouteEngine = (function () {
 
   let corridorBufferKm = 5;
   let currentTimelineMode = 'optimal';
+  let isRoundTrip = false;
   const listeners = [];
 
   function subscribe(fn) {
@@ -52,6 +53,7 @@ const RouteEngine = (function () {
       corridorChargers,
       waypoints: intermediateWaypoints,
       timelineMode: currentTimelineMode,
+      isRoundTrip,
       corridorBufferKm,
       sentToGoogleMaps
     };
@@ -123,6 +125,7 @@ const RouteEngine = (function () {
         destination: currentDestination || activeRoute.destination,
         waypoints: intermediateWaypoints,
         timelineMode: currentTimelineMode,
+        isRoundTrip,
         corridorBufferKm,
         routeFilters,
         allRoutes: compactAll,
@@ -170,6 +173,7 @@ const RouteEngine = (function () {
       if (parsed.timelineMode === 'optimal' || parsed.timelineMode === 'target') {
         currentTimelineMode = parsed.timelineMode;
       }
+      isRoundTrip = Boolean(parsed.isRoundTrip);
       if (parsed.corridorBufferKm != null) {
         corridorBufferKm = parsed.corridorBufferKm === 'all' ? 'all' : (Number(parsed.corridorBufferKm) || 5);
       }
@@ -186,6 +190,7 @@ const RouteEngine = (function () {
         origin: currentOrigin,
         destination: currentDestination,
         waypoints: intermediateWaypoints,
+        isRoundTrip,
         sentToGoogleMaps,
         savedAt: parsed.savedAt || Date.now()
       };
@@ -383,6 +388,21 @@ const RouteEngine = (function () {
       persistTripState();
       notify();
     }
+  }
+
+  function setRoundTrip(enabled) {
+    const next = Boolean(enabled);
+    if (isRoundTrip === next) return;
+    isRoundTrip = next;
+    persistTripState();
+    notify();
+    if (activeRoute && navigator.onLine) {
+      reconcileStopsForBattery(null, true);
+    }
+  }
+
+  function getRoundTrip() {
+    return isRoundTrip;
   }
 
   function getTimelineMode() {
@@ -1171,7 +1191,7 @@ const RouteEngine = (function () {
     return corridorChargers;
   }
 
-  function pickAutoStopsForRoute(route, baseWaypoints = [], batState = {}) {
+  function pickAutoStopsForRoute(route, baseWaypoints = [], batState = {}, roundTripOverride = isRoundTrip) {
     if (!route || corridorChargers.length === 0) return [];
 
     const eff = (batState.efficiency && batState.efficiency > 0) ? batState.efficiency : 0.85;
@@ -1181,10 +1201,30 @@ const RouteEngine = (function () {
 
     const firstLegSafeRange = Math.max(8, Math.round((startBat - minReserve) * eff * 10) / 10);
     const intermediateSafeRange = Math.max(12, Math.round((targetCharge - minReserve) * eff * 10) / 10);
-    const totalDist = route.distanceKm;
+    const legDistOneWay = route.distanceKm;
+    const totalDist = roundTripOverride ? Math.round(legDistOneWay * 20) / 10 : legDistOneWay;
 
-    const existingWaypoints = [...baseWaypoints];
-    const existingIds = new Set(existingWaypoints.map(w => String(w.originalId || w.id)));
+    const baseStops = [...baseWaypoints];
+    const existingWaypoints = roundTripOverride
+      ? [
+          ...baseStops,
+          ...baseStops
+            .filter(w => (w.network || w.type) && typeof w.kmFromOrigin === 'number')
+            .map(w => ({ ...w, kmFromOrigin: Math.round(((legDistOneWay * 2) - w.kmFromOrigin) * 10) / 10 }))
+        ].sort((a, b) => (a.kmFromOrigin || 0) - (b.kmFromOrigin || 0))
+      : baseStops;
+
+    const existingIds = new Set(baseStops.map(w => String(w.originalId || w.id)));
+    const addedIds = new Set(existingIds);
+
+    const searchPool = roundTripOverride
+      ? [
+          ...corridorChargers.map(c => ({ ...c, _simKm: c.kmFromOrigin })),
+          ...corridorChargers
+            .filter(c => typeof c.kmFromOrigin === 'number' && legDistOneWay - c.kmFromOrigin > 0.5)
+            .map(c => ({ ...c, _simKm: Math.round(((legDistOneWay * 2) - c.kmFromOrigin) * 10) / 10 }))
+        ]
+      : corridorChargers.map(c => ({ ...c, _simKm: c.kmFromOrigin }));
 
     const isCompat = (c) => {
       if (window.BatteryEngine && typeof window.BatteryEngine.isChargerCompatible === 'function') {
@@ -1213,45 +1253,53 @@ const RouteEngine = (function () {
         continue;
       }
 
+      // Also check if a mirrored charger from an already-selected outbound auto-stop covers the current return span
+      if (roundTripOverride) {
+        const nextMirroredAuto = newlySuggested
+          .map(w => Math.round(((legDistOneWay * 2) - w.kmFromOrigin) * 10) / 10)
+          .find(mk => mk > currentCoveredKm + 1 && mk <= currentCoveredKm + safeRange);
+        if (nextMirroredAuto !== undefined) {
+          currentCoveredKm = nextMirroredAuto;
+          continue;
+        }
+      }
+
       const targetMinKm = currentCoveredKm + (safeRange * 0.45);
       const targetMaxKm = currentCoveredKm + (safeRange * 0.92);
 
       const effectiveReachOk = (c) => {
         const detourKm = (c.corridorDistanceKm || 0) * 2.0;
-        return (c.kmFromOrigin - currentCoveredKm + detourKm) <= safeRange;
+        return (c._simKm - currentCoveredKm + detourKm) <= safeRange;
       };
 
-      let candidates = corridorChargers.filter(c =>
+      let candidates = searchPool.filter(c =>
         matchesRouteFilters(c) &&
         isCompat(c) &&
-        !existingIds.has(String(c.id)) &&
-        !newlySuggested.some(w => w.id === c.id) &&
-        c.kmFromOrigin >= targetMinKm &&
-        c.kmFromOrigin <= targetMaxKm &&
+        !addedIds.has(String(c.originalId || c.id)) &&
+        c._simKm >= targetMinKm &&
+        c._simKm <= targetMaxKm &&
         effectiveReachOk(c)
       );
 
       if (candidates.length === 0) {
-        candidates = corridorChargers.filter(c =>
+        candidates = searchPool.filter(c =>
           matchesRouteFilters(c) &&
           isCompat(c) &&
-          !existingIds.has(String(c.id)) &&
-          !newlySuggested.some(w => w.id === c.id) &&
-          c.kmFromOrigin > currentCoveredKm + 4 &&
+          !addedIds.has(String(c.originalId || c.id)) &&
+          c._simKm > currentCoveredKm + 4 &&
           effectiveReachOk(c)
         );
       }
 
       if (candidates.length === 0) {
-        const forward = corridorChargers.filter(c =>
+        const forward = searchPool.filter(c =>
           matchesRouteFilters(c) &&
           isCompat(c) &&
-          !existingIds.has(String(c.id)) &&
-          !newlySuggested.some(w => w.id === c.id) &&
-          c.kmFromOrigin > currentCoveredKm
+          !addedIds.has(String(c.originalId || c.id)) &&
+          c._simKm > currentCoveredKm
         );
         if (forward.length === 0) break;
-        forward.sort((a, b) => a.kmFromOrigin - b.kmFromOrigin);
+        forward.sort((a, b) => a._simKm - b._simKm);
         candidates = [forward[0]];
       }
 
@@ -1261,14 +1309,18 @@ const RouteEngine = (function () {
           if (c.network === 'BOLT_EARTH' && c.type === 'FAST') return 20;
           return 0;
         };
-        const scoreA = ((a.kmFromOrigin - currentCoveredKm) * 1.4) + netBonus(a) - (a.corridorDistanceKm * 4.5);
-        const scoreB = ((b.kmFromOrigin - currentCoveredKm) * 1.4) + netBonus(b) - (b.corridorDistanceKm * 4.5);
+        const scoreA = ((a._simKm - currentCoveredKm) * 1.4) + netBonus(a) - (a.corridorDistanceKm * 4.5);
+        const scoreB = ((b._simKm - currentCoveredKm) * 1.4) + netBonus(b) - (b.corridorDistanceKm * 4.5);
         return scoreB - scoreA;
       });
 
       const selected = candidates[0];
-      newlySuggested.push({ ...selected, isAutoSuggested: true });
-      currentCoveredKm = selected.kmFromOrigin;
+      const orig = corridorChargers.find(c => String(c.id) === String(selected.id)) || selected;
+      const cleanStop = { ...orig, isAutoSuggested: true };
+      delete cleanStop._simKm;
+      newlySuggested.push(cleanStop);
+      addedIds.add(String(cleanStop.originalId || cleanStop.id));
+      currentCoveredKm = selected._simKm;
     }
 
     return newlySuggested;
@@ -1287,7 +1339,7 @@ const RouteEngine = (function () {
     const currentPlan = calculateTripTimeline(activeRoute, batState);
     if (currentPlan && currentPlan.timeline) {
       const hasUnsafeNode = currentPlan.timeline.some(s =>
-        (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'DESTINATION') &&
+        (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'TURNAROUND' || s.type === 'DESTINATION') &&
         s.arrivalSoC < minReserve
       );
       if (!hasUnsafeNode) {
@@ -1296,7 +1348,7 @@ const RouteEngine = (function () {
     }
 
     const existingWaypoints = [...intermediateWaypoints];
-    const newlySuggested = pickAutoStopsForRoute(activeRoute, existingWaypoints, batState);
+    const newlySuggested = pickAutoStopsForRoute(activeRoute, existingWaypoints, batState, isRoundTrip);
 
     if (newlySuggested.length > 0) {
       const merged = [...existingWaypoints, ...newlySuggested];
@@ -1329,11 +1381,12 @@ const RouteEngine = (function () {
 
       const currentPlan = calculateTripTimeline(activeRoute, batState);
       const hasUnsafeNode = Boolean(currentPlan && currentPlan.timeline && currentPlan.timeline.some(s =>
-        (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'DESTINATION') &&
+        (s.type === 'CHARGER_STOP' || s.type === 'CUSTOM_STOP' || s.type === 'TURNAROUND' || s.type === 'DESTINATION') &&
         s.arrivalSoC < minReserve
       ));
 
       const isDriving = Boolean(window.DriveEngine && window.DriveEngine.isActive() && liveUserCoords);
+      const effectiveRt = !isDriving && isRoundTrip;
       let slice = null;
       if (isDriving) {
         slice = sliceActiveRouteAtPosition(liveUserCoords.lat, liveUserCoords.lng);
@@ -1359,7 +1412,7 @@ const RouteEngine = (function () {
       }
 
       let desired = [...manualStops];
-      const directArrival = startBat - (remainingDistKm / eff);
+      const directArrival = startBat - ((effectiveRt ? remainingDistKm * 2 : remainingDistKm) / eff);
 
       // Zero-cost instant restore of uncharged base route option when battery/efficiency now covers the trip
       if (!isDriving && manualStops.length === 0 && directArrival >= minReserve && hasAutoStops && baseRouteOptions[selectedRouteIndex]) {
@@ -1393,7 +1446,7 @@ const RouteEngine = (function () {
 
         const origCorridor = corridorChargers;
         if (shiftedCorridor) corridorChargers = shiftedCorridor;
-        const neededAuto = pickAutoStopsForRoute(simRoute, baseForSim, batState);
+        const neededAuto = pickAutoStopsForRoute(simRoute, baseForSim, batState, effectiveRt);
         if (shiftedCorridor) corridorChargers = origCorridor;
 
         if (hasUnsafeNode || (hasAutoStops && neededAuto.length > 0)) {
@@ -1542,8 +1595,66 @@ const RouteEngine = (function () {
     return { ...routeFilters };
   }
 
-  function calculateTripTimeline(route, batteryState) {
+  function getNearbyBackupSummary(station, batState = null, radiusKm = 2.5) {
+    if (!station || typeof station.lat !== 'number' || typeof station.lng !== 'number') {
+      return { totalCompatible: 0, fastCount: 0, slowCount: 0, closest: null };
+    }
+    if (!window.SyncEngine || typeof window.SyncEngine.getChargersInBounds !== 'function') {
+      return { totalCompatible: 0, fastCount: 0, slowCount: 0, closest: null };
+    }
+
+    const degPad = (radiusKm / 111.0) + 0.01;
+    const candidates = window.SyncEngine.getChargersInBounds({
+      south: station.lat - degPad,
+      north: station.lat + degPad,
+      west: station.lng - degPad,
+      east: station.lng + degPad
+    });
+
+    const stId = String(station.originalId || station.id || '');
+    const vKey = (batState && batState.selectedVehicle) || undefined;
+    const isCompatFn = (c) => {
+      if (window.BatteryEngine && typeof window.BatteryEngine.isChargerCompatible === 'function') {
+        return window.BatteryEngine.isChargerCompatible(c, vKey).compatible;
+      }
+      return c.is_2w !== false;
+    };
+
+    const backups = [];
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (!c || c.is_2w === false) continue;
+      const cid = String(c.originalId || c.id || '');
+      if (cid === stId || String(c.id || '') === String(station.id || '')) continue;
+      const dKm = haversineDistance(station.lat, station.lng, c.lat, c.lng);
+      if (dKm > radiusKm) continue;
+      if (!isCompatFn(c)) continue;
+      const isFastBackup = c.network === 'ATHER_GRID' || c.network === 'VIDA_GRID' || c.type === 'FAST';
+      backups.push({
+        ...c,
+        isFastBackup,
+        distanceKm: Math.round(dKm * 10) / 10
+      });
+    }
+
+    backups.sort((a, b) => {
+      if (a.isFastBackup !== b.isFastBackup) return a.isFastBackup ? -1 : 1;
+      return a.distanceKm - b.distanceKm;
+    });
+
+    const fastCount = backups.filter(b => b.isFastBackup).length;
+    const slowCount = backups.length - fastCount;
+    return {
+      totalCompatible: backups.length,
+      fastCount,
+      slowCount,
+      closest: backups[0] || null
+    };
+  }
+
+  function calculateTripTimeline(route, batteryState, roundTripOverride = null) {
     if (!route) return null;
+    const roundTrip = roundTripOverride != null ? Boolean(roundTripOverride) : isRoundTrip;
     const batState = batteryState || (window.BatteryEngine ? window.BatteryEngine.getState() : {
       currentBatteryPct: 85,
       efficiency: 0.85,
@@ -1559,6 +1670,8 @@ const RouteEngine = (function () {
     const waypoints = route.waypoints || [];
     const legs = route.legs || [];
     const timeline = [];
+    const totalRouteDistKm = roundTrip ? Math.round(route.distanceKm * 20) / 10 : route.distanceKm;
+    const totalDrivingMins = roundTrip ? (route.durationMins * 2) : route.durationMins;
 
     let currentSoC = startBat;
     let totalChargingTimeMins = 0;
@@ -1580,119 +1693,279 @@ const RouteEngine = (function () {
         type: 'LEG',
         distanceKm: route.distanceKm,
         durationMins: route.durationMins,
-        batteryUsedPct: usedPct
+        batteryUsedPct: usedPct,
+        isReturnLeg: false
       });
 
+      if (!roundTrip) {
+        timeline.push({
+          type: 'DESTINATION',
+          name: route.destination?.name || 'Destination',
+          lat: route.destination?.lat,
+          lng: route.destination?.lng,
+          arrivalSoC,
+          isSafe: arrivalSoC >= minReserve,
+          isCritical: arrivalSoC < 0
+        });
+
+        return {
+          timeline,
+          isRoundTrip: false,
+          totalRouteDistKm: route.distanceKm,
+          totalDrivingMins: route.durationMins,
+          totalChargingMins: 0,
+          totalTripDurationMins: route.durationMins,
+          totalChargingStops: 0,
+          totalEnergyChargedPct: 0,
+          finalArrivalSoC: arrivalSoC,
+          turnaroundArrivalSoC: arrivalSoC,
+          targetChargePct: targetCharge
+        };
+      }
+
+      const retArrivalSoC = fixNegZero(Math.round((arrivalSoC - usedPct) * 10) / 10);
       timeline.push({
-        type: 'DESTINATION',
+        type: 'TURNAROUND',
         name: route.destination?.name || 'Destination',
         lat: route.destination?.lat,
         lng: route.destination?.lng,
         arrivalSoC,
+        returnNeededPct: fixNegZero(Math.round((usedPct + minReserve) * 10) / 10),
         isSafe: arrivalSoC >= minReserve,
         isCritical: arrivalSoC < 0
       });
 
+      timeline.push({
+        type: 'LEG',
+        distanceKm: route.distanceKm,
+        durationMins: route.durationMins,
+        batteryUsedPct: usedPct,
+        isReturnLeg: true
+      });
+
+      timeline.push({
+        type: 'DESTINATION',
+        name: `${route.origin?.name || 'Origin'} (Return)`,
+        lat: route.origin?.lat,
+        lng: route.origin?.lng,
+        arrivalSoC: retArrivalSoC,
+        isReturnOrigin: true,
+        isSafe: retArrivalSoC >= minReserve,
+        isCritical: retArrivalSoC < 0
+      });
+
       return {
         timeline,
-        totalDrivingMins: route.durationMins,
+        isRoundTrip: true,
+        totalRouteDistKm,
+        totalDrivingMins,
         totalChargingMins: 0,
-        totalTripDurationMins: route.durationMins,
+        totalTripDurationMins: totalDrivingMins,
         totalChargingStops: 0,
         totalEnergyChargedPct: 0,
-        finalArrivalSoC: arrivalSoC,
+        finalArrivalSoC: retArrivalSoC,
+        turnaroundArrivalSoC: arrivalSoC,
         targetChargePct: targetCharge
       };
     }
 
+    const getLegMetrics = (idx) => {
+      const distKm = (legs[idx] && legs[idx].distance)
+        ? Math.round((legs[idx].distance / 1000) * 10) / 10
+        : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
+      const durationMins = (legs[idx] && legs[idx].duration)
+        ? Math.round(legs[idx].duration / 60)
+        : Math.round(distKm * 1.8);
+      return { distKm, durationMins };
+    };
+
+    const sequence = [];
     for (let i = 0; i < waypoints.length; i++) {
+      const lm = getLegMetrics(i);
+      sequence.push({ kind: 'LEG', ...lm, isReturnLeg: false });
       const wp = waypoints[i];
-      const legDist = (legs[i] && legs[i].distance) ? Math.round((legs[i].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
-      const legDur = (legs[i] && legs[i].duration) ? Math.round(legs[i].duration / 60) : Math.round(legDist * 1.8);
-      const batUsed = fixNegZero(Math.round((legDist / eff) * 10) / 10);
-      const arrivalSoC = fixNegZero(Math.round((currentSoC - batUsed) * 10) / 10);
-      const isSafeArrival = arrivalSoC >= minReserve;
-      const isCriticalArrival = arrivalSoC < 0;
-
-      let nextLegDist = 0;
-      let nextStopName = 'Destination';
-      if (i + 1 < waypoints.length) {
-        nextLegDist = (legs[i + 1] && legs[i + 1].distance) ? Math.round((legs[i + 1].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
-        nextStopName = waypoints[i + 1].name || `Stop ${String.fromCharCode(66 + i + 1)}`;
-      } else {
-        const lastIdx = waypoints.length;
-        nextLegDist = (legs[lastIdx] && legs[lastIdx].distance) ? Math.round((legs[lastIdx].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
-        nextStopName = route.destination?.name || 'Destination';
-      }
-
-      const nextLegBatUsed = Math.round((nextLegDist / eff) * 10) / 10;
-      const minDepartureNeeded = Math.ceil(nextLegBatUsed + minReserve);
-
-      timeline.push({
-        type: 'LEG',
-        distanceKm: legDist,
-        durationMins: legDur,
-        batteryUsedPct: batUsed
+      sequence.push({
+        kind: (wp.network || wp.type) ? 'CHARGER_STOP' : 'CUSTOM_STOP',
+        wp,
+        stopIdx: i + 1,
+        isReturnLeg: false
       });
+    }
+    const lastOutLeg = getLegMetrics(waypoints.length);
+    sequence.push({ kind: 'LEG', ...lastOutLeg, isReturnLeg: false });
 
-      const isCharger = !!(wp.network || wp.type);
+    if (roundTrip) {
+      sequence.push({
+        kind: 'TURNAROUND',
+        name: route.destination?.name || 'Destination',
+        lat: route.destination?.lat,
+        lng: route.destination?.lng
+      });
+      sequence.push({ kind: 'LEG', ...lastOutLeg, isReturnLeg: true });
+      for (let i = waypoints.length - 1; i >= 0; i--) {
+        const wp = waypoints[i];
+        sequence.push({
+          kind: (wp.network || wp.type) ? 'CHARGER_STOP' : 'CUSTOM_STOP',
+          wp,
+          stopIdx: waypoints.length - i,
+          isReturnLeg: true
+        });
+        const lm = getLegMetrics(i);
+        sequence.push({ kind: 'LEG', ...lm, isReturnLeg: true });
+      }
+      sequence.push({
+        kind: 'DESTINATION',
+        name: `${route.origin?.name || 'Origin'} (Return)`,
+        lat: route.origin?.lat,
+        lng: route.origin?.lng,
+        isReturnOrigin: true
+      });
+    } else {
+      sequence.push({
+        kind: 'DESTINATION',
+        name: route.destination?.name || 'Destination',
+        lat: route.destination?.lat,
+        lng: route.destination?.lng,
+        isReturnOrigin: false
+      });
+    }
 
-      if (isCharger) {
+    let turnaroundArrivalSoC = null;
+    const chargedOutboundIds = new Set();
+
+    for (let s = 0; s < sequence.length; s++) {
+      const item = sequence[s];
+      if (item.kind === 'LEG') {
+        const batUsed = fixNegZero(Math.round((item.distKm / eff) * 10) / 10);
+        currentSoC = fixNegZero(Math.round((currentSoC - batUsed) * 10) / 10);
+        timeline.push({
+          type: 'LEG',
+          distanceKm: item.distKm,
+          durationMins: item.durationMins,
+          batteryUsedPct: batUsed,
+          isReturnLeg: item.isReturnLeg
+        });
+      } else if (item.kind === 'TURNAROUND') {
+        turnaroundArrivalSoC = currentSoC;
+        timeline.push({
+          type: 'TURNAROUND',
+          name: item.name,
+          lat: item.lat,
+          lng: item.lng,
+          arrivalSoC: currentSoC,
+          isSafe: currentSoC >= minReserve,
+          isCritical: currentSoC < 0
+        });
+      } else if (item.kind === 'CUSTOM_STOP') {
+        const isSafeArrival = currentSoC >= minReserve;
+        const isCriticalArrival = currentSoC < 0;
+        let nextLegDist = 0;
+        let nextStopName = 'Destination';
+        for (let k = s + 1; k < sequence.length; k++) {
+          if (sequence[k].kind === 'LEG') nextLegDist += sequence[k].distKm;
+          else {
+            nextStopName = sequence[k].wp ? (sequence[k].wp.name || 'Next Stop') : sequence[k].name;
+            break;
+          }
+        }
+        nextLegDist = Math.round(nextLegDist * 10) / 10;
+        timeline.push({
+          type: 'CUSTOM_STOP',
+          index: item.stopIdx,
+          name: item.wp.name || `Intermediate Stop ${item.stopIdx}`,
+          point: item.wp,
+          arrivalSoC: currentSoC,
+          isSafeArrival,
+          isCriticalArrival,
+          nextLegDist,
+          nextStopName,
+          departureSoC: currentSoC,
+          isReturnLeg: item.isReturnLeg
+        });
+      } else if (item.kind === 'CHARGER_STOP') {
+        const wp = item.wp;
+        const arrivalSoC = currentSoC;
+        const isSafeArrival = arrivalSoC >= minReserve;
+        const isCriticalArrival = arrivalSoC < 0;
+
+        let nextChargeDistKm = 0;
+        let nextTargetName = 'Destination';
+        for (let k = s + 1; k < sequence.length; k++) {
+          if (sequence[k].kind === 'LEG') nextChargeDistKm += sequence[k].distKm;
+          else if (sequence[k].kind === 'CHARGER_STOP' || sequence[k].kind === 'DESTINATION') {
+            nextTargetName = sequence[k].wp ? (sequence[k].wp.name || 'Next Charger') : sequence[k].name;
+            break;
+          }
+        }
+        nextChargeDistKm = Math.round(nextChargeDistKm * 10) / 10;
+        const nextLegBatUsed = Math.round((nextChargeDistKm / eff) * 10) / 10;
+        const minDepartureNeeded = Math.ceil(nextLegBatUsed + minReserve);
+
         const isFast = wp.network === 'ATHER_GRID' || wp.network === 'VIDA_GRID' || wp.type === 'FAST';
         const maxChargerCeiling = isFast ? targetCharge : 100;
         const effectiveArrival = Math.max(0, arrivalSoC);
+        const wpKey = String(wp.originalId || wp.id || wp.name || s);
 
-        const optimalTargetSoC = effectiveArrival >= maxChargerCeiling
+        const optimalTargetSoC = effectiveArrival >= minDepartureNeeded
           ? arrivalSoC
-          : Math.max(effectiveArrival, Math.min(maxChargerCeiling, Math.max(Math.ceil(effectiveArrival), minDepartureNeeded)));
+          : Math.min(maxChargerCeiling, minDepartureNeeded);
         const optimalChargeNeededPct = fixNegZero(Math.max(0, Math.round((optimalTargetSoC - effectiveArrival) * 10) / 10));
         const optimalChargeTimeMins = computeChargingDuration(optimalChargeNeededPct, effectiveArrival, isFast, wp.power_kw, batState.vehicleDetails);
 
-        const fullTargetSoC = effectiveArrival >= maxChargerCeiling
-          ? arrivalSoC
-          : Math.max(effectiveArrival, Math.min(maxChargerCeiling, Math.max(targetCharge, optimalTargetSoC)));
+        const skipDoubleChargeReturn = Boolean(item.isReturnLeg && chargedOutboundIds.has(wpKey) && effectiveArrival >= minDepartureNeeded);
+        const fullTargetSoC = skipDoubleChargeReturn
+          ? optimalTargetSoC
+          : (effectiveArrival >= maxChargerCeiling
+              ? arrivalSoC
+              : Math.max(effectiveArrival, Math.min(maxChargerCeiling, Math.max(targetCharge, optimalTargetSoC))));
         const fullChargeNeededPct = fixNegZero(Math.max(0, Math.round((fullTargetSoC - effectiveArrival) * 10) / 10));
         const fullChargeTimeMins = computeChargingDuration(fullChargeNeededPct, effectiveArrival, isFast, wp.power_kw, batState.vehicleDetails);
 
         const timeSavedMins = Math.max(0, fullChargeTimeMins - optimalChargeTimeMins);
-
         const batCap = (batState.vehicleDetails && batState.vehicleDetails.batteryCapacity) || 3.7;
         const activeTargetSoC = currentTimelineMode === 'optimal' ? optimalTargetSoC : fullTargetSoC;
         const activeChargeNeeded = currentTimelineMode === 'optimal' ? optimalChargeNeededPct : fullChargeNeededPct;
         const activeChargeTime = currentTimelineMode === 'optimal' ? optimalChargeTimeMins : fullChargeTimeMins;
         const unitsActiveKWh = Math.round(((activeChargeNeeded / 100) * batCap) * 100) / 100;
 
+        if (!item.isReturnLeg && activeChargeNeeded > 0) {
+          chargedOutboundIds.add(wpKey);
+        }
+
         let smartAdvice = '';
         if (isFast && minDepartureNeeded > Math.max(maxChargerCeiling, effectiveArrival)) {
           const ceilingForNext = Math.max(maxChargerCeiling, effectiveArrival);
           const estArrival = fixNegZero(Math.round((ceilingForNext - nextLegBatUsed) * 10) / 10);
           if (estArrival >= 0) {
-            smartAdvice = `Target ceiling ${maxChargerCeiling}%. Next leg is ${nextLegDist} km to ${nextStopName}, arriving with est. ~${estArrival}% SoC.`;
+            smartAdvice = `Target ceiling ${maxChargerCeiling}%. Next span is ${nextChargeDistKm} km to ${nextTargetName}, arriving with est. ~${estArrival}% SoC.`;
           } else {
             const shortKm = Math.round(Math.abs(estArrival) * eff * 10) / 10;
-            smartAdvice = `⚠️ Range Gap: Next leg is ${nextLegDist} km to ${nextStopName}. Even at ${maxChargerCeiling}%, est. short by ~${shortKm} km — raise charge target to 95–100% or switch to ECO mode.`;
+            smartAdvice = `⚠️ Range Gap: Next span is ${nextChargeDistKm} km to ${nextTargetName}. Even at ${maxChargerCeiling}%, est. short by ~${shortKm} km — raise charge target to 95–100% or switch to ECO mode.`;
           }
         } else if (optimalTargetSoC < fullTargetSoC) {
-          smartAdvice = `Next leg is ${nextLegDist} km to ${nextStopName}. Fast-hop charge to ${optimalTargetSoC}% saves ~${timeSavedMins} min (keeps ${minReserve}% reserve).`;
+          smartAdvice = `Next span is ${nextChargeDistKm} km to ${nextTargetName}. Fast-hop charge to ${optimalTargetSoC}% saves ~${timeSavedMins} min (keeps ${minReserve}% reserve).`;
         } else if (activeChargeNeeded === 0) {
-          smartAdvice = `Battery already sufficient (${arrivalSoC}%) for next ${nextLegDist} km leg to ${nextStopName}.`;
+          smartAdvice = `Battery already sufficient (${arrivalSoC}%) for ${nextChargeDistKm} km to ${nextTargetName}.`;
         } else {
-          smartAdvice = `Next leg is ${nextLegDist} km to ${nextStopName}. Charge to ${optimalTargetSoC}% for safe arrival.`;
+          smartAdvice = `Next span is ${nextChargeDistKm} km to ${nextTargetName}. Charge to ${optimalTargetSoC}% for safe arrival.`;
         }
 
         totalChargingTimeMins += activeChargeTime;
         totalEnergyChargedPct += activeChargeNeeded;
 
+        const backupSummary = getNearbyBackupSummary(wp, batState, 2.5);
+
         timeline.push({
           type: 'CHARGER_STOP',
-          index: i + 1,
+          index: item.stopIdx,
           station: wp,
           isFast,
+          isReturnLeg: item.isReturnLeg,
           arrivalSoC,
           isSafeArrival,
           isCriticalArrival,
-          nextLegDist,
-          nextStopName,
+          nextLegDist: nextChargeDistKm,
+          nextStopName: nextTargetName,
           optimalTargetSoC,
           optimalChargeNeededPct,
           optimalChargeTimeMins,
@@ -1702,6 +1975,7 @@ const RouteEngine = (function () {
           timeSavedMins,
           unitsKWh: unitsActiveKWh,
           smartAdvice,
+          backupSummary,
           targetChargeSoC: targetCharge,
           chargeNeededPct: activeChargeNeeded,
           chargeTimeMins: activeChargeTime,
@@ -1709,54 +1983,32 @@ const RouteEngine = (function () {
         });
 
         currentSoC = activeTargetSoC;
-      } else {
+      } else if (item.kind === 'DESTINATION') {
         timeline.push({
-          type: 'CUSTOM_STOP',
-          index: i + 1,
-          name: wp.name || `Intermediate Stop ${i + 1}`,
-          point: wp,
-          arrivalSoC,
-          isSafeArrival,
-          isCriticalArrival,
-          nextLegDist,
-          nextStopName,
-          departureSoC: arrivalSoC
+          type: 'DESTINATION',
+          name: item.name,
+          lat: item.lat,
+          lng: item.lng,
+          arrivalSoC: currentSoC,
+          isReturnOrigin: Boolean(item.isReturnOrigin),
+          isSafe: currentSoC >= minReserve,
+          isCritical: currentSoC < 0
         });
-        currentSoC = arrivalSoC;
       }
     }
 
-    const lastLegIdx = waypoints.length;
-    const finalLegDist = (legs[lastLegIdx] && legs[lastLegIdx].distance) ? Math.round((legs[lastLegIdx].distance / 1000) * 10) / 10 : Math.round((route.distanceKm / (waypoints.length + 1)) * 10) / 10;
-    const finalLegDur = (legs[lastLegIdx] && legs[lastLegIdx].duration) ? Math.round(legs[lastLegIdx].duration / 60) : Math.round(finalLegDist * 1.8);
-    const finalBatUsed = fixNegZero(Math.round((finalLegDist / eff) * 10) / 10);
-    const destArrivalSoC = fixNegZero(Math.round((currentSoC - finalBatUsed) * 10) / 10);
-
-    timeline.push({
-      type: 'LEG',
-      distanceKm: finalLegDist,
-      durationMins: finalLegDur,
-      batteryUsedPct: finalBatUsed
-    });
-
-    timeline.push({
-      type: 'DESTINATION',
-      name: route.destination?.name || 'Destination',
-      lat: route.destination?.lat,
-      lng: route.destination?.lng,
-      arrivalSoC: destArrivalSoC,
-      isSafe: destArrivalSoC >= minReserve,
-      isCritical: destArrivalSoC < 0
-    });
-
+    const totalPhysicalChargerStops = waypoints.filter(w => w.network || w.type).length;
     return {
       timeline,
-      totalDrivingMins: route.durationMins,
+      isRoundTrip: roundTrip,
+      totalRouteDistKm,
+      totalDrivingMins,
       totalChargingMins: totalChargingTimeMins,
-      totalTripDurationMins: route.durationMins + totalChargingTimeMins,
-      totalChargingStops: waypoints.filter(w => w.network || w.type).length,
+      totalTripDurationMins: totalDrivingMins + totalChargingTimeMins,
+      totalChargingStops: timeline.filter(n => n.type === 'CHARGER_STOP' && n.chargeNeededPct > 0).length || totalPhysicalChargerStops,
       totalEnergyChargedPct: Math.round(totalEnergyChargedPct * 10) / 10,
-      finalArrivalSoC: destArrivalSoC,
+      finalArrivalSoC: currentSoC,
+      turnaroundArrivalSoC: turnaroundArrivalSoC != null ? turnaroundArrivalSoC : currentSoC,
       targetChargePct: targetCharge
     };
   }
@@ -1771,6 +2023,7 @@ const RouteEngine = (function () {
     lastSnappedSegmentIndex = 0;
     lastSliceKey = '';
     lastSliceResult = null;
+    isRoundTrip = false;
     sentToGoogleMaps = false;
     try { localStorage.removeItem(SAVED_TRIP_KEY); } catch (e) {}
     notify();
@@ -1783,8 +2036,11 @@ const RouteEngine = (function () {
     autoSuggestChargingStops,
     reconcileStopsForBattery,
     calculateTripTimeline,
+    getNearbyBackupSummary,
     setTimelineMode,
     getTimelineMode,
+    setRoundTrip,
+    getRoundTrip,
     addWaypoint,
     removeWaypoint,
     clearRoute,
