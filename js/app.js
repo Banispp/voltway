@@ -1,5 +1,5 @@
 /**
- * VoltWay 2W v5.60 - Main Application Controller
+ * VoltWay 2W v5.61 - Main Application Controller
  * Ties together BatteryEngine, SyncEngine, RouteEngine, MapEngine, Utilities & DriveEngine.
  */
 
@@ -18,14 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- 1. Service Worker & Safe Asset Refresh ----------
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.60')
+      navigator.serviceWorker.register('./sw.js?v=5.61')
         .then(reg => {
           reg.onupdatefound = () => {
             const nw = reg.installing;
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.60 — Tap here or v5.60 to reload!', refreshAppInPlace);
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.61 — Tap here or v5.61 to reload!', refreshAppInPlace);
               }
             };
           };
@@ -2174,8 +2174,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnDrawerVoiceToggle = document.getElementById('btn-drawer-voice-toggle');
   const drawerVoiceIcon = document.getElementById('drawer-voice-icon');
   const drawerVoiceLabel = document.getElementById('drawer-voice-label');
-  const btnTestVoice = document.getElementById('btn-test-voice');
-  const voiceTestStatus = document.getElementById('voice-test-status');
   const btnNavOverview = document.getElementById('btn-nav-routes-toggle');
 
   const DriveEngine = (function () {
@@ -2479,49 +2477,6 @@ document.addEventListener('DOMContentLoaded', () => {
         mode: isLegacyApk ? 'legacy-apk-no-tts' : 'web-unavailable',
         reason: (webRes && webRes.reason) || 'unavailable'
       };
-    }
-
-    function renderVoiceStatus(text, stateClass = '', onClick = null) {
-      if (!voiceTestStatus) return;
-      voiceTestStatus.style.display = 'block';
-      voiceTestStatus.className = `voice-test-status${stateClass ? ' ' + stateClass : ''}`;
-      voiceTestStatus.textContent = text;
-      voiceTestStatus.onclick = typeof onClick === 'function' ? onClick : null;
-    }
-
-    async function testVoiceGuidance() {
-      unlockAudioContext();
-      if (!voiceEnabled) {
-        voiceEnabled = true;
-        try { localStorage.setItem('voltway_voice_enabled', '1'); } catch (e) {}
-        syncVoiceBtnUi();
-      }
-      renderVoiceStatus('⏳ Playing test voice turn...', '');
-      if (btnTestVoice) btnTestVoice.disabled = true;
-      try {
-        const res = await speakNavPrompt('In 200 meters, turn left onto Main Highway', true, true);
-        if (res.mode === 'native-muted') {
-          renderVoiceStatus('🔇 Phone Media Volume is 0! Increase phone volume to hear voice turns.', 'is-warn');
-          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔇 Phone Media Volume is 0 — turn up volume!');
-        } else if (res.ok && res.mode === 'native') {
-          renderVoiceStatus('✅ Working! Spoken via Android Native Voice.', 'is-ok');
-          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔊 Voice test OK (Android TTS)');
-        } else if (res.ok && res.mode === 'web') {
-          renderVoiceStatus('✅ Working! Spoken via Browser Voice.', 'is-ok');
-          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔊 Voice test OK (Browser Speech)');
-        } else if (res.mode === 'legacy-apk-no-tts') {
-          renderVoiceStatus('📲 Alert chime played! Tap here to update Android APK (v5.59) for spoken voice turns.', 'is-warn', () => {
-            triggerApkAutoUpdate();
-          });
-          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('📲 Tap here to update APK for Native Voice', () => triggerApkAutoUpdate());
-        } else {
-          renderVoiceStatus('🔔 Chime played, but Speech Voice is disabled in this browser. Check phone TTS / volume settings or install VoltWay APK.', 'is-warn');
-          if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔔 Chime played — enable phone TTS or update APK for speech');
-        }
-        return res;
-      } finally {
-        if (btnTestVoice) btnTestVoice.disabled = false;
-      }
     }
 
     function toggleVoice() {
@@ -3250,7 +3205,6 @@ document.addEventListener('DOMContentLoaded', () => {
       refreshHudBattery,
       refreshActiveRoute,
       toggleVoice,
-      testVoiceGuidance,
       isVoiceEnabled: () => voiceEnabled,
       getPhase: () => tripPhase,
       toggleOverview: () => {
@@ -3291,9 +3245,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if (btnDrawerVoiceToggle) {
     btnDrawerVoiceToggle.addEventListener('click', () => DriveEngine.toggleVoice());
-  }
-  if (btnTestVoice) {
-    btnTestVoice.addEventListener('click', () => DriveEngine.testVoiceGuidance());
   }
   if (btnNavOverview) {
     btnNavOverview.addEventListener('click', () => DriveEngine.toggleOverview());

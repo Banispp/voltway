@@ -1,5 +1,5 @@
-// VoltWay 2W Service Worker - Version 5.60 (Local-First Fast Web Speech + Return Map Blue Line)
-const CACHE_NAME = 'voltway-2w-v5-94';
+// VoltWay 2W Service Worker - Version 5.61 (Remove Temporary Test Voice Button)
+const CACHE_NAME = 'voltway-2w-v5-95';
 const TILE_CACHE_NAME = 'voltway-2w-tiles-v1';
 const MAX_CACHED_TILES = 350;
 
@@ -8,17 +8,17 @@ const ASSETS_TO_CACHE = [
   './index.html',
   './manifest.json',
   './chargers_db.json',
-  './css/MarkerCluster.css?v=5.60',
-  './css/app.css?v=5.60',
-  './js/leaflet-rotate.js?v=5.60',
-  './js/leaflet.markercluster.js?v=5.60',
-  './js/app.js?v=5.60',
-  './js/map.js?v=5.60',
-  './js/router.js?v=5.60',
-  './js/battery.js?v=5.60',
-  './js/navigator.js?v=5.60',
-  './js/sync.js?v=5.60',
-  './js/utilities.js?v=5.60',
+  './css/MarkerCluster.css?v=5.61',
+  './css/app.css?v=5.61',
+  './js/leaflet-rotate.js?v=5.61',
+  './js/leaflet.markercluster.js?v=5.61',
+  './js/app.js?v=5.61',
+  './js/map.js?v=5.61',
+  './js/router.js?v=5.61',
+  './js/battery.js?v=5.61',
+  './js/navigator.js?v=5.61',
+  './js/sync.js?v=5.61',
+  './js/utilities.js?v=5.61',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
