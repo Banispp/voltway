@@ -18,6 +18,8 @@ const MapEngine = (function () {
   let activeMainLine = null;
   let activeGlowLine = null;
   let traversedMainLine = null;
+  let returnLineOverlay = null;
+  let previewLeg = 'all';
   let recenterTimer = null;
   let searchPinMarker = null;
   let droppedPinMarker = null;
@@ -1141,6 +1143,7 @@ const MapEngine = (function () {
     activeMainLine = null;
     activeGlowLine = null;
     traversedMainLine = null;
+    returnLineOverlay = null;
 
     if (!activeRoute || !activeRoute.coordinates || activeRoute.coordinates.length < 2) {
       return;
@@ -1171,35 +1174,71 @@ const MapEngine = (function () {
     });
 
     const isRoundTrip = Boolean(window.RouteEngine && window.RouteEngine.getRoundTrip && window.RouteEngine.getRoundTrip());
-    if (isRoundTrip && activeRoute.returnRoute && Array.isArray(activeRoute.returnRoute.coordinates) && activeRoute.returnRoute.coordinates.length >= 2) {
-      L.polyline(activeRoute.returnRoute.coordinates, {
-        color: '#a855f7',
+    const hasRetCoords = Boolean(isRoundTrip && activeRoute.returnRoute && Array.isArray(activeRoute.returnRoute.coordinates) && activeRoute.returnRoute.coordinates.length >= 2);
+    const isDrivingReturn = Boolean(window.DriveEngine && typeof window.DriveEngine.getPhase === 'function' && window.DriveEngine.getPhase() === 'return');
+    const highlightReturnBlue = (isDrivingReturn || (isRoundTrip && previewLeg === 'return')) && hasRetCoords;
+
+    if (highlightReturnBlue) {
+      // Draw outbound faintly and make Return (B -> A) the prominent blue guidance line
+      L.polyline(activeRoute.coordinates, {
+        color: '#64748b',
         weight: 4,
-        opacity: 0.78,
-        dashArray: '8, 8',
+        opacity: 0.55,
+        dashArray: '6, 8',
         lineCap: 'round',
         lineJoin: 'round',
         interactive: false
       }).addTo(routeLayer);
+
+      activeGlowLine = L.polyline(activeRoute.returnRoute.coordinates, {
+        color: '#00E676',
+        weight: 10,
+        opacity: 0.42,
+        lineCap: 'round',
+        lineJoin: 'round',
+        interactive: false
+      }).addTo(routeLayer);
+
+      activeMainLine = L.polyline(activeRoute.returnRoute.coordinates, {
+        color: '#00B0FF',
+        weight: 6,
+        opacity: 0.98,
+        lineCap: 'round',
+        lineJoin: 'round',
+        interactive: false
+      }).addTo(routeLayer);
+    } else {
+      activeGlowLine = L.polyline(activeRoute.coordinates, {
+        color: '#00E676',
+        weight: 10,
+        opacity: 0.42,
+        lineCap: 'round',
+        lineJoin: 'round',
+        interactive: false
+      }).addTo(routeLayer);
+
+      activeMainLine = L.polyline(activeRoute.coordinates, {
+        color: '#00B0FF',
+        weight: 6,
+        opacity: 0.98,
+        lineCap: 'round',
+        lineJoin: 'round',
+        interactive: false
+      }).addTo(routeLayer);
+
+      if (hasRetCoords && previewLeg !== 'outbound') {
+        // Draw dashed return track ON TOP of blue outbound line so same-route return stays clearly visible
+        returnLineOverlay = L.polyline(activeRoute.returnRoute.coordinates, {
+          color: '#e879f9',
+          weight: 3.5,
+          opacity: 0.92,
+          dashArray: '6, 12',
+          lineCap: 'round',
+          lineJoin: 'round',
+          interactive: false
+        }).addTo(routeLayer);
+      }
     }
-
-    activeGlowLine = L.polyline(activeRoute.coordinates, {
-      color: '#00E676',
-      weight: 10,
-      opacity: 0.42,
-      lineCap: 'round',
-      lineJoin: 'round',
-      interactive: false
-    }).addTo(routeLayer);
-
-    activeMainLine = L.polyline(activeRoute.coordinates, {
-      color: '#00B0FF',
-      weight: 6,
-      opacity: 0.98,
-      lineCap: 'round',
-      lineJoin: 'round',
-      interactive: false
-    }).addTo(routeLayer);
 
     if (routesList.length > 1) {
       const activeBadge = createRouteBadgeMarker(activeRoute, selectedIndex, true, primaryDuration);
@@ -1305,6 +1344,56 @@ const MapEngine = (function () {
       }
     }
     return slice;
+  }
+
+  function startReturnRouteDisplay(retCoords) {
+    if (!map || !routeLayer || !Array.isArray(retCoords) || retCoords.length < 2) return;
+    if (traversedMainLine) {
+      try { routeLayer.removeLayer(traversedMainLine); } catch (e) {}
+      traversedMainLine = null;
+    }
+    if (returnLineOverlay) {
+      try { routeLayer.removeLayer(returnLineOverlay); } catch (e) {}
+      returnLineOverlay = null;
+    }
+    if (activeGlowLine) activeGlowLine.setLatLngs(retCoords);
+    if (activeMainLine) activeMainLine.setLatLngs(retCoords);
+  }
+
+  function updateReturnProgressAlongRoute(slice, maxSnapKm = null) {
+    if (!slice || !activeMainLine) return null;
+    const snapLimitKm = maxSnapKm != null ? maxSnapKm : 0.080;
+    if (slice.distanceFromRouteKm <= snapLimitKm && slice.remainingCoords && slice.remainingCoords.length >= 2) {
+      activeMainLine.setLatLngs(slice.remainingCoords);
+      if (activeGlowLine) activeGlowLine.setLatLngs(slice.remainingCoords);
+      if (slice.traversedCoords && slice.traversedCoords.length >= 2 && routeLayer) {
+        if (!traversedMainLine) {
+          traversedMainLine = L.polyline(slice.traversedCoords, {
+            color: '#64748b',
+            weight: 4,
+            opacity: 0.72,
+            dashArray: '6, 8',
+            lineCap: 'round',
+            interactive: false
+          }).addTo(routeLayer);
+        } else {
+          traversedMainLine.setLatLngs(slice.traversedCoords);
+        }
+      }
+    }
+    return slice;
+  }
+
+  function setPreviewLeg(leg) {
+    const next = (leg === 'outbound' || leg === 'return') ? leg : 'all';
+    if (previewLeg === next) return;
+    previewLeg = next;
+    if (window.RouteEngine) {
+      const rt = window.RouteEngine.getActiveRoute();
+      if (rt) {
+        renderRoute(rt, window.RouteEngine.getAllRoutes(), window.RouteEngine.getSelectedRouteIndex(), false);
+      }
+    }
   }
 
   function scheduleBearingAnimation() {
@@ -2327,6 +2416,9 @@ const MapEngine = (function () {
     setStateFilter,
     getStateFilter: () => activeStateFilter,
     renderRoute,
+    setPreviewLeg,
+    startReturnRouteDisplay,
+    updateReturnProgressAlongRoute,
     refreshBatteryVisuals,
     updateProgressAlongRoute,
     recenterCamera,

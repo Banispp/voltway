@@ -222,7 +222,7 @@ public class VoltWayNativePlugin extends Plugin {
             if (status == TextToSpeech.SUCCESS && tts != null) {
                 try {
                     tts.setAudioAttributes(new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build());
                 } catch (Exception ignored) {}
@@ -251,7 +251,7 @@ public class VoltWayNativePlugin extends Plugin {
                             if (s2 == TextToSpeech.SUCCESS && tts != null) {
                                 try {
                                     tts.setAudioAttributes(new AudioAttributes.Builder()
-                                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                                        .setUsage(AudioAttributes.USAGE_MEDIA)
                                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                                         .build());
                                 } catch (Exception ignored) {}
@@ -460,10 +460,10 @@ public class VoltWayNativePlugin extends Plugin {
     @PluginMethod
     public void getAppInfo(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("pluginBuild", "v5.59-tts");
+        ret.put("pluginBuild", "v5.60-tts");
         try {
             PackageInfo pInfo = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
-            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.59");
+            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.60");
             ret.put("lastUpdateTime", pInfo.lastUpdateTime);
             if (Build.VERSION.SDK_INT >= 28) {
                 ret.put("versionCode", pInfo.getLongVersionCode());
@@ -693,7 +693,7 @@ public class VoltWayNativePlugin extends Plugin {
 
         executor.execute(() -> {
             JSObject ret = new JSObject();
-            ret.put("pluginBuild", "v5.59-wv");
+            ret.put("pluginBuild", "v5.60-wv");
             String stage = "init";
             String socketErr = null;
             try {

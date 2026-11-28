@@ -1,5 +1,5 @@
 /**
- * VoltWay 2W v5.59 - Main Application Controller
+ * VoltWay 2W v5.60 - Main Application Controller
  * Ties together BatteryEngine, SyncEngine, RouteEngine, MapEngine, Utilities & DriveEngine.
  */
 
@@ -18,14 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- 1. Service Worker & Safe Asset Refresh ----------
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.59')
+      navigator.serviceWorker.register('./sw.js?v=5.60')
         .then(reg => {
           reg.onupdatefound = () => {
             const nw = reg.installing;
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.59 — Tap here or v5.59 to reload!', refreshAppInPlace);
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.60 — Tap here or v5.60 to reload!', refreshAppInPlace);
               }
             };
           };
@@ -1084,6 +1084,9 @@ document.addEventListener('DOMContentLoaded', () => {
     corridorLegTabs.querySelectorAll('.btn-corridor-leg-tab').forEach(tabBtn => {
       tabBtn.addEventListener('click', () => {
         corridorLegFilter = tabBtn.dataset.leg || 'all';
+        if (window.MapEngine && typeof window.MapEngine.setPreviewLeg === 'function') {
+          window.MapEngine.setPreviewLeg(corridorLegFilter);
+        }
         if (latestRoutePayload) renderRouteSummaryAndTimeline(latestRoutePayload);
       });
     });
@@ -2213,6 +2216,9 @@ document.addEventListener('DOMContentLoaded', () => {
           bestIdx = i;
         }
       }
+      const snappedPt = [pts[bestIdx][0], pts[bestIdx][1]];
+      const remainingCoords = bestIdx < pts.length - 1 ? [snappedPt, ...pts.slice(bestIdx + 1)] : [pts[Math.max(0, pts.length - 2)], pts[pts.length - 1]];
+      const traversedCoords = bestIdx >= 1 ? [...pts.slice(0, bestIdx + 1)] : [pts[0], snappedPt];
       let remPoly = 0;
       for (let i = bestIdx; i < pts.length - 1; i++) {
         remPoly += window.Utilities.haversine(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
@@ -2224,6 +2230,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const frac = totalPoly > 0 ? Math.min(1, Math.max(0, remPoly / totalPoly)) : 1;
       return {
         distanceFromRouteKm: bestDistKm,
+        remainingCoords,
+        traversedCoords,
         remainingKm: Math.round((navRoute.distanceKm || totalPoly) * frac * 10) / 10,
         remainingMins: Math.max(1, Math.round((navRoute.durationMins || 1) * frac)),
         progressPct: Math.round((1 - frac) * 100)
@@ -2303,11 +2311,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!ss || typeof ss.getVoices !== 'function') return null;
         const voices = ss.getVoices() || [];
         if (voices.length === 0) return null;
-        return voices.find(v => /en[-_]IN/i.test(v.lang))
-          || voices.find(v => /^en\b/i.test(v.lang) && v.localService)
-          || voices.find(v => /^en\b/i.test(v.lang))
-          || voices.find(v => v.default)
-          || voices[0];
+        // Prefer ONLY local offline voices so slow Online cloud voices never hang past timeout!
+        const localVoices = voices.filter(v => v.localService);
+        if (localVoices.length === 0) return null;
+        return localVoices.find(v => /en[-_]IN/i.test(v.lang))
+          || localVoices.find(v => v.default)
+          || localVoices.find(v => /^en\b/i.test(v.lang))
+          || localVoices[0];
       } catch (e) {
         return null;
       }
@@ -2359,61 +2369,67 @@ document.addEventListener('DOMContentLoaded', () => {
             clearTimeout(speechCancelTimer);
             speechCancelTimer = null;
           }
-          const utter = new SpeechSynthesisUtterance(cleanText);
-          const bestVoice = pickBestSpeechVoice();
-          if (bestVoice) {
-            utter.voice = bestVoice;
-            if (bestVoice.lang) utter.lang = bestVoice.lang;
-          }
-          utter.volume = 1.0;
-          utter.rate = 1.0;
-          utter.pitch = 1.0;
-          activeUtteranceRef = utter;
 
           let settled = false;
+          let fallbackTimer = null;
           const done = (started, reason = 'ok') => {
             if (settled) return;
             settled = true;
+            if (fallbackTimer) clearTimeout(fallbackTimer);
             resolve({ started, reason });
           };
-          const fallbackTimer = setTimeout(() => {
+
+          fallbackTimer = setTimeout(() => {
             done(false, 'silent-timeout');
-          }, 1150);
+          }, 2800);
 
-          utter.onstart = () => {
-            clearTimeout(fallbackTimer);
-            done(true, 'started');
-          };
-          utter.onend = () => {
-            clearTimeout(fallbackTimer);
-            if (activeUtteranceRef === utter) activeUtteranceRef = null;
-            done(true, 'ended');
-          };
-          utter.onerror = (ev) => {
-            clearTimeout(fallbackTimer);
-            if (activeUtteranceRef === utter) activeUtteranceRef = null;
-            done(false, (ev && ev.error) || 'speech-error');
-          };
+          const startUtterance = (useSelectedVoice) => {
+            const utter = new SpeechSynthesisUtterance(cleanText);
+            const bestVoice = useSelectedVoice ? pickBestSpeechVoice() : null;
+            if (bestVoice) {
+              utter.voice = bestVoice;
+              if (bestVoice.lang) utter.lang = bestVoice.lang;
+            }
+            utter.volume = 1.0;
+            utter.rate = 1.0;
+            utter.pitch = 1.0;
+            activeUtteranceRef = utter;
 
-          const fireSpeak = () => {
+            utter.onstart = () => done(true, 'started');
+            utter.onend = () => {
+              if (activeUtteranceRef === utter) activeUtteranceRef = null;
+              done(true, 'ended');
+            };
+            utter.onerror = (ev) => {
+              if (activeUtteranceRef === utter) activeUtteranceRef = null;
+              if (useSelectedVoice && bestVoice && !settled) {
+                startUtterance(false);
+                return;
+              }
+              done(false, (ev && ev.error) || 'speech-error');
+            };
+
             try {
               if (typeof ss.resume === 'function') ss.resume();
               ss.speak(utter);
             } catch (e) {
-              clearTimeout(fallbackTimer);
-              done(false, 'speak-threw');
+              if (useSelectedVoice && bestVoice && !settled) {
+                startUtterance(false);
+              } else {
+                done(false, 'speak-threw');
+              }
             }
           };
 
-          // Chrome/Android WebView silently drops utter if speak() runs in the same tick right after cancel()
+          // Preserve synchronous user gesture stack whenever idle; delay slightly only after active cancel()
           if (interrupt && (ss.speaking || ss.pending)) {
             ss.cancel();
             speechCancelTimer = setTimeout(() => {
               speechCancelTimer = null;
-              fireSpeak();
-            }, 75);
+              startUtterance(true);
+            }, 65);
           } else {
-            fireSpeak();
+            startUtterance(true);
           }
         } catch (e) {
           resolve({ started: false, reason: 'exception' });
@@ -3002,6 +3018,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (window.MapEngine) {
         window.MapEngine.setNavCompassMode(false);
+        if (window.RouteEngine) {
+          window.MapEngine.renderRoute(
+            window.RouteEngine.getActiveRoute(),
+            window.RouteEngine.getAllRoutes(),
+            window.RouteEngine.getSelectedRouteIndex(),
+            false
+          );
+        }
         if (window.MapEngine.getMap()) {
           setTimeout(() => window.MapEngine.getMap().invalidateSize(), 120);
         }
@@ -3019,7 +3043,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!route) return;
 
       const slice = tripPhase === 'return'
-        ? computeReturnSlice(coords, route)
+        ? (() => {
+            const rs = computeReturnSlice(coords, route);
+            if (rs && window.MapEngine && typeof window.MapEngine.updateReturnProgressAlongRoute === 'function') {
+              window.MapEngine.updateReturnProgressAlongRoute(rs);
+            }
+            return rs;
+          })()
         : (window.MapEngine ? window.MapEngine.updateProgressAlongRoute(coords) : null);
       const speedKmh = coords.speed != null && coords.speed >= 0 ? Math.round(coords.speed * 3.6) : 0;
       if (navSpeedVal) navSpeedVal.textContent = String(speedKmh);
@@ -3116,6 +3146,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tripPhase === 'outbound' && isRt && baseRoute.returnRoute) {
           tripPhase = 'return';
           const retNav = getNavRoute(baseRoute);
+          if (window.MapEngine && typeof window.MapEngine.startReturnRouteDisplay === 'function') {
+            window.MapEngine.startReturnRouteDisplay(retNav.coordinates);
+          }
           steps = extractSteps(retNav);
           currentStepIdx = 0;
           arrivedAnnounced = false;
@@ -3219,6 +3252,7 @@ document.addEventListener('DOMContentLoaded', () => {
       toggleVoice,
       testVoiceGuidance,
       isVoiceEnabled: () => voiceEnabled,
+      getPhase: () => tripPhase,
       toggleOverview: () => {
         if (!window.MapEngine || !window.RouteEngine) return;
         const route = window.RouteEngine.getActiveRoute();
