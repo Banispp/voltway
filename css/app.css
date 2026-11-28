@@ -780,6 +780,44 @@ body.nav-active .btn-nav-compass {
   display: flex !important;
 }
 
+.btn-nav-voice {
+  position: fixed;
+  top: calc(204px + env(safe-area-inset-top, 0px));
+  right: 14px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(11, 18, 32, 0.94);
+  backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  color: #94a3b8;
+  font-size: 1.2rem;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1080;
+  transition: transform 0.15s, box-shadow 0.2s, border-color 0.2s, background 0.2s;
+  touch-action: manipulation;
+  pointer-events: auto !important;
+}
+
+.btn-nav-voice:active {
+  transform: scale(0.92);
+}
+
+.btn-nav-voice.voice-active {
+  border: 2px solid #00e676;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.4);
+  background: rgba(6, 40, 28, 0.96);
+  color: #00e676;
+}
+
+body.nav-active .btn-nav-voice {
+  display: flex !important;
+}
+
 .leaflet-control-rotate {
   border: 1.5px solid rgba(255, 255, 255, 0.18) !important;
   background: rgba(15, 23, 42, 0.92) !important;
@@ -4232,11 +4270,17 @@ body.ui-light-mode .corridor-unit-tag {
 body.ui-light-mode .btn-toggle-map-theme,
 body.ui-light-mode .btn-toggle-fullscreen,
 body.ui-light-mode .btn-float-gps,
-body.ui-light-mode .btn-nav-compass {
+body.ui-light-mode .btn-nav-compass,
+body.ui-light-mode .btn-nav-voice {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(15, 23, 42, 0.16);
   color: #0f172a;
   box-shadow: var(--shadow-md);
+}
+body.ui-light-mode .btn-nav-voice.voice-active {
+  background: #ecfdf5;
+  border-color: #059669;
+  color: #047857;
 }
 
 body.ui-light-mode .pin-label {

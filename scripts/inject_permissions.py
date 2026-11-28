@@ -75,6 +75,9 @@ if os.path.exists(manifest_path):
             '            <action android:name="android.intent.action.VIEW" />\n'
             '            <data android:scheme="https" />\n'
             '        </intent>\n'
+            '        <intent>\n'
+            '            <action android:name="android.intent.action.TTS_SERVICE" />\n'
+            '        </intent>\n'
             '    </queries>\n\n    <application'
         )
         content = content.replace('<application', queries_block)
@@ -137,6 +140,7 @@ import android.location.Address;
 import android.location.Geocoder;
 import android.net.Uri;
 import android.os.Build;
+import android.speech.tts.TextToSpeech;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -192,6 +196,9 @@ public class VoltWayNativePlugin extends Plugin {
 
     private volatile String pendingShareText = null;
     private final ExecutorService executor = Executors.newCachedThreadPool();
+    private TextToSpeech tts = null;
+    private volatile boolean ttsReady = false;
+    private volatile String pendingTtsText = null;
 
     @Override
     public void load() {
@@ -210,7 +217,77 @@ public class VoltWayNativePlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         executor.shutdownNow();
+        if (tts != null) {
+            try {
+                tts.stop();
+                tts.shutdown();
+            } catch (Exception ignored) {}
+            tts = null;
+            ttsReady = false;
+        }
         super.handleOnDestroy();
+    }
+
+    @PluginMethod
+    public void speakText(PluginCall call) {
+        final String text = call.getString("text", "").trim();
+        final boolean flush = call.getBoolean("flush", true);
+        if (text.isEmpty()) {
+            JSObject r = new JSObject();
+            r.put("success", false);
+            call.resolve(r);
+            return;
+        }
+        if (getActivity() != null) {
+            getActivity().runOnUiThread(() -> {
+                try {
+                    if (tts == null) {
+                        pendingTtsText = text;
+                        tts = new TextToSpeech(getContext(), status -> {
+                            if (status == TextToSpeech.SUCCESS && tts != null) {
+                                ttsReady = true;
+                                int res = tts.setLanguage(new Locale("en", "IN"));
+                                if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                                    tts.setLanguage(Locale.ENGLISH);
+                                }
+                                String queued = pendingTtsText;
+                                pendingTtsText = null;
+                                if (queued != null && !queued.isEmpty()) {
+                                    tts.speak(queued, TextToSpeech.QUEUE_FLUSH, null, "vw_turn");
+                                }
+                            }
+                        });
+                    } else if (ttsReady) {
+                        int qMode = flush ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD;
+                        tts.speak(text, qMode, null, "vw_turn");
+                    } else {
+                        pendingTtsText = text;
+                    }
+                    JSObject r = new JSObject();
+                    r.put("success", true);
+                    call.resolve(r);
+                } catch (Exception e) {
+                    JSObject r = new JSObject();
+                    r.put("success", false);
+                    call.resolve(r);
+                }
+            });
+        } else {
+            JSObject r = new JSObject();
+            r.put("success", false);
+            call.resolve(r);
+        }
+    }
+
+    @PluginMethod
+    public void stopSpeech(PluginCall call) {
+        if (tts != null && ttsReady) {
+            try { tts.stop(); } catch (Exception ignored) {}
+        }
+        pendingTtsText = null;
+        JSObject r = new JSObject();
+        r.put("success", true);
+        call.resolve(r);
     }
 
     private String extractShareText(Intent intent) {
@@ -283,10 +360,10 @@ public class VoltWayNativePlugin extends Plugin {
     @PluginMethod
     public void getAppInfo(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("pluginBuild", "v5.55-geo");
+        ret.put("pluginBuild", "v5.57-tts");
         try {
             PackageInfo pInfo = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
-            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.55");
+            ret.put("versionName", pInfo.versionName != null ? pInfo.versionName : "5.57");
             ret.put("lastUpdateTime", pInfo.lastUpdateTime);
             if (Build.VERSION.SDK_INT >= 28) {
                 ret.put("versionCode", pInfo.getLongVersionCode());
@@ -516,7 +593,7 @@ public class VoltWayNativePlugin extends Plugin {
 
         executor.execute(() -> {
             JSObject ret = new JSObject();
-            ret.put("pluginBuild", "v5.55-wv");
+            ret.put("pluginBuild", "v5.57-wv");
             String stage = "init";
             String socketErr = null;
             try {

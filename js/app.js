@@ -1,5 +1,5 @@
 /**
- * VoltWay 2W v5.56 - Main Application Controller
+ * VoltWay 2W v5.57 - Main Application Controller
  * Ties together BatteryEngine, SyncEngine, RouteEngine, MapEngine, Utilities & DriveEngine.
  */
 
@@ -18,14 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- 1. Service Worker & Safe Asset Refresh ----------
   if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=5.56')
+      navigator.serviceWorker.register('./sw.js?v=5.57')
         .then(reg => {
           reg.onupdatefound = () => {
             const nw = reg.installing;
             if (!nw) return;
             nw.onstatechange = () => {
               if (nw.state === 'installed' && navigator.serviceWorker.controller && window.SyncEngine) {
-                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.56 — Tap here or v5.56 to reload!', refreshAppInPlace);
+                window.SyncEngine.showAutoUpdateToast('✨ App updated to v5.57 — Tap here or v5.57 to reload!', refreshAppInPlace);
               }
             };
           };
@@ -2066,6 +2066,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const navStatEta = document.getElementById('nav-stat-eta');
   const btnExitDrive = document.getElementById('btn-exit-drive-mode');
   const btnNavCompass = document.getElementById('btn-nav-compass');
+  const btnNavVoice = document.getElementById('btn-nav-voice');
+  const navVoiceIcon = document.getElementById('nav-voice-icon');
   const btnNavOverview = document.getElementById('btn-nav-routes-toggle');
 
   const DriveEngine = (function () {
@@ -2079,6 +2081,86 @@ document.addEventListener('DOMContentLoaded', () => {
     let wakeLockSentinel = null;
     let gpsWatchdogTimer = null;
     let overviewMode = false;
+    let voiceEnabled = false;
+    try { voiceEnabled = localStorage.getItem('voltway_voice_enabled') === '1'; } catch (e) {}
+    let spokenStages = new Set();
+    let lastSpokenLowBatAt = 0;
+    let wasCriticallyLowBat = false;
+    let lastSpokenAt = 0;
+    let lastSpokenText = '';
+
+    function syncVoiceBtnUi() {
+      if (!btnNavVoice) return;
+      btnNavVoice.classList.toggle('voice-active', voiceEnabled);
+      btnNavVoice.setAttribute('aria-pressed', voiceEnabled ? 'true' : 'false');
+      btnNavVoice.title = voiceEnabled ? 'Mute Voice Guidance' : 'Enable Voice Guidance';
+      if (navVoiceIcon) navVoiceIcon.textContent = voiceEnabled ? '🔊' : '🔇';
+    }
+
+    function stopNavSpeech() {
+      try {
+        const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
+        if (nativePlugin && typeof nativePlugin.stopSpeech === 'function') {
+          nativePlugin.stopSpeech().catch(() => {});
+        }
+      } catch (e) {}
+      try {
+        if (typeof window.speechSynthesis !== 'undefined') {
+          window.speechSynthesis.cancel();
+        }
+      } catch (e) {}
+    }
+
+    function speakWebSpeech(cleanText, interrupt) {
+      try {
+        if (typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined') return;
+        if (interrupt) window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(cleanText);
+        utter.lang = 'en-IN';
+        utter.rate = 1.02;
+        utter.pitch = 1.0;
+        window.speechSynthesis.speak(utter);
+      } catch (e) {}
+    }
+
+    function speakNavPrompt(text, interrupt = false) {
+      if (!voiceEnabled || !text) return;
+      const clean = String(text).replace(/\s+/g, ' ').trim();
+      if (!clean) return;
+      const now = Date.now();
+      if (!interrupt && clean === lastSpokenText && now - lastSpokenAt < 4000) return;
+      lastSpokenText = clean;
+      lastSpokenAt = now;
+      try {
+        const nativePlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.VoltWayNative;
+        if (nativePlugin && typeof nativePlugin.speakText === 'function') {
+          nativePlugin.speakText({ text: clean, flush: Boolean(interrupt) })
+            .then(res => {
+              if (!res || res.success !== true) speakWebSpeech(clean, interrupt);
+            })
+            .catch(() => speakWebSpeech(clean, interrupt));
+          return;
+        }
+      } catch (e) {}
+      speakWebSpeech(clean, interrupt);
+    }
+
+    function toggleVoice() {
+      voiceEnabled = !voiceEnabled;
+      try { localStorage.setItem('voltway_voice_enabled', voiceEnabled ? '1' : '0'); } catch (e) {}
+      syncVoiceBtnUi();
+      if (voiceEnabled) {
+        spokenStages.clear();
+        speakNavPrompt('Voice guidance enabled', true);
+        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔊 Voice guidance enabled');
+      } else {
+        stopNavSpeech();
+        if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🔇 Voice guidance muted');
+      }
+      return voiceEnabled;
+    }
+
+    syncVoiceBtnUi();
 
     async function requestWakeLock() {
       try {
@@ -2300,7 +2382,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function refreshHudBattery(remainingKm = null, nextChargerKm = null) {
-      if (!hudBatPill || !window.BatteryEngine) return;
+      if (!hudBatPill || !window.BatteryEngine) return null;
       const bs = window.BatteryEngine.getState();
       const route = window.RouteEngine ? window.RouteEngine.getActiveRoute() : null;
       const eff = bs.efficiency > 0 ? bs.efficiency : 0.85;
@@ -2321,6 +2403,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       hudBatPill.textContent = `🔋 ~${estArr}%${suffix}`;
       hudBatPill.style.color = estArr < 0 ? '#fca5a5' : (estArr < bs.safetyReservePct ? '#fde047' : '#86efac');
+      return estArr;
     }
 
     function formatHudDist(meters) {
@@ -2432,7 +2515,9 @@ document.addEventListener('DOMContentLoaded', () => {
           steps = extractSteps(refreshed);
           currentStepIdx = 0;
           arrivedAnnounced = false;
+          spokenStages.clear();
           updateStepBanner(refreshed);
+          if (voiceEnabled) speakNavPrompt('Rerouting', true);
         }
       } catch (e) {} finally {
         isRerouting = false;
@@ -2452,6 +2537,11 @@ document.addEventListener('DOMContentLoaded', () => {
       steps = extractSteps(route);
       currentStepIdx = 0;
       arrivedAnnounced = false;
+      spokenStages.clear();
+      lastSpokenLowBatAt = 0;
+      wasCriticallyLowBat = false;
+      lastSpokenText = '';
+      syncVoiceBtnUi();
 
       document.body.classList.remove('manual-fullscreen');
       document.body.classList.add('nav-active');
@@ -2463,6 +2553,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (navRoadPill) navRoadPill.style.display = 'none';
       if (navBottomBar) navBottomBar.style.display = 'flex';
       if (btnNavCompass) btnNavCompass.style.display = 'flex';
+      if (btnNavVoice) btnNavVoice.style.display = 'flex';
+      if (voiceEnabled) speakNavPrompt('Starting navigation', true);
 
       try {
         if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
@@ -2502,6 +2594,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!active) return;
       active = false;
       overviewMode = false;
+      stopNavSpeech();
+      spokenStages.clear();
+      lastSpokenText = '';
 
       if (gpsWatchdogTimer) {
         clearInterval(gpsWatchdogTimer);
@@ -2524,6 +2619,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnNavCompass.style.display = 'none';
         btnNavCompass.classList.remove('compass-active');
       }
+      if (btnNavVoice) btnNavVoice.style.display = 'none';
       if (btnFloatingStartNav && window.RouteEngine && window.RouteEngine.getActiveRoute()) {
         btnFloatingStartNav.style.display = 'flex';
       }
@@ -2595,6 +2691,14 @@ document.addEventListener('DOMContentLoaded', () => {
           hudNextChargerBadge.title = `Next Stop: ${stopTitle} (${nextChargerDistKm} km)`;
           hudNextChargerName.textContent = stopTitle;
           hudNextChargerDist.textContent = `${nextChargerDistKm} km`;
+          if (voiceEnabled && nextChargerDistKm <= 0.6) {
+            const stopKey = `chg_${nextUpcoming.id || stopTitle}`;
+            if (!spokenStages.has(stopKey)) {
+              spokenStages.add(stopKey);
+              const stopMeters = Math.max(100, Math.round((nextChargerDistKm * 1000) / 50) * 50);
+              speakNavPrompt(`Charging stop ahead in ${stopMeters} meters at ${stopTitle}`);
+            }
+          }
         } else {
           hudNextChargerBadge.style.display = 'none';
         }
@@ -2602,7 +2706,25 @@ document.addEventListener('DOMContentLoaded', () => {
         hudNextChargerBadge.style.display = 'none';
       }
 
-      refreshHudBattery(slice ? slice.remainingKm : route.distanceKm, nextChargerDistKm);
+      const estArr = refreshHudBattery(slice ? slice.remainingKm : route.distanceKm, nextChargerDistKm);
+      if (voiceEnabled && typeof estArr === 'number' && Number.isFinite(estArr) && window.BatteryEngine) {
+        const bsNow = window.BatteryEngine.getState();
+        const reservePct = typeof bsNow.safetyReservePct === 'number' ? bsNow.safetyReservePct : 15;
+        const nowMs = Date.now();
+        const isCritZero = estArr < 0;
+        if ((estArr < reservePct && (nowMs - lastSpokenLowBatAt >= 180000)) || (isCritZero && !wasCriticallyLowBat)) {
+          lastSpokenLowBatAt = nowMs;
+          wasCriticallyLowBat = isCritZero;
+          speakNavPrompt(
+            isCritZero
+              ? 'Critical battery warning. Route exceeds available range. Seek nearest charger.'
+              : `Low battery warning. Estimated arrival at ${Math.max(0, Math.round(estArr))} percent.`,
+            false
+          );
+        } else if (!isCritZero && estArr >= reservePct) {
+          wasCriticallyLowBat = false;
+        }
+      }
 
       // Direct arrival check at final destination regardless of intermediate skipped step
       const destDistM = route.destination
@@ -2622,6 +2744,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hudTowardDest) hudTowardDest.textContent = 'Arrived at destination';
         if (hudSubStep) hudSubStep.style.display = 'none';
         if (hudSubText) hudSubText.textContent = '';
+        const arriveSpeech = (steps[currentStepIdx] && steps[currentStepIdx].speech) || `You have arrived at ${finalPlace}`;
+        speakNavPrompt(arriveSpeech, true);
         if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🏁 You have arrived!');
         return;
       }
@@ -2643,8 +2767,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
         renderStepHud(targetStep, nextAfter, distToStepM);
 
+        if (voiceEnabled && !targetStep.isArrive && !arrivedAnnounced) {
+          const preKey = `pre_${lookIdx}_${targetStep.name || ''}`;
+          const nowKey = `now_${lookIdx}_${targetStep.name || ''}`;
+          if (distToStepM > 120 && distToStepM <= 450 && !spokenStages.has(preKey)) {
+            spokenStages.add(preKey);
+            const preMeters = Math.max(150, Math.round(distToStepM / 50) * 50);
+            speakNavPrompt(`In ${preMeters} meters, ${targetStep.speech}`);
+          } else if (distToStepM <= 110 && !spokenStages.has(nowKey)) {
+            spokenStages.add(nowKey);
+            speakNavPrompt(targetStep.speech, true);
+          }
+        }
+
         if (targetStep.isArrive && distToStepM <= 50 && !arrivedAnnounced) {
           arrivedAnnounced = true;
+          speakNavPrompt(targetStep.speech || 'You have arrived at your destination', true);
           if (window.SyncEngine) window.SyncEngine.showAutoUpdateToast('🏁 You have arrived!');
         } else if (distToStepM <= 35 && currentStepIdx < steps.length - 1) {
           currentStepIdx = lookIdx;
@@ -2659,6 +2797,7 @@ document.addEventListener('DOMContentLoaded', () => {
       steps = extractSteps(rt);
       currentStepIdx = 0;
       arrivedAnnounced = false;
+      spokenStages.clear();
       updateStepBanner(rt);
       refreshHudBattery(rt.distanceKm);
       if (navStatDist) navStatDist.textContent = `${rt.distanceKm} km`;
@@ -2673,6 +2812,8 @@ document.addEventListener('DOMContentLoaded', () => {
       onLocationUpdate,
       refreshHudBattery,
       refreshActiveRoute,
+      toggleVoice,
+      isVoiceEnabled: () => voiceEnabled,
       toggleOverview: () => {
         if (!window.MapEngine || !window.RouteEngine) return;
         const route = window.RouteEngine.getActiveRoute();
@@ -2705,6 +2846,9 @@ document.addEventListener('DOMContentLoaded', () => {
         window.MapEngine.setNavCompassMode(!window.MapEngine.getNavCompassMode());
       }
     });
+  }
+  if (btnNavVoice) {
+    btnNavVoice.addEventListener('click', () => DriveEngine.toggleVoice());
   }
   if (btnNavOverview) {
     btnNavOverview.addEventListener('click', () => DriveEngine.toggleOverview());
